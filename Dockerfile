@@ -43,7 +43,6 @@ RUN python scripts/generate_shapes.py
 COPY --from=frontend-builder /build/.next /app/frontend/.next
 COPY --from=frontend-builder /build/node_modules /app/frontend/node_modules
 COPY --from=frontend-builder /build/package.json /app/frontend/package.json
-COPY --from=frontend-builder /build/public /app/frontend/public
 COPY --from=frontend-builder /build/next.config.mjs /app/frontend/next.config.mjs
 
 # Startup script
