@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<rect x="22" y="30" width="8" height="40" stroke="black" fill="none" stroke-width="2"/>
+<rect x="70" y="30" width="8" height="40" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="26.00,30.00 50.00,18.00 74.00,30.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="15.00,70.00 85.00,70.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="26.00,30.00 26.00,70.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="74.00,30.00 74.00,70.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="35.00,70.00 35.00,38.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="65.00,70.00 65.00,38.00" stroke="black" fill="none" stroke-width="2"/>
+</svg>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<path d="M20 45 C 20 25, 80 25, 80 45" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="25.00,45.00 22.00,75.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="35.00,45.00 33.00,80.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="45.00,45.00 45.00,85.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="55.00,45.00 57.00,80.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="65.00,45.00 67.00,75.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="75.00,45.00 78.00,70.00" stroke="black" fill="none" stroke-width="2"/>
+</svg>

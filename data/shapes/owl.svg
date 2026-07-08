@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<circle cx="50" cy="48" r="28" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="30.00,28.00 36.00,14.00 44.00,26.00" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="70.00,28.00 64.00,14.00 56.00,26.00" stroke="black" fill="none" stroke-width="2"/>
+<circle cx="40" cy="44" r="8" stroke="black" fill="none" stroke-width="2"/>
+<circle cx="60" cy="44" r="8" stroke="black" fill="none" stroke-width="2"/>
+<circle cx="40" cy="44" r="3" stroke="black" fill="black" stroke-width="2"/>
+<circle cx="60" cy="44" r="3" stroke="black" fill="black" stroke-width="2"/>
+<polygon points="50.00,50.00 46.00,56.00 54.00,56.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="38.00,76.00 42.00,84.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="62.00,76.00 58.00,84.00" stroke="black" fill="none" stroke-width="2"/>
+</svg>

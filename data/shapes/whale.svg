@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<path d="M12 55 C 25 38, 55 36, 75 48 C 82 52, 86 46, 88 38 L 84 58 C 76 68, 55 68, 35 63 C 22 60, 15 60, 12 55 Z" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="84.00,50.00 90.00,42.00 88.00,58.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="40.00,38.00 36.00,24.00 42.00,28.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="46.00,36.00 44.00,22.00 50.00,26.00" stroke="black" fill="none" stroke-width="2"/>
+<circle cx="68" cy="50" r="2" stroke="black" fill="black" stroke-width="2"/>
+</svg>

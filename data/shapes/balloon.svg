@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<ellipse cx="50" cy="35" rx="25" ry="30" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="48.00,62.00 52.00,62.00 53.00,70.00 47.00,70.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="47.00,70.00 43.00,85.00" stroke="black" fill="none" stroke-width="2"/>
+<polyline points="53.00,70.00 57.00,85.00" stroke="black" fill="none" stroke-width="2"/>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<polygon points="50.00,10.00 50.00,60.00 15.00,60.00" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="55.00,20.00 85.00,60.00 55.00,60.00" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="10.00,65.00 90.00,65.00 80.00,80.00 20.00,80.00" stroke="black" fill="none" stroke-width="2"/>
+<line x1="50" y1="10" x2="50" y2="80" stroke="black" stroke-width="2"/>
+</svg>

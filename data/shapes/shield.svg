@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<path d="M50 10 L 80 20 L 80 50 C 80 70, 50 85, 50 85 C 50 85, 20 70, 20 50 L 20 20 Z" stroke="black" fill="none" stroke-width="2"/>
+</svg>

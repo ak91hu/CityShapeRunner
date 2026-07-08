@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<path d="M50 78 C 26 60, 16 42, 30 30 C 40 22, 50 28, 50 40 C 50 28, 60 22, 70 30 C 84 42, 74 60, 50 78 Z" stroke="black" fill="none" stroke-width="2"/>
+<line x1="16" y1="16" x2="86" y2="84" stroke="black" stroke-width="2"/>
+<polygon points="86.00,84.00 76.00,80.00 80.00,74.00" stroke="black" fill="none" stroke-width="2"/>
+<polygon points="16.00,16.00 22.00,12.00 24.00,22.00" stroke="black" fill="none" stroke-width="2"/>
+</svg>
