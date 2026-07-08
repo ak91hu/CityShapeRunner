@@ -30,3 +30,7 @@ Thumbs.db
 # Build artifacts
 site/
 *.gpx
+*.log
+
+# Fly
+fly.secrets.toml

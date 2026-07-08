@@ -1,0 +1,17 @@
+.venv/
+. git/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.env
+.env.*
+node_modules/
+.next/
+site/
+frontend/
+tests/
+scripts/smoke_api.py
+*.log
