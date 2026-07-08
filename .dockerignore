@@ -1,5 +1,5 @@
 .venv/
-. git/
+.git/
 .pytest_cache/
 .ruff_cache/
 __pycache__/
@@ -11,7 +11,8 @@ __pycache__/
 node_modules/
 .next/
 site/
-frontend/
 tests/
 scripts/smoke_api.py
 *.log
+**/node_modules/
+**/.next/

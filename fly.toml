@@ -1,11 +1,10 @@
-# fly.toml — CityShapeRunner API
-app = "cityshaperunner-api"
+app = "cityshaperunner"
 primary_region = "ams"
 
 [build]
 
 [http_service]
-  internal_port = 8000
+  internal_port = 3000
   force_https = true
   auto_stop_machines = false
   auto_start_machines = true
@@ -17,8 +16,8 @@ primary_region = "ams"
   memory_mb = 2048
 
 [env]
-  CSR_PUBLIC_WEB_URL = "https://cityshaperunner-web.fly.dev"
-  CSR_API_BASE_URL = "https://cityshaperunner-api.fly.dev"
+  CSR_PUBLIC_WEB_URL = "https://cityshaperunner.fly.dev"
+  CSR_API_BASE_URL = "https://cityshaperunner.fly.dev"
 
 [mounts]
   source = "cityshaperunner_cache"

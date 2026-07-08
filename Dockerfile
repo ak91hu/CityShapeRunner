@@ -1,26 +1,54 @@
+# ---- Stage 1: Build Next.js ----
+FROM node:20-alpine AS frontend-builder
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
+# ---- Stage 2: Python backend + runtime ----
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CSR_DATA_DIR=/data
-
-WORKDIR /app
+    NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 \
+    NODE_ENV=production
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin libgdal-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js for Next.js runtime
+COPY --from=node:20-alpine /usr/local /usr/local
+
+WORKDIR /app
+
+# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Backend code
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
 COPY scripts ./scripts
 COPY data ./data
 
+# Generate shapes
 RUN python scripts/generate_shapes.py
 
-EXPOSE 8000
+# Frontend build
+COPY --from=frontend-builder /build/.next /app/frontend/.next
+COPY --from=frontend-builder /build/node_modules /app/frontend/node_modules
+COPY --from=frontend-builder /build/package.json /app/frontend/package.json
+COPY --from=frontend-builder /build/public /app/frontend/public
+COPY --from=frontend-builder /build/next.config.mjs /app/frontend/next.config.mjs
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+EXPOSE 3000
+
+CMD ["/app/start.sh"]
