@@ -44,11 +44,7 @@ def _ors_route_segment(
         "instructions": False,
         "elevation": False,
         "geometry_simplify": False,
-        "continue_straight": "true",
         "preference": "recommended",
-        "options": {
-            "continue_straight": "true",
-        },
     }
     headers = {
         "Authorization": api_key,
