@@ -3,6 +3,7 @@ set -e
 
 cleanup() {
   echo "Shutting down..."
+  nginx -s quit 2>/dev/null
   kill $API_PID 2>/dev/null
   kill $FRONTEND_PID 2>/dev/null
   wait
@@ -18,4 +19,8 @@ cd /app/frontend
 node node_modules/.bin/next start --port 3000 &
 FRONTEND_PID=$!
 
-wait $FRONTEND_PID
+echo "Starting nginx on port 80..."
+nginx -g "daemon off;" &
+NGINX_PID=$!
+
+wait $NGINX_PID

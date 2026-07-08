@@ -16,6 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin libgdal-dev \
+    nginx \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -49,6 +50,9 @@ COPY --from=frontend-builder /build/next.config.mjs /app/frontend/next.config.mj
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-EXPOSE 3000
+# Nginx config
+COPY infrastructure/nginx/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80
 
 CMD ["/app/start.sh"]
