@@ -16,6 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin libgdal-dev \
+    libspatialindex-dev \
     nginx \
     curl \
     && rm -rf /var/lib/apt/lists/*

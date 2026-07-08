@@ -11,3 +11,5 @@ shapely>=2.0
 networkx>=3.2
 pyproj>=3.6
 httpx>=0.27
+osmnx>=2.0
+scipy>=1.12
