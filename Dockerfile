@@ -1,5 +1,5 @@
 # ---- Stage 1: Build Next.js ----
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
@@ -21,7 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js for Next.js runtime
-COPY --from=node:20-alpine /usr/local /usr/local
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
