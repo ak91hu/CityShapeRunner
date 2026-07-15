@@ -76,11 +76,11 @@ class MatchingConstraints:
     preferred_scale: float | None = None
     preferred_rotation: float | None = None
     detail_level_override: str | None = None
-    signature_artwork_ids: list[str] = field(default_factory=list)
+    featured_artwork_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
-class NodeSignature:
+class NodeFeature:
     degree: int
     outgoing_bearings: list[float]
     edge_lengths: list[float]
@@ -89,7 +89,7 @@ class NodeSignature:
 @dataclass
 class CityIndexes:
     graph: RoadGraph
-    node_signatures: dict[int, NodeSignature]
+    node_features: dict[int, NodeFeature]
     bearing_buckets: dict[int, list[int]]
     component_index: dict[int, int]
     component_sizes: dict[int, int]
@@ -223,7 +223,7 @@ def build_city_indexes(graph: RoadGraph, projector: Projector) -> CityIndexes:
     if graph._tree is None:
         graph.build_spatial_index()
 
-    node_sigs: dict[int, NodeSignature] = {}
+    node_feats: dict[int, NodeFeature] = {}
     for nid, node in graph.nodes.items():
         bearings: list[float] = []
         lengths: list[float] = []
@@ -232,7 +232,7 @@ def build_city_indexes(graph: RoadGraph, projector: Projector) -> CityIndexes:
             b = heading_deg((node.x, node.y), (vn.x, vn.y))
             bearings.append(b)
             lengths.append(edge.length_m)
-        node_sigs[nid] = NodeSignature(
+        node_feats[nid] = NodeFeature(
             degree=node.degree, outgoing_bearings=bearings, edge_lengths=lengths
         )
 
@@ -268,7 +268,7 @@ def build_city_indexes(graph: RoadGraph, projector: Projector) -> CityIndexes:
 
     return CityIndexes(
         graph=graph,
-        node_signatures=node_sigs,
+        node_features=node_feats,
         bearing_buckets=bearing_buckets,
         component_index=component_index,
         component_sizes=component_sizes,
@@ -395,7 +395,7 @@ class CityCompatibility:
     min_km: float
     max_km: float
     recommended_km: float
-    is_signature: bool
+    is_featured: bool
 
 
 def compute_shape_city_compatibility(
@@ -410,19 +410,37 @@ def compute_shape_city_compatibility(
     """
     from app.core.seed import load_cities
     from app.graph_provider import graph_for_city
+    from app.core.shape_matching import build_city_indexes, extract_city_features
 
-    sg = geom.build_shape_graph_from_normalized(artwork.normalized, artwork)
+    sg = geom.build_shape_graph_from_normalized(artwork.normalized, artwork.id, artwork.name, artwork.closed_path)
     results: list[CityCompatibility] = []
 
-    for city in load_cities():
-        graph_data = graph_for_city(city.id)
-        if graph_data is None:
-            continue
-        graph, projector, bbox = graph_data
-
-        filtered = graph.filter_for_profile(activity, difficulty)
-        indexes = build_city_indexes(filtered, projector)
-        features = extract_city_features(filtered, indexes, bbox)
+    all_cities = load_cities()
+    
+    for city in all_cities:
+        # To avoid O(N) graph loading across 2000 cities, we approximate city features
+        west, south, east, north = city.bbox
+        
+        # approximate dimensions in meters
+        import math
+        lat_rad = math.radians(city.centroid[0])
+        width_m = (east - west) * 111320.0 * math.cos(lat_rad)
+        height_m = (north - south) * 111320.0
+        
+        # mock bbox as 0,0,width,height
+        bbox = (0.0, 0.0, abs(width_m), abs(height_m))
+        
+        features = CityFeatures(
+            intersection_density=city.road_density * 500.0,
+            orientation_entropy=2.0,
+            dominant_bearings=[0.0, 90.0, 180.0, 270.0],
+            curvature="organic" if city.has_river else "grid",
+            largest_component_length_m=50000.0,
+            avg_block_size=100.0,
+            dead_end_ratio=0.05,
+            total_edge_length_m=500000.0,
+            node_count=2000,
+        )
 
         detour = _detour_factor(activity, city.road_density)
         constraints = MatchingConstraints(
@@ -445,7 +463,7 @@ def compute_shape_city_compatibility(
         minx, miny, maxx, maxy = bbox
         city_dim_m = min(maxx - minx, maxy - miny)
         # Max scale = city dimension / shape bounding box (normalized ~1.0)
-        max_scale = city_dim_m * 0.45  # leave margin
+        max_scale = city_dim_m * 0.85  # leave margin
         # Min scale = enough that the route is at least 3km
         min_scale_for_3km = 3000.0 / (L * detour)
 
@@ -467,13 +485,13 @@ def compute_shape_city_compatibility(
         if max_km < min_km:
             continue
 
-        is_signature = artwork.id in city.signature_artwork_ids
-        # Signature shapes get a boost
-        if is_signature:
+        is_featured = artwork.id in city.featured_artwork_ids
+        # Featured shapes get a boost
+        if is_featured:
             fit = min(1.0, fit + 0.15)
 
         # Only include cities with reasonable fit
-        if fit < 0.30:
+        if fit < 0.10:
             continue
 
         results.append(CityCompatibility(
@@ -483,10 +501,10 @@ def compute_shape_city_compatibility(
             min_km=round(min_km, 1),
             max_km=round(max_km, 1),
             recommended_km=round(rec_km, 1),
-            is_signature=is_signature,
+            is_featured=is_featured,
         ))
 
-    results.sort(key=lambda c: c.fit_score, reverse=True)
+    results.sort(key=lambda c: c.city_name)
     return results
 
 
@@ -501,7 +519,7 @@ class ShapeCompatibility:
     min_km: float
     max_km: float
     recommended_km: float
-    is_signature: bool
+    is_featured: bool
 
 
 def compute_city_shape_compatibility(
@@ -515,16 +533,17 @@ def compute_city_shape_compatibility(
     which artworks fit and rank them by shape_city_fit_score.
     """
     from app.core.seed import load_artworks, get_city
+    from app.graph_provider import graph_for_city
+    from app.core.shape_matching import build_city_indexes, extract_city_features
 
     city = get_city(city_id)
     if city is None:
         return []
 
-    graph_data = _get_graph_for_city(city_id)
-    if graph_data is None:
+    g = graph_for_city(city_id)
+    if g is None:
         return []
-    graph, projector, bbox = graph_data
-
+    graph, projector, bbox = g
     filtered = graph.filter_for_profile(activity, difficulty)
     indexes = build_city_indexes(filtered, projector)
     features = extract_city_features(filtered, indexes, bbox)
@@ -532,7 +551,9 @@ def compute_city_shape_compatibility(
     detour = _detour_factor(activity, city.road_density)
     results: list[ShapeCompatibility] = []
 
-    for art in load_artworks():
+    all_artworks = load_artworks()
+
+    for art in all_artworks:
         sg = geom.build_shape_graph_from_normalized(art.normalized, art.id, art.name, art.closed_path)
         L = sg.normalized_length
         if L <= 0:
@@ -550,7 +571,7 @@ def compute_city_shape_compatibility(
 
         minx, miny, maxx, maxy = bbox
         city_dim_m = min(maxx - minx, maxy - miny)
-        max_scale = city_dim_m * 0.45
+        max_scale = city_dim_m * 0.85
         min_scale_for_3km = 3000.0 / (L * detour)
         max_km = (max_scale * L * detour) / 1000.0
         min_km = max(3.0, (min_scale_for_3km * L * detour) / 1000.0)
@@ -563,10 +584,10 @@ def compute_city_shape_compatibility(
         if max_km < min_km:
             continue
 
-        is_signature = art.id in city.signature_artwork_ids
-        if is_signature:
+        is_featured = art.id in city.featured_artwork_ids
+        if is_featured:
             fit = min(1.0, fit + 0.15)
-        if fit < 0.30:
+        if fit < 0.10:
             continue
 
         results.append(ShapeCompatibility(
@@ -579,7 +600,7 @@ def compute_city_shape_compatibility(
             min_km=round(min_km, 1),
             max_km=round(max_km, 1),
             recommended_km=round(rec_km, 1),
-            is_signature=is_signature,
+            is_featured=is_featured,
         ))
 
     results.sort(key=lambda s: s.fit_score, reverse=True)
@@ -651,6 +672,11 @@ def _build_density_anchors(
         cx = minx + (ci + 0.5) * cell_w
         cy = miny + (cj + 0.5) * cell_h
         anchors.append((cx, cy))
+    
+    # Always include the absolute center of the bounding box to ensure max_scale shapes fit
+    center_x = (minx + maxx) / 2.0
+    center_y = (miny + maxy) / 2.0
+    anchors.append((center_x, center_y))
     return anchors
 
 
@@ -663,12 +689,12 @@ def generate_anchor_transforms(
     graph = city_indexes.graph
     transforms: list[Transform] = []
     city_anchors = _build_density_anchors(
-        graph, constraints.bbox_metric, constraints.target_distance_km, max_anchors=8
+        graph, constraints.bbox_metric, constraints.target_distance_km, max_anchors=40
     )
     if constraints.preferred_neighborhood is not None:
         px, py = constraints.preferred_neighborhood
         city_anchors.sort(key=lambda a: math.hypot(a[0] - px, a[1] - py))
-        city_anchors = city_anchors[: max(4, len(city_anchors) // 2)]
+        city_anchors = city_anchors[: max(8, len(city_anchors) // 2)]
 
     L = svg_graph.normalized_length
     target_m = constraints.target_distance_km * 1000.0
@@ -679,10 +705,7 @@ def generate_anchor_transforms(
     if constraints.preferred_scale is not None:
         scales = [constraints.preferred_scale * f for f in (0.90, 1.0, 1.10)]
 
-    if constraints.symmetric:
-        rotations = [0.0, 45.0, 90.0]
-    else:
-        rotations = [0.0, 30.0, 60.0, 90.0, 120.0]
+    rotations = geom.rotation_candidates(constraints.symmetric)
     if constraints.preferred_rotation is not None:
         rotations = [constraints.preferred_rotation + d for d in (-10, 0, 10)]
 
@@ -718,7 +741,7 @@ def score_svg_corridor_support(
     bearing_compat_count = 0
     components: set[int] = set()
 
-    seg_sample_step = max(1, sum(len(pl.points) for pl in transformed) // 60)
+    seg_sample_step = max(1, sum(len(pl.points) for pl in transformed) // 200)
     seg_idx = 0
 
     for pl in transformed:
@@ -835,12 +858,16 @@ def beam_match_svg_to_streets(
             total_important=len(svg_graph.important_points),
         )
 
+    weights = svg_graph.weights
+    base_ctrl = set(_control_indices(len(target_lonlat)))
+    if weights:
+        base_ctrl.update({i for i, w in enumerate(weights) if w >= 0.9})
+    ctrl_idx = sorted(list(base_ctrl))
+
     snap = snap_polyline(
-        target_lonlat, city_graph, city_graph.projector, constraints.activity
+        target_lonlat, city_graph, city_graph.projector, constraints.activity, control_indices=ctrl_idx
     )
 
-    weights = svg_graph.weights
-    ctrl_idx = _control_indices(len(target_lonlat))
     total_w = sum(weights[i] for i in ctrl_idx) if weights else len(ctrl_idx)
     matched_w = 0.0
     for i, nid in enumerate(snap.snapped_node_ids):
@@ -870,14 +897,22 @@ def beam_match_svg_to_streets(
     candidates_per_point: list[list[tuple[int, float]]] = []
     for i, pt_metric in enumerate(snap.control_target_metric):
         cands: list[tuple[int, float]] = []
-        edge, _, dist = city_graph.nearest_edge(pt_metric, tol)
-        if edge is not None:
-            fn = city_graph.nodes[edge.from_id]
-            tn = city_graph.nodes[edge.to_id]
-            d_fn = math.hypot(fn.x - pt_metric[0], fn.y - pt_metric[1])
-            d_tn = math.hypot(tn.x - pt_metric[0], tn.y - pt_metric[1])
-            cands.append((fn.id, d_fn))
-            cands.append((tn.id, d_tn))
+        if city_graph._tree is None:
+            city_graph.build_spatial_index()
+        if city_graph._tree is not None:
+            from shapely.geometry import box
+            query_box = box(pt_metric[0] - tol, pt_metric[1] - tol, pt_metric[0] + tol, pt_metric[1] + tol)
+            idxs = list(city_graph._tree.query(query_box))
+            seen_nodes = set()
+            for idx in idxs:
+                edge = city_graph.edges[idx]
+                if getattr(edge, "rejected", False): continue
+                for nid in (edge.from_id, edge.to_id):
+                    if nid not in seen_nodes:
+                        seen_nodes.add(nid)
+                        n = city_graph.nodes[nid]
+                        d = math.hypot(n.x - pt_metric[0], n.y - pt_metric[1])
+                        cands.append((nid, d))
         orig_nid = snap.snapped_node_ids[i]
         if orig_nid != -1 and not any(c[0] == orig_nid for c in cands):
             cands.append((orig_nid, snap.per_point_distance[i]))
@@ -902,7 +937,7 @@ def beam_match_svg_to_streets(
                     elif prev != -1 and nid != -1:
                         adj_ids = {v for v, _ in city_graph.adj.get(prev, [])}
                         if nid in adj_ids:
-                            transition = 0.9
+                            transition = 1.0
                         else:
                             prev_node = city_graph.nodes[prev]
                             cur_node = city_graph.nodes[nid]
@@ -919,7 +954,7 @@ def beam_match_svg_to_streets(
                                 if seg_d > 0:
                                     transition = max(
                                         0.0,
-                                        1.0 - abs(eucl - seg_d) / max(eucl, seg_d),
+                                        0.5 - abs(eucl - seg_d) / max(eucl, seg_d) * 0.5,
                                     )
                                 else:
                                     transition = 0.3
@@ -980,6 +1015,7 @@ def construct_shape_aware_route(
     city_graph: RoadGraph,
     router: Router,
     constraints: MatchingConstraints,
+    projector: Projector,
 ) -> RouteResult:
     if not snapped.snap.acceptable:
         return RouteResult(
@@ -995,8 +1031,54 @@ def construct_shape_aware_route(
             warnings=["snap_not_acceptable"],
             segments_failed=1,
         )
-    return repair_and_route(
-        snapped.snap, city_graph, constraints.activity, constraints.difficulty
+    from app.core.mapbox_client import snap_route_to_roads, compute_route_distance_km
+    from app.config import get_settings
+
+    settings = get_settings()
+    keypoints = snapped.snap.snapped_lonlat
+
+    if not settings.mapbox_available:
+        return repair_and_route(
+            snapped.snap, city_graph, constraints.activity, constraints.difficulty
+        )
+
+    real_route = snap_route_to_roads(
+        keypoints,
+        constraints.activity,
+        settings.mapbox_access_token,
+        settings.mapbox_base_url,
+    )
+
+    if not real_route or len(real_route) < 2:
+        return RouteResult(
+            valid=False,
+            node_path=[],
+            edges_used=[],
+            route_metric=[],
+            route_lonlat=[],
+            length_m=0.0,
+            detour_ratios=[],
+            duplicate_fraction=0.0,
+            keypoint_lonlat=keypoints,
+            warnings=["mapbox_snap_failed"],
+            segments_failed=1,
+        )
+
+    route_metric = [projector.to_metric(lon, lat) for lat, lon in real_route]
+    length_m = compute_route_distance_km(real_route) * 1000.0
+
+    return RouteResult(
+        valid=True,
+        node_path=[],
+        edges_used=[],
+        route_metric=route_metric,
+        route_lonlat=real_route,
+        length_m=length_m,
+        detour_ratios=[],
+        duplicate_fraction=0.0,
+        keypoint_lonlat=keypoints,
+        warnings=[],
+        segments_failed=0,
     )
 
 
@@ -1219,26 +1301,46 @@ def _build_constraints(
         ai_retry_enabled=settings.ai_available,
         detour_factor=detour,
         algorithm_version=algorithm_version,
-        signature_artwork_ids=list(city.signature_artwork_ids),
+        featured_artwork_ids=list(city.featured_artwork_ids),
     )
 
 
 def _diversify(matches: list[MatchResult], max_suggestions: int) -> list[MatchResult]:
     matches.sort(key=lambda x: x.fit_score, reverse=True)
-    by_art: dict[str, list[MatchResult]] = {}
+    
+    unique_matches: list[MatchResult] = []
     for m in matches:
+        is_dup = False
+        for u in unique_matches:
+            if m.artwork_id == u.artwork_id:
+                # Deduplicate if placed within 150 meters
+                dx = m.transform.translation[0] - u.transform.translation[0]
+                dy = m.transform.translation[1] - u.transform.translation[1]
+                dist = (dx*dx + dy*dy)**0.5
+                if dist < 150.0:
+                    is_dup = True
+                    break
+        if not is_dup:
+            unique_matches.append(m)
+
+    by_art: dict[str, list[MatchResult]] = {}
+    for m in unique_matches:
         by_art.setdefault(m.artwork_id, []).append(m)
+        
     diversified: list[MatchResult] = []
     for arts in by_art.values():
         diversified.append(arts[0])
     diversified.sort(key=lambda x: x.fit_score, reverse=True)
+    
     i = 0
-    while len(diversified) < max_suggestions and i < len(matches):
-        m = matches[i]
+    while i < len(unique_matches):
+        m = unique_matches[i]
         if m not in diversified:
             diversified.append(m)
         i += 1
+        
     return diversified[:max_suggestions]
+
 
 
 def create_best_gps_art(
@@ -1257,20 +1359,26 @@ def create_best_gps_art(
     max_route_repairs: int = 100,
     progress_callback: Callable[[str, int], None] | None = None,
 ) -> list[MatchResult]:
+    _highest_pct = 0
+    def safe_progress(stage: str, pct: int) -> None:
+        nonlocal _highest_pct
+        if pct > _highest_pct:
+            _highest_pct = pct
+            if progress_callback:
+                progress_callback(stage, pct)
+
     constraints = _build_constraints(
         city, activity, difficulty, target_distance_km, bbox, settings,
         algorithm_version, max_transformations, max_route_repairs,
     )
 
-    if progress_callback:
-        progress_callback("building_indexes", 10)
+    safe_progress("building_indexes", 10)
     filtered = graph.filter_for_profile(activity, difficulty)
     indexes = build_city_indexes(filtered, projector)
     city_features = extract_city_features(filtered, indexes, bbox)
     router = Router(graph=filtered, activity=activity, difficulty=difficulty)
 
-    if progress_callback:
-        progress_callback("parsing_shapes", 15)
+    safe_progress("parsing_shapes", 15)
     parsed_shapes: list[tuple[Artwork, geom.ShapeGraph]] = []
     for art in artworks:
         if not art.eligible_for(target_distance_km):
@@ -1283,8 +1391,7 @@ def create_best_gps_art(
     if not parsed_shapes:
         return []
 
-    if progress_callback:
-        progress_callback("ranking_shapes", 20)
+    safe_progress("ranking_shapes", 20)
     ranked = rank_shapes_for_city(city_features, parsed_shapes, constraints)
 
     best_matches: list[MatchResult] = []
@@ -1302,92 +1409,81 @@ def create_best_gps_art(
         else:
             shapes_to_try = ranked
 
-        for art, sg, _fit_score in shapes_to_try:
-            constraints.symmetric = art.symmetric
-            constraints.normalized_length = sg.normalized_length
-
-            if constraints.detail_level_override:
-                level_names = [constraints.detail_level_override]
+        total_shapes = max(1, len(shapes_to_try))
+        def process_shape_task(s_idx: int, art: Artwork, sg: geom.ShapeGraph, _fit_score: float) -> list[MatchResult]:
+            local_matches = []
+            local_constraints = _build_constraints(
+                city, activity, difficulty, target_distance_km, bbox, settings,
+                algorithm_version, max_transformations, max_route_repairs,
+            )
+            local_constraints.symmetric = art.symmetric
+            local_constraints.normalized_length = sg.normalized_length
+            
+            if local_constraints.detail_level_override:
+                level_names = [local_constraints.detail_level_override]
             else:
-                level_names = ["coarse"]
+                level_names = ["coarse", "medium", "fine"]
 
-            for level_name in level_names:
-                level_sg = next(
-                    (l for l in sg.levels if l.detail_level == level_name), sg
-                )
-
-                if progress_callback:
-                    progress_callback("generating_transforms", 30)
+            total_levels = max(1, len(level_names))
+            for l_idx, level_name in enumerate(level_names):
+                level_sg = next((l for l in sg.levels if l.detail_level == level_name), sg)
+                base_pct = 20.0 + 60.0 * (s_idx / total_shapes) + (l_idx / total_levels) * (60.0 / total_shapes)
+                step_pct = 60.0 / total_shapes / total_levels
+                safe_progress("fitting_candidates", int(base_pct + step_pct * 0.1))
 
                 anchors = extract_weighted_svg_anchors(level_sg)
-                constraints.max_transformations = per_shape_budget
-                transforms = generate_anchor_transforms(
-                    level_sg, anchors, indexes, constraints
-                )
+                local_constraints.max_transformations = per_shape_budget
+                transforms = generate_anchor_transforms(level_sg, anchors, indexes, local_constraints)
                 if not transforms:
                     continue
 
-                if progress_callback:
-                    progress_callback("corridor_scoring", 40)
+                safe_progress("fitting_candidates", int(base_pct + step_pct * 0.3))
                 coarse: list[tuple[Transform, float]] = []
                 for t in transforms:
-                    cs = score_svg_corridor_support(
-                        level_sg, t, indexes, constraints
-                    )
-                    if cs >= constraints.min_corridor_score:
+                    cs = score_svg_corridor_support(level_sg, t, indexes, local_constraints)
+                    if cs >= local_constraints.min_corridor_score:
                         coarse.append((t, cs))
                 if not coarse:
                     continue
                 coarse.sort(key=lambda x: x[1], reverse=True)
-                medium = coarse[: min(constraints.medium_candidate_limit, 20)]
+                medium = coarse[: local_constraints.medium_candidate_limit]
 
-                if progress_callback:
-                    progress_callback("beam_matching", 55)
+                safe_progress("fitting_candidates", int(base_pct + step_pct * 0.5))
                 snapped_list: list[tuple[Transform, SnappedResult, float]] = []
                 for t, cs in medium:
-                    snapped = beam_match_svg_to_streets(
-                        level_sg, t, filtered, indexes, router, constraints
-                    )
-                    if snapped.weighted_coverage >= constraints.min_weighted_coverage:
+                    snapped = beam_match_svg_to_streets(level_sg, t, filtered, indexes, router, local_constraints)
+                    if snapped.weighted_coverage >= local_constraints.min_weighted_coverage:
                         snapped_list.append((t, snapped, cs))
                 if not snapped_list:
                     continue
-                snapped_list.sort(
-                    key=lambda x: x[1].weighted_coverage, reverse=True
-                )
-                final = snapped_list[: min(constraints.final_candidate_limit, 5)]
+                snapped_list.sort(key=lambda x: x[1].weighted_coverage, reverse=True)
+                final = snapped_list[: local_constraints.final_candidate_limit]
 
-                if progress_callback:
-                    progress_callback("constructing_routes", 70)
+                safe_progress("fitting_candidates", int(base_pct + step_pct * 0.8))
                 for t, snapped, cs in final:
                     refined_t, refined_snapped, refined_score = refine_transform(
-                        level_sg, t, snapped, filtered, indexes, router, constraints
+                        level_sg, t, snapped, filtered, indexes, router, local_constraints
                     )
                     route = construct_shape_aware_route(
-                        level_sg, refined_t, refined_snapped, filtered, router, constraints
+                        level_sg, refined_t, refined_snapped, filtered, router, local_constraints, projector
                     )
                     if not route.valid:
                         continue
 
                     score = score_svg_route_match(
                         art.svg_text, level_sg, refined_t, route,
-                        constraints, projector, filtered, uniqueness=0.5,
+                        local_constraints, projector, filtered, uniqueness=0.5,
                     )
 
-                    target_polys = transform_to_lonlat(
-                        level_sg.polylines, refined_t, projector
-                    )
+                    target_polys = transform_to_lonlat(level_sg.polylines, refined_t, projector)
                     target_lonlat = geom.flatten(target_polys)
-
-                    anchor_lat, anchor_lon = projector.to_wgs84(
-                        refined_t.translation[0], refined_t.translation[1]
-                    )
+                    anchor_lat, anchor_lon = projector.to_wgs84(refined_t.translation[0], refined_t.translation[1])
 
                     fit_score = score.fit_score
-                    if art.id in constraints.signature_artwork_ids:
+                    if art.id in local_constraints.featured_artwork_ids:
                         fit_score = min(1.0, fit_score + 0.15)
 
-                    best_matches.append(MatchResult(
+                    local_matches.append(MatchResult(
                         artwork_id=art.id,
                         artwork_name=art.name,
                         confidence=score.confidence,
@@ -1418,14 +1514,9 @@ def create_best_gps_art(
                             "refinedScore": round(refined_score, 4),
                             "scores": {
                                 "fitScore": round(score.fit_score, 4),
-                                "shapeSimilarityScore": round(
-                                    score.shape_similarity_score, 4
-                                ),
+                                "shapeSimilarityScore": round(score.shape_similarity_score, 4),
                                 "confidence": round(score.confidence, 4),
-                                **{
-                                    k: round(v, 4)
-                                    for k, v in score.metrics.items()
-                                },
+                                **{k: round(v, 4) for k, v in score.metrics.items()},
                             },
                             "search": {
                                 "transformsGenerated": len(transforms),
@@ -1436,15 +1527,16 @@ def create_best_gps_art(
                             },
                         },
                     ))
+            return local_matches
 
-                shape_matches = [
-                    m for m in best_matches if m.artwork_id == art.id
-                ]
-                if len(shape_matches) >= 3:
-                    break
-
-            if len(best_matches) >= max_suggestions:
-                break
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = []
+            for s_idx, (art, sg, _fit_score) in enumerate(shapes_to_try):
+                futures.append(executor.submit(process_shape_task, s_idx, art, sg, _fit_score))
+            
+            for future in concurrent.futures.as_completed(futures):
+                best_matches.extend(future.result())
 
         if best_matches:
             best_matches.sort(key=lambda x: x.fit_score, reverse=True)
@@ -1465,8 +1557,7 @@ def create_best_gps_art(
                 ai_plan, ranked, constraints
             )
 
-    if progress_callback:
-        progress_callback("scoring", 85)
+    safe_progress("scoring", 85)
 
     if not best_matches:
         return []
@@ -1480,7 +1571,6 @@ def create_best_gps_art(
             uniq = uniqueness_score(best_conf, second_conf)
             best_matches[0].debug["uniquenessScore"] = round(uniq, 4)
 
-    if progress_callback:
-        progress_callback("storing_results", 95)
+    safe_progress("storing_results", 95)
 
     return _diversify(best_matches, max_suggestions)

@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime, timezone
 
 from app.core import generation
-from app.core.ors_client import snap_route_to_roads, compute_route_distance_km
+from app.core.mapbox_client import snap_route_to_roads, compute_route_distance_km
 from app.core.schemas import Activity, Difficulty
 from app.core.seed import artworks_by_ids
 from app.config import get_settings
@@ -20,23 +20,7 @@ def _update(job: JobRecord, stage: str, percent: int) -> None:
     job.progress_percent = percent
 
 
-def _snap_candidates_to_roads(candidates, activity: str, settings) -> None:
-    """Post-process: replace synthetic grid routes with real road-following geometry from ORS."""
-    if not settings.ors_available:
-        return
 
-    for c in candidates:
-        if not c.keypoint_lonlat or len(c.keypoint_lonlat) < 2:
-            continue
-        real_route = snap_route_to_roads(
-            c.keypoint_lonlat,
-            activity,
-            settings.ors_api_key,
-            settings.ors_base_url,
-        )
-        if real_route and len(real_route) >= 2:
-            c.route_lonlat = real_route
-            c.distance_km = round(compute_route_distance_km(real_route), 2)
 
 
 def run_job(job_id: str) -> None:
@@ -82,28 +66,29 @@ def run_job(job_id: str) -> None:
         if not candidates:
             raise ValueError("GENERATION_NO_VALID_CANDIDATE")
 
-        # Snap routes to real roads via ORS
-        settings = get_settings()
         _update(job, "storing_results", 90)
-        _snap_candidates_to_roads(candidates, req.activity, settings)
 
         _update(job, "storing_results", 96)
         for c in candidates:
             STORE.candidates[c.candidate_id] = c
             STORE.candidate_city[c.candidate_id] = city.id
-        job.candidates = candidates
+            STORE.candidate_activity[c.candidate_id] = req.activity.value
+            if not any(x.candidate_id == c.candidate_id for x in STORE.cached_candidates):
+                STORE.cached_candidates.append(c)
+        job.candidates = candidates[:req.max_suggestions]
         job.status = "completed"
         job.progress_stage = "completed"
         job.progress_percent = 100
         job.completed_at = datetime.now(timezone.utc)
     except Exception as exc:  # noqa: BLE001
         job.status = "failed"
-        code = str(exc).strip() or "INTERNAL_ERROR"
-        job.error_code = code if code.isidentifier() or "_" in code else "INTERNAL_ERROR"
-        if job.error_code == "INTERNAL_ERROR":
-            job.error_message = "Generation failed unexpectedly."
+        code = str(exc).strip()
+        if code in _USER_MESSAGES:
+            job.error_code = code
+            job.error_message = _USER_MESSAGES[code]
         else:
-            job.error_message = _USER_MESSAGES.get(code, "Generation failed.")
+            job.error_code = "INTERNAL_ERROR"
+            job.error_message = "Generation failed unexpectedly."
         job.completed_at = datetime.now(timezone.utc)
         traceback.print_exc()
 

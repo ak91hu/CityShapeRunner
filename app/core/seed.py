@@ -26,7 +26,7 @@ class City:
     bridge_count: int
     road_density: float
     city_affinity_tags: list[str] = field(default_factory=list)
-    signature_artwork_ids: list[str] = field(default_factory=list)
+    featured_artwork_ids: list[str] = field(default_factory=list)
 
     def to_suggestion(self) -> CitySuggestion:
         return CitySuggestion(
@@ -46,7 +46,7 @@ class City:
             road_density=self.road_density,
             has_river=self.has_river,
             bridge_count=self.bridge_count,
-            signature_artwork_ids=list(self.signature_artwork_ids),
+            featured_artwork_ids=list(self.featured_artwork_ids),
         )
 
 
@@ -77,7 +77,7 @@ class Artwork:
             recommended_min_km=self.recommended_min_km,
             recommended_max_km=self.recommended_max_km,
             aspect_ratio=self.aspect_ratio,
-            is_city_signature=False,
+            is_city_featured=False,
             preview_svg_url=f"/assets/shapes/{self.id}.svg",
             tags=list(self.tags),
             city_affinity_tags=list(self.city_affinity_tags),
@@ -117,7 +117,7 @@ def load_cities() -> tuple[City, ...]:
             bridge_count=c.get("bridge_count", 0),
             road_density=c.get("road_density", 0.6),
             city_affinity_tags=c.get("city_affinity_tags", []),
-            signature_artwork_ids=c.get("signature_artwork_ids", []),
+            featured_artwork_ids=c.get("featured_artwork_ids", []),
         ))
     return tuple(out)
 

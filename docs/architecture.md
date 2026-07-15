@@ -16,7 +16,7 @@ pathforge/
 │   │   ├── scoring.py        # Route quality scoring
 │   │   ├── gpx.py            # GPX 1.1 serialization
 │   │   ├── units.py          # Projection / coordinate helpers
-│   │   └── ors_client.py     # OpenRouteService snap-to-road
+│   │   └── mapbox_client.py  # Mapbox Directions snap-to-road
 │   ├── models.py           # Pydantic / SQLModel schemas
 │   ├── stores.py           # In-memory / DB stores
 │   ├── services.py         # Rate limiter, background worker
@@ -56,31 +56,31 @@ pathforge/
                     └─────────────┘
                            │
                     ┌──────┴──────┐
-                    │  ORS API    │  (snap-to-road)
+                    │  Mapbox API │  (snap-to-road)
                     └─────────────┘
 ```
 
 ## Request flow: generation
 
-1. `POST /api/generation/generate` — accepts `(city_id, artwork_id, activity, distance_km)`
+1. `POST /api/generation/generate` - accepts `(city_id, artwork_id, activity, distance_km)`
 2. Worker picks up the job, updates status to `processing`
-3. **SVG parsing** — the artwork SVG is loaded and decomposed into a weighted shape graph (polylines + control points)
-4. **City suitability** — the engine estimates whether the shape fits the city's road network dimensions
-5. **Anchor generation** — control points are extracted and assigned weights
-6. **Transform enumeration** — multiple scale/rotation/placement combinations are generated
-7. **Corridor scoring** — each transform is quickly rejected or accepted based on road alignment
-8. **Beam matching** — accepted transforms are matched to the road graph via beam search
-9. **Route construction** — matched segments are connected into a continuous route
-10. **Refinement** — top candidates are refined for distance accuracy
-11. **Scoring** — each candidate is scored on shape fidelity, distance accuracy, and route quality
-12. **ORS snap** — if an ORS key is configured, the route is snapped to real roads
-13. **GPX export** — top candidate is serialized to GPX 1.1 (continuous + dots)
-14. **Job completion** — status set to `completed` with results
+3. **SVG parsing** - the artwork SVG is loaded and decomposed into a weighted shape graph (polylines + control points)
+4. **City suitability** - the engine estimates whether the shape fits the city's road network dimensions
+5. **Anchor generation** - control points are extracted and assigned weights
+6. **Transform enumeration** - multiple scale/rotation/placement combinations are generated
+7. **Corridor scoring** - each transform is quickly rejected or accepted based on road alignment
+8. **Beam matching** - accepted transforms are matched to the road graph via beam search
+9. **Route construction** - matched segments are connected into a continuous route
+10. **Refinement** - top candidates are refined for distance accuracy
+11. **Scoring** - each candidate is scored on shape fidelity, distance accuracy, and route quality
+12. **Mapbox Directions snap** - if a Mapbox token is configured, the route is snapped to real roads
+13. **GPX export** - top candidate is serialized to GPX 1.1
+14. **Job completion** - status set to `completed` with results
 
 ## Key architectural decisions
 
-- **In-memory store by default** — zero-dependency startup for development; pluggable DB backend for production
-- **Lazy graph loading** — city road graphs are built on first access and cached (LRU)
-- **Background worker** — generation runs on a thread pool so the API stays responsive
-- **Rate limiting** — per-client-IP limits on generation, GPX download, and search
-- **SVG as source of truth** — shapes are defined as SVG paths, not raster images; this preserves sharp angles and scales arbitrarily
+- **In-memory store by default** - zero-dependency startup for development; pluggable DB backend for production
+- **Lazy graph loading** - city road graphs are built on first access and cached (LRU)
+- **Background worker** - generation runs on a thread pool so the API stays responsive
+- **Rate limiting** - per-client-IP limits on generation, GPX download, and search
+- **SVG as source of truth** - shapes are defined as SVG paths, not raster images; this preserves sharp angles and scales arbitrarily

@@ -20,7 +20,7 @@ import {
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 
 export default function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const { shareId } = use(params);
   const [data, setData] = useState<ShareView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export default function SharePage({ params }: { params: Promise<{ shareId: strin
                 <RouteIcon size={28} />
               </div>
               <div>
-                <h1 className="text-2xl font-extrabold tracking-tight">{data.artworkName}</h1>
+                <h1 className="text-2xl font-extrabold tracking-tight">{tShape("", data.artworkName)}</h1>
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-white/80">
                   <span className="flex items-center gap-1">
                     <MapPinIcon size={14} /> {data.cityName}
@@ -66,11 +66,8 @@ export default function SharePage({ params }: { params: Promise<{ shareId: strin
               </div>
             </div>
             <div className="flex gap-2">
-              <a className="btn bg-white/20 px-4 py-2.5 text-sm backdrop-blur hover:bg-white/30 text-white" href={`/api/routes/${data.routeId}/export/gpx?mode=continuous`} download>
+              <a className="btn bg-white/20 px-4 py-2.5 text-sm backdrop-blur hover:bg-white/30 text-white" href={`/api/routes/${data.routeId}/export/gpx?mode=continuous`} download="route.gpx">
                 <DownloadIcon size={16} /> GPX
-              </a>
-              <a className="btn bg-white/10 px-4 py-2.5 text-sm backdrop-blur hover:bg-white/20 text-white" href={`/api/routes/${data.routeId}/export/gpx?mode=connect_the_dots`} download>
-                <DownloadIcon size={14} /> {t("route.dots")}
               </a>
             </div>
           </div>

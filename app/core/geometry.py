@@ -28,7 +28,7 @@ def _tokenize_numbers(d: str) -> list[float]:
     return [float(t) for t in _NUM_RE.findall(d)]
 
 
-def _sample_cubic(p0, p1, p2, p3, n: int = 24) -> list[tuple[float, float]]:
+def _sample_cubic(p0, p1, p2, p3, n: int = 48) -> list[tuple[float, float]]:
     pts = []
     for i in range(n + 1):
         t = i / n
@@ -39,7 +39,7 @@ def _sample_cubic(p0, p1, p2, p3, n: int = 24) -> list[tuple[float, float]]:
     return pts
 
 
-def _sample_quadratic(p0, p1, p2, n: int = 20) -> list[tuple[float, float]]:
+def _sample_quadratic(p0, p1, p2, n: int = 40) -> list[tuple[float, float]]:
     pts = []
     for i in range(n + 1):
         t = i / n
@@ -177,12 +177,12 @@ def _points_from_basic(el: ET.Element, tag: str) -> list[Polyline]:
         return [Polyline(points=pts, closed=True)]
     if tag == "circle":
         cx, cy, r = num("cx"), num("cy"), num("r")
-        n = 48
+        n = 96
         pts = [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n + 1)]
         return [Polyline(points=pts, closed=True)]
     if tag == "ellipse":
         cx, cy, rx, ry = num("cx"), num("cy"), num("rx"), num("ry")
-        n = 48
+        n = 96
         pts = [(cx + rx * math.cos(2 * math.pi * i / n), cy + ry * math.sin(2 * math.pi * i / n)) for i in range(n + 1)]
         return [Polyline(points=pts, closed=True)]
     return []
@@ -223,16 +223,18 @@ def polylines_bbox(polylines: list[Polyline]) -> tuple[float, float, float, floa
 
 
 def normalize_polylines(polylines: list[Polyline]) -> list[Polyline]:
-    """Normalize to [0,1] preserving aspect ratio (uses the larger dimension)."""
+    """Normalize to [-0.5, 0.5] preserving aspect ratio (uses the larger dimension)."""
     minx, miny, maxx, maxy = polylines_bbox(polylines)
     w = maxx - minx
     h = maxy - miny
     scale = max(w, h) or 1.0
+    cx = (minx + maxx) / 2.0
+    cy = (miny + maxy) / 2.0
     # Flip y so that the shape is upright in a conventional y-up metric frame,
-    # and shift both axes so normalized coordinates lie in [0,1].
+    # and shift both axes so normalized coordinates lie in [-0.5, 0.5].
     out = []
     for pl in polylines:
-        pts = [((p[0] - minx) / scale, (maxy - p[1]) / scale) for p in pl.points]
+        pts = [((p[0] - cx) / scale, (cy - p[1]) / scale) for p in pl.points]
         out.append(Polyline(points=pts, closed=pl.closed))
     return out
 
@@ -310,7 +312,7 @@ def rotation_candidates(symmetric: bool) -> list[float]:
 # --------------------------------------------------------------------------- #
 
 
-def resample_polyline(points: list[tuple[float, float]], n: int = 128) -> list[tuple[float, float]]:
+def resample_polyline(points: list[tuple[float, float]], n: int = 512) -> list[tuple[float, float]]:
     if len(points) < 2:
         return list(points)
     seg = []
@@ -423,7 +425,7 @@ def shape_similarity(
 def _perp_distance(
     p: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
 ) -> float:
-    """Perpendicular distance from point *p* to segment *a*–*b*."""
+    """Perpendicular distance from point *p* to segment *a*-*b*."""
     dx = b[0] - a[0]
     dy = b[1] - a[1]
     if dx == 0 and dy == 0:

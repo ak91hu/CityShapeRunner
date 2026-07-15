@@ -69,10 +69,10 @@ export function CategoryBadge({ category }: { category: string }) {
     basic: "badge-blue",
     animals: "badge-amber",
     sports: "badge-green",
-    nature: "bg-green-100 text-green-700",
-    city: "bg-purple-100 text-purple-700",
-    funny: "bg-pink-100 text-pink-700",
-    symbols: "bg-cyan-100 text-cyan-700",
+    nature: "badge bg-green-100 text-green-700",
+    city: "badge bg-purple-100 text-purple-700",
+    funny: "badge bg-pink-100 text-pink-700",
+    symbols: "badge bg-cyan-100 text-cyan-700",
   };
   const cls = map[category] || "badge-slate";
   return <span className={cls}>{t("cat." + category) || category}</span>;

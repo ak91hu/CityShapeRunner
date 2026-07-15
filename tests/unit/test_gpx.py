@@ -5,7 +5,6 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from app.core.gpx import (
-    build_connect_the_dots_gpx,
     build_continuous_gpx,
     file_name,
     validate_gpx,
@@ -43,17 +42,6 @@ def test_validate_rejects_too_few_points():
     v = validate_gpx(one)
     assert not v.valid
     assert "insufficient_trackpoints" in v.errors
-
-
-def test_continuous_more_points_than_connect_the_dots():
-    cont = build_continuous_gpx(POINTS, "n", "d")
-    dots = build_connect_the_dots_gpx(POINTS, "n", "d")
-    vc = validate_gpx(cont)
-    vd = validate_gpx(dots)
-    assert vc.valid and vd.valid
-    assert vc.point_count >= vd.point_count
-    # connect-the-dots description should explain pause-plot
-    assert "connect-the-dots" in dots
 
 
 def test_file_naming():

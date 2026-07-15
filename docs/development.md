@@ -2,9 +2,9 @@
 
 ## Code style
 
-- **Python** — formatted with Ruff. Config in `pyproject.toml`.
-- **TypeScript / React** — formatted with Prettier. Config in `frontend/.prettierrc`.
-- **Imports** — absolute imports preferred (`from app.core import ...`).
+- **Python** - formatted with Ruff. Config in `pyproject.toml`.
+- **TypeScript / React** - formatted with Prettier. Config in `frontend/.prettierrc`.
+- **Imports** - absolute imports preferred (`from app.core import ...`).
 
 Run linting:
 
@@ -46,8 +46,8 @@ tests/
 
 ## Adding a new shape
 
-1. Add SVG path data to `scripts/generate_shapes.py` — SHAPES dict
-2. Add metadata to `data/seed/artworks.json` — name, category, complexity, tags, city affinities
+1. Add SVG path data to `scripts/generate_shapes.py` - SHAPES dict
+2. Add metadata to `data/seed/artworks.json` - name, category, complexity, tags, city affinities
 3. Regenerate SVGs: `python scripts/generate_shapes.py`
 4. (Re)seed: `python scripts/seed.py`
 5. Verify: check `GET /api/artworks` includes the new shape
@@ -55,20 +55,20 @@ tests/
 ## Adding a new city
 
 1. Add the city to `data/seed/cities.json` with centroid coordinates and bounding box
-2. Add OSM highway data — the road graph is built on first access via OSMnx
+2. Add OSM highway data - the road graph is built on first access via OSMnx
 3. (Re)seed: `python scripts/seed.py`
 4. Verify: check `GET /api/cities` includes the new city
 
 ## Debugging generation
 
-- Set `DISABLE_ORS=true` to skip ORS snapping and use the synthetic grid
+- Set `CSR_MAPBOX_ACCESS_TOKEN` in `.env` to enable mapbox road snapping.
 - Enable debug metadata: pass `debug=true` to the generate endpoint
-- Check the worker logs — each stage is logged with duration
+- Check the worker logs - each stage is logged with duration
 
 ## Profiling
 
 Slow? Common culprits:
 
-- **ORS API calls** — each segment pair makes a separate request; the 25m densification adds points
-- **Beam search width** — `BEAM_WIDTH = 10` is the default; lowering it speeds up matching
-- **City graph size** — large cities (Budapest) have dense road networks; consider `simplify=True` in OSMnx
+- **Mapbox Directions API calls** - a single request is made to Mapbox containing adaptively reduced waypoints (max 25).
+- **Beam search width** - `BEAM_WIDTH = 10` is the default; lowering it speeds up matching
+- **City graph size** - large cities (Budapest) have dense road networks; consider `simplify=True` in OSMnx

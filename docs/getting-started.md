@@ -44,22 +44,21 @@ npm run dev
 
 The UI will be available at `http://localhost:3000`.
 
-## Optional: OpenRouteService
+## Optional: Mapbox Directions API
 
-For real-road-snapped geometry (instead of synthetic grid), set an ORS API key:
+For real-road-snapped geometry (instead of synthetic grid), set a Mapbox Access Token:
 
-```bash
-# Windows PowerShell
-$env:CSR_ORS_API_KEY = "your-api-key"
+```powershell
+$env:CSR_MAPBOX_ACCESS_TOKEN = "your-access-token"
 ```
 
 Or add it to a `.env` file in the project root:
 
 ```
-CSR_ORS_API_KEY=your-api-key
+CSR_MAPBOX_ACCESS_TOKEN=your-access-token
 ```
 
-You can obtain a free key at [openrouteservice.org](https://openrouteservice.org).
+You can obtain a free token at [mapbox.com](https://mapbox.com).
 
 ## Optional: Database
 

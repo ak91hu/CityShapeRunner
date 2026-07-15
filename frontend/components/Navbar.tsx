@@ -68,10 +68,6 @@ export default function Navbar() {
               EN
             </button>
           </div>
-          <Link href="/studio" className="btn-primary px-4 py-2 text-sm">
-            <SparklesIcon size={16} />
-            <span className="hidden sm:inline">{t("nav.createArt")}</span>
-          </Link>
         </div>
       </nav>
 

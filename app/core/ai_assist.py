@@ -231,7 +231,7 @@ def apply_ai_retry_plan(
         preferred_scale=constraints.preferred_scale,
         preferred_rotation=constraints.preferred_rotation,
         detail_level_override=constraints.detail_level_override,
-        signature_artwork_ids=constraints.signature_artwork_ids,
+        featured_artwork_ids=constraints.featured_artwork_ids,
     )
 
     new_ranked = list(ranked_shapes)

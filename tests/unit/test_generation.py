@@ -32,11 +32,6 @@ def test_generate_heart_budapest_10k(budapest_graph):
     text = gpx.build_continuous_gpx(top.route_lonlat, "Budapest Heart 10K Running", "test")
     v = gpx.validate_gpx(text)
     assert v.valid, v.errors
-    # connect-the-dots has fewer or equal points
-    dots = gpx.build_connect_the_dots_gpx(top.keypoint_lonlat, "n", "d")
-    vd = gpx.validate_gpx(dots)
-    assert vd.valid
-    assert vd.point_count <= v.point_count
 
 
 def test_candidates_ranked_and_diversified(budapest_graph):

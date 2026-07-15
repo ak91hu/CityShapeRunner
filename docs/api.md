@@ -56,8 +56,8 @@ GET /api/artworks/{artwork_id}/cities?activity=&distance_km=
 ```
 
 Returns cities compatible with the given artwork. Query params:
-- `activity` (running, cycling, walking) — default: running
-- `distance_km` (float) — optional, filters to compatible distance range
+- `activity` (running, cycling, walking) - default: running
+- `distance_km` (float) - optional, filters to compatible distance range
 
 ## Generation
 
@@ -124,7 +124,7 @@ Downloads a GPX 1.1 file. Mode: `continuous` (dense trackpoints) or `dots`
 GET /api/generation/jobs/{job_id}/candidates/{candidate_id}/map
 ```
 
-Returns GeoJSON for the candidate route — used by the frontend map.
+Returns GeoJSON for the candidate route - used by the frontend map.
 
 ## Routes (persisted)
 

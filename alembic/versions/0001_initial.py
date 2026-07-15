@@ -64,7 +64,7 @@ def upgrade() -> None:
             recommended_min_km DOUBLE PRECISION NOT NULL,
             recommended_max_km DOUBLE PRECISION NOT NULL,
             default_sample_count INTEGER NOT NULL DEFAULT 200,
-            is_city_signature BOOLEAN NOT NULL DEFAULT false,
+            is_city_featured BOOLEAN NOT NULL DEFAULT false,
             metadata JSONB NOT NULL DEFAULT '{}',
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -99,3 +99,13 @@ def test_resample_polyline_count():
     pts = [(0, 0), (10, 0), (10, 10)]
     out = geom.resample_polyline(pts, 50)
     assert len(out) == 50
+
+def test_higher_resolution_sampling():
+    from app.core.geometry import _sample_cubic, _sample_quadratic, resample_polyline
+    # Verify that the defaults provide the massive 48 / 40 point counts requested
+    assert len(_sample_cubic((0,0), (1,1), (2,2), (3,3))) == 49
+    assert len(_sample_quadratic((0,0), (1,1), (2,2))) == 41
+    # Check default upscaling
+    pts = [(0, 0), (10, 0), (10, 10)]
+    out = resample_polyline(pts)
+    assert len(out) == 512

@@ -24,14 +24,9 @@ def _reset_store():
     rate_limiter._gen.clear()
     rate_limiter._gpx.clear()
     rate_limiter._search.clear()
-    # Disable ORS during tests to avoid rate limit issues
     from app.config import get_settings
     get_settings.cache_clear()
-    import os
-    os.environ["CSR_ORS_API_KEY"] = ""
     yield
-    if "CSR_ORS_API_KEY" in os.environ:
-        del os.environ["CSR_ORS_API_KEY"]
     get_settings.cache_clear()
 
 

@@ -58,7 +58,7 @@ async def get_compatible_cities(
                 "minKm": c.min_km,
                 "maxKm": c.max_km,
                 "recommendedKm": c.recommended_km,
-                "isSignature": c.is_signature,
+                "isFeatured": c.is_featured,
             }
             for c in compat
         ],
@@ -94,7 +94,7 @@ async def get_city_artworks(
                 "minKm": s.min_km,
                 "maxKm": s.max_km,
                 "recommendedKm": s.recommended_km,
-                "isSignature": s.is_signature,
+                "isFeatured": s.is_featured,
             }
             for s in compat
         ],

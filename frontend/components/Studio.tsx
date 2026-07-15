@@ -46,7 +46,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 const CATEGORIES = ["basic", "animals", "sports", "nature", "city", "funny", "symbols"];
 
 export default function Studio() {
-  const { t, lang } = useI18n() as { t: (k: string) => string; lang: Lang };
+  const { t, tShape, lang } = useI18n() as { t: (k: string) => string; tShape: (id: string, n: string) => string; lang: Lang };
   const router = useRouter();
   const params = useSearchParams();
 
@@ -55,11 +55,12 @@ export default function Studio() {
   const [shapeCategory, setShapeCategory] = useState<string | null>(null);
   const [selectedShape, setSelectedShape] = useState<ArtworkSummary | null>(null);
   const [compatCities, setCompatCities] = useState<CityCompatibility[]>([]);
+  const [citySearch, setCitySearch] = useState("");
   const [loadingCompat, setLoadingCompat] = useState(false);
   const [city, setCity] = useState<CityCompatibility | null>(null);
   const [activity, setActivity] = useState<Activity>("running");
   const [distance, setDistance] = useState(10);
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+
   const [job, setJob] = useState<GenerationJobStatus | null>(null);
   const [polling, setPolling] = useState(false);
   const [artworkMap, setArtworkMap] = useState<Record<string, ArtworkSummary>>({});
@@ -83,35 +84,46 @@ export default function Studio() {
       const map: Record<string, ArtworkSummary> = {};
       for (const a of items) map[a.id] = a;
       setArtworkMap(map);
+      
+      const q = params.get("q");
+      if (q) setShapeSearch(q);
+      
+      const artworkId = params.get("artwork");
+      if (artworkId && map[artworkId]) {
+        setSelectedShape(map[artworkId]);
+      }
     });
-  }, []);
+  }, [params]);
 
   const onShapeSelect = useCallback((shape: ArtworkSummary) => {
     setSelectedShape(shape);
     setCity(null);
     setCompatCities([]);
     setLoadingCompat(true);
-    api.getCompatibleCities(shape.id, activity, difficulty).then((r) => {
+    api.getCompatibleCities(shape.id, activity).then((r) => {
       setCompatCities(r.items);
       setLoadingCompat(false);
     }).catch(() => {
       setCompatCities([]);
       setLoadingCompat(false);
     });
-  }, [activity, difficulty]);
+  }, [activity]);
 
   useEffect(() => {
     if (selectedShape) {
+      console.log('Selected shape:', selectedShape.id);
       setLoadingCompat(true);
-      api.getCompatibleCities(selectedShape.id, activity, difficulty).then((r) => {
+      api.getCompatibleCities(selectedShape.id, activity).then((r) => {
+        console.log('Got compat cities:', r.items?.length);
         setCompatCities(r.items);
         setLoadingCompat(false);
-      }).catch(() => {
+      }).catch((err) => {
+        console.error('Error fetching compat cities:', err);
         setCompatCities([]);
         setLoadingCompat(false);
       });
     }
-  }, [activity, difficulty, selectedShape]);
+  }, [activity, selectedShape]);
 
   const onCitySelect = (c: CityCompatibility) => {
     setCity(c);
@@ -139,7 +151,7 @@ export default function Studio() {
     try {
       const created = await api.createJob({
         cityId: city.cityId, activity, targetDistanceKm: distance,
-        difficulty, maxSuggestions: 12,
+        maxSuggestions: 3,
         artworkIds: selectedShape ? [selectedShape.id] : undefined,
       });
       setPolling(true);
@@ -198,7 +210,7 @@ export default function Studio() {
     if (!shareUrl) return;
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 500);
   };
 
   const ACTIVITIES = [
@@ -206,11 +218,7 @@ export default function Studio() {
     { value: "cycling" as Activity, label: t("studio.cycling"), icon: "🚴" },
     { value: "walking" as Activity, label: t("studio.walking"), icon: "🚶" },
   ];
-  const DIFFICULTIES = [
-    { value: "easy" as Difficulty, label: t("studio.easy") },
-    { value: "medium" as Difficulty, label: t("studio.medium") },
-    { value: "hard" as Difficulty, label: t("studio.hard") },
-  ];
+
 
   const cyclingShort = activity === "cycling" && distance < 8;
   const progressPct = job ? job.progressPercent : 0;
@@ -274,7 +282,7 @@ export default function Studio() {
                   <img src={selectedShape.previewSvgUrl} alt={selectedShape.name} className="h-full w-full invert" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-bold text-brand-700">{selectedShape.name}</div>
+                  <div className="text-sm font-bold text-brand-700">{tShape(selectedShape.id, selectedShape.name)}</div>
                   <div className="mt-0.5"><CategoryBadge category={selectedShape.category} /></div>
                 </div>
                 <button
@@ -317,6 +325,7 @@ export default function Studio() {
                     {filteredArtworks.map((a: ArtworkSummary) => (
                       <button
                         key={a.id}
+                        data-testid="shape-button"
                         className="flex flex-col items-center rounded-lg border-2 border-transparent p-1.5 transition-all hover:border-brand-300 hover:bg-brand-50"
                         onClick={() => onShapeSelect(a)}
                         title={a.name}
@@ -324,7 +333,7 @@ export default function Studio() {
                         <div className={`flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br ${CATEGORY_COLORS[a.category] || "from-slate-400 to-slate-500"} p-1`}>
                           <img src={a.previewSvgUrl} alt={a.name} className="h-full w-full invert" />
                         </div>
-                        <span className="mt-0.5 w-full truncate text-center text-[9px] font-medium text-slate-600">{a.name}</span>
+                        <span className="mt-0.5 w-full truncate text-center text-[9px] font-medium text-slate-600">{tShape(a.id, a.name)}</span>
                       </button>
                     ))}
                   </div>
@@ -351,11 +360,21 @@ export default function Studio() {
                 </div>
               ) : (
                 <>
-                  <p className="mb-1.5 text-xs text-slate-400">{compatCities.length} {t("studio.compatibleCities").toLowerCase()}</p>
+                  <div className="mb-2 relative">
+                    <SearchIcon size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      className="input pl-9 py-1.5 text-sm w-full"
+                      placeholder={t("cities.search") || "Search city..."}
+                      value={citySearch}
+                      onChange={(e) => setCitySearch(e.target.value)}
+                    />
+                  </div>
+                  <p className="mb-1.5 text-xs text-slate-400">{compatCities.filter(c => !citySearch || c.cityName.toLowerCase().includes(citySearch.toLowerCase())).length} {t("studio.compatibleCities").toLowerCase()}</p>
                   <div className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-slate-200 scrollbar-thin">
-                    {compatCities.map((c) => (
+                    {compatCities.filter(c => !citySearch || c.cityName.toLowerCase().includes(citySearch.toLowerCase())).map((c) => (
                       <button
                         key={c.cityId}
+                        data-testid="city-button"
                         className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-brand-50 ${city?.cityId === c.cityId ? "bg-brand-50 ring-1 ring-brand-300" : ""}`}
                         onClick={() => onCitySelect(c)}
                       >
@@ -366,7 +385,7 @@ export default function Studio() {
                             {c.isSignature && <span className="badge-amber text-[8px]">{t("studio.signature")}</span>}
                           </div>
                           <div className="flex items-center gap-2 text-xs text-slate-500">
-                            <span>{c.minKm}–{c.maxKm} km</span>
+                            <span>{c.minKm}-{c.maxKm} km</span>
                             <span className="text-accent-600">{Math.round(c.fitScore * 100)}%</span>
                           </div>
                         </div>
@@ -379,27 +398,7 @@ export default function Studio() {
             </div>
           )}
 
-          {/* Activity */}
-          <div>
-            <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-              <ActivityIcon size={16} className="text-brand-500" />
-              {t("studio.activity")}
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {ACTIVITIES.map((a) => (
-                <button
-                  key={a.value}
-                  className={`flex flex-col items-center gap-1 rounded-xl border-2 py-2.5 text-sm font-medium transition-all ${
-                    activity === a.value ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300"
-                  }`}
-                  onClick={() => setActivity(a.value)}
-                >
-                  <span className="text-lg">{a.icon}</span>
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
+
 
           {/* Distance */}
           {city && (
@@ -436,26 +435,7 @@ export default function Studio() {
             </div>
           )}
 
-          {/* Difficulty */}
-          <div>
-            <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-              <GaugeIcon size={16} className="text-brand-500" />
-              {t("studio.difficulty")}
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {DIFFICULTIES.map((d) => (
-                <button
-                  key={d.value}
-                  className={`rounded-xl border-2 py-2 text-sm font-medium transition-all ${
-                    difficulty === d.value ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 text-slate-600 hover:border-slate-300"
-                  }`}
-                  onClick={() => setDifficulty(d.value)}
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
-          </div>
+
 
           {/* Generate / Cancel */}
           <div className="space-y-2">
@@ -479,56 +459,76 @@ export default function Studio() {
             )}
           </div>
 
-          {/* Progress */}
-          {job && (polling || job.status === "completed" || job.status === "failed") && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4" aria-live="polite">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-semibold text-slate-700">
-                  {job.status === "completed" ? t("studio.complete") : job.status === "failed" ? t("studio.failed") : t("studio.generating")}
-                </span>
-                <span className="font-mono font-bold text-brand-600">{progressPct}%</span>
-              </div>
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${job.status === "failed" ? "bg-rose-500" : "bg-gradient-to-r from-brand-500 to-accent-500"}`}
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              {job.progressStage && polling && (
-                <div className="mt-3 space-y-1">
-                  {STAGE_ORDER.filter((s) => s !== "completed").slice(0, 10).map((stage, i) => {
-                    const done = i < currentStageIdx;
-                    const current = i === currentStageIdx;
-                    return (
-                      <div key={stage} className={`flex items-center gap-2 text-xs ${done ? "text-accent-600" : current ? "text-brand-600 font-medium" : "text-slate-400"}`}>
-                        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[8px] ${done ? "bg-accent-500 text-white" : current ? "bg-brand-500 text-white animate-pulse" : "bg-slate-200"}`}>
-                          {done ? "✓" : i + 1}
-                        </span>
-                        {t("stage." + stage) || stage}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
 
-          {error && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-sm text-rose-800">
-              <AlertIcon size={18} className="mt-0.5 shrink-0 text-rose-500" />
-              <div>
-                <div className="font-semibold">{t("studio.genFailed")}</div>
-                <div className="mt-0.5 text-xs">{error}</div>
-              </div>
-            </div>
-          )}
+
+
         </div>
       </aside>
 
       {/* Main area */}
       <main className="flex flex-1 flex-col overflow-hidden">
         <div className="relative flex-1 overflow-hidden">
-          {geojson ? (
+          {polling ? (
+            <div className="flex h-full items-center justify-center bg-grid-pattern bg-[size:40px_40px]">
+              <div className="text-center">
+                <div className="relative mx-auto mb-4 flex h-20 w-20 items-center justify-center">
+                  <div className="absolute inset-0 animate-ping rounded-full bg-brand-400 opacity-20" />
+                  <div className="absolute inset-2 animate-pulse rounded-full bg-accent-400 opacity-40" />
+                  <div className="relative flex h-full w-full items-center justify-center rounded-3xl bg-gradient-to-br from-brand-500 to-accent-500 text-white shadow-xl shadow-brand-500/30">
+                    <SparklesIcon size={40} className="animate-pulse" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-bold text-slate-700 animate-pulse">{t("studio.generating")}</h3>
+                <p className="mt-2 max-w-sm text-sm text-slate-500 mb-6">
+                  {lang === "hu" ? "Kérlek várj, az algoritmus épp a valós utcahálózatra illeszti a formát..." : "Please wait while the algorithm snaps the shape to the real street network..."}
+                </p>
+
+                {/* Progress */}
+                {job && (
+                  <div className="mx-auto max-w-md rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm p-5 text-left shadow-sm" aria-live="polite">
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="font-semibold text-slate-700">
+                        {job.status === "completed" ? t("studio.complete") : job.status === "failed" ? t("studio.failed") : t("studio.generating")}
+                      </span>
+                      <span className="font-mono font-bold text-brand-600">{progressPct}%</span>
+                    </div>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${job.status === "failed" ? "bg-rose-500" : "bg-gradient-to-r from-brand-500 to-accent-500"}`}
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    {job.progressStage && polling && (
+                      <div className="mt-4 grid grid-cols-2 gap-y-2 gap-x-4">
+                        {STAGE_ORDER.filter((s) => s !== "completed").slice(0, 16).map((stage, i) => {
+                          const done = i < currentStageIdx;
+                          const current = i === currentStageIdx;
+                          return (
+                            <div key={stage} className={`flex items-center gap-2 text-xs ${done ? "text-accent-600" : current ? "text-brand-600 font-medium" : "text-slate-400 opacity-50"}`}>
+                              <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] ${done ? "bg-accent-500 text-white" : current ? "bg-brand-500 text-white animate-pulse" : "bg-slate-200"}`}>
+                                {done ? "✓" : i + 1}
+                              </span>
+                              <span className="truncate">{t("stage." + stage) || stage}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex h-full items-center justify-center bg-grid-pattern bg-[size:40px_40px]">
+              <div className="text-center max-w-md p-6 bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border border-rose-200">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-rose-100 text-rose-500">
+                  <AlertIcon size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800">{t("studio.genFailed")}</h3>
+                <p className="mt-3 text-sm text-slate-600">{error}</p>
+              </div>
+            </div>
+          ) : geojson ? (
             <RouteMap key={selected?.candidateId ?? "empty"} geojson={geojson} center={undefined} />
           ) : sortedSuggestions.length > 0 ? (
             <div className="flex h-full items-center justify-center bg-grid-pattern bg-[size:40px_40px]">
@@ -632,11 +632,8 @@ export default function Studio() {
                 <button className="btn-dark px-4 py-2.5 text-sm" onClick={createRoute} disabled={!selected}>
                   {routeId ? <><CheckIcon size={16} className="text-accent-400" />{t("studio.routeReady")}</> : t("studio.createRoute")}
                 </button>
-                <a className={`btn px-4 py-2.5 text-sm ${routeId ? "bg-brand-600 text-white hover:bg-brand-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`} href={routeId ? api.gpxUrl(routeId, "continuous") : undefined} download>
+                <a className={`btn px-4 py-2.5 text-sm ${routeId ? "bg-brand-600 text-white hover:bg-brand-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`} href={routeId ? api.gpxUrl(routeId, "continuous") : undefined} download="route.gpx">
                   <DownloadIcon size={16} />GPX
-                </a>
-                <a className={`btn px-4 py-2.5 text-sm ${routeId ? "bg-slate-700 text-white hover:bg-slate-800" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`} href={routeId ? api.gpxUrl(routeId, "connect_the_dots") : undefined} download>
-                  <DownloadIcon size={14} />{lang === "hu" ? "Pontok" : "Dots"}
                 </a>
                 <button className="btn-secondary px-4 py-2.5 text-sm" disabled={!routeId} onClick={share}>
                   <ShareIcon size={16} />{t("studio.share")}

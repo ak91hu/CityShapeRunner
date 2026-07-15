@@ -51,5 +51,15 @@ def test_keypoints_distinct(mini_grid):
     ]]
     snap = snap_polyline(target_lonlat, filtered, fc.graph.projector, "running")
     route = repair_and_route(snap, filtered, "running", "medium")
-    # keypoints are distinct consecutive control nodes
     assert 2 <= len(route.keypoint_lonlat) <= len(snap.snapped_node_ids)
+
+
+def test_control_indices_scaling():
+    from app.core.snapping import _control_indices
+    assert len(_control_indices(2)) == 2
+    # At n=100, n//2 = 50. Max(32, min(256, 50)) = 50
+    assert len(_control_indices(100)) == 50
+    # At n=600, n//2 = 300. Max(32, min(256, 300)) = 256
+    assert len(_control_indices(600)) == 256
+    # At n=20, n//2 = 10. Max(32, min(256, 10)) = 32 -> min(32, 20) = 20
+    assert len(_control_indices(20)) == 20

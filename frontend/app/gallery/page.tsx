@@ -20,7 +20,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function GalleryPage() {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const [artworks, setArtworks] = useState<ArtworkSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -128,7 +128,7 @@ export default function GalleryPage() {
               </div>
               <div className="p-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-900">{a.name}</h3>
+                  <h3 className="font-bold text-slate-900">{tShape(a.id, a.name)}</h3>
                   {a.isCitySignature && <SparklesIcon size={14} className="text-amber-500" />}
                 </div>
                 <div className="mt-1.5 flex items-center gap-1.5">
@@ -137,7 +137,7 @@ export default function GalleryPage() {
                 </div>
                 <div className="mt-2 flex items-center gap-1 text-xs text-slate-500">
                   <RulerIcon size={12} />
-                  {a.recommendedMinKm}–{a.recommendedMaxKm} km
+                  {a.recommendedMinKm}-{a.recommendedMaxKm} km
                 </div>
               </div>
             </Link>

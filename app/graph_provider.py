@@ -28,7 +28,7 @@ def graph_for_city(city_id: str) -> tuple[RoadGraph, Projector, BBoxMetric] | No
     if osm_result is not None:
         return osm_result
 
-    logger.warning("Falling back to synthetic grid for %s", city_id)
+    logger.warning("Failed to load real OSM data for %s. Falling back to synthetic grid.", city_id)
     return build_synthetic_graph_for_city(city)
 
 
@@ -50,7 +50,7 @@ def city_or_fixture(city_id: str) -> tuple[City, RoadGraph, Projector, BBoxMetri
             osm_id=None, osm_type=None, bbox=(fc.centroid[1] - 0.05, fc.centroid[0] - 0.05,
                                               fc.centroid[1] + 0.05, fc.centroid[0] + 0.05),
             centroid=fc.centroid, has_river=fc.has_river, bridge_count=fc.bridge_count,
-            road_density=0.8, city_affinity_tags=[], signature_artwork_ids=fc.signature_artwork_ids,
+            road_density=0.8, city_affinity_tags=[], featured_artwork_ids=fc.featured_artwork_ids,
         )
         return proxy, fc.graph, fc.graph.projector, fc.bbox_metric
     return None

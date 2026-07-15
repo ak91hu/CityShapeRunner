@@ -23,7 +23,7 @@ import {
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 
 export default function RouteViewPage({ params }: { params: Promise<{ routeId: string }> }) {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const { routeId } = use(params);
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [share, setShare] = useState<ShareView | null>(null);
@@ -45,7 +45,7 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
     if (!shareUrl) return;
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 500);
   };
 
   if (err) return (
@@ -68,7 +68,7 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
             <RouteIcon size={28} />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight">{route.artworkName}</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight">{tShape("", route.artworkName)}</h1>
             <p className="text-sm text-slate-500 capitalize">
               {t("studio." + route.activity)} · {route.distanceKm} km
               {route.elevationGainM != null && ` · ${route.elevationGainM}m`}
@@ -76,11 +76,8 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
           </div>
         </div>
         <div className="flex gap-2">
-          <a className="btn-primary px-4 py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download>
+          <a className="btn-primary px-4 py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download="route.gpx">
             <DownloadIcon size={16} /> GPX
-          </a>
-          <a className="btn-secondary px-4 py-2.5 text-sm" href={api.gpxUrl(route.routeId, "connect_the_dots")} download>
-            <DownloadIcon size={14} /> {t("route.dots")}
           </a>
         </div>
       </div>
@@ -168,25 +165,15 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-4">
         <div className="card p-5">
           <div className="flex items-center gap-2">
             <DownloadIcon size={20} className="text-brand-600" />
             <h3 className="font-bold">{t("route.continuous")}</h3>
           </div>
           <p className="mt-2 text-sm text-slate-600">{t("route.continuousDesc")}</p>
-          <a className="btn-primary mt-3 w-full py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download>
+          <a className="btn-primary mt-3 w-full py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download="route.gpx">
             <DownloadIcon size={16} /> {t("route.downloadContinuous")}
-          </a>
-        </div>
-        <div className="card p-5">
-          <div className="flex items-center gap-2">
-            <DownloadIcon size={20} className="text-slate-600" />
-            <h3 className="font-bold">{t("route.dots")}</h3>
-          </div>
-          <p className="mt-2 text-sm text-slate-600">{t("route.dotsDesc")}</p>
-          <a className="btn-secondary mt-3 w-full py-2.5 text-sm" href={api.gpxUrl(route.routeId, "connect_the_dots")} download>
-            <DownloadIcon size={14} /> {t("route.downloadDots")}
           </a>
         </div>
       </div>

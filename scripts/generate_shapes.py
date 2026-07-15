@@ -137,7 +137,7 @@ def snowflake(cx, cy, r):
 
 
 # --------------------------------------------------------------------------- #
-# Shape definitions — each value is the inner SVG markup for viewBox 0 0 100 100
+# Shape definitions - each value is the inner SVG markup for viewBox 0 0 100 100
 # --------------------------------------------------------------------------- #
 
 SHAPES: dict[str, str] = {

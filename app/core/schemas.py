@@ -37,7 +37,6 @@ class JobStatus(str, Enum):
 
 class ExportMode(str, Enum):
     continuous = "continuous"
-    connect_the_dots = "connect_the_dots"
 
 
 class GeoPoint(CamelModel):
@@ -60,7 +59,7 @@ class CityDetail(CitySuggestion):
     road_density: float | None = None
     has_river: bool | None = None
     bridge_count: int | None = None
-    signature_artwork_ids: list[str] = Field(default_factory=list)
+    featured_artwork_ids: list[str] = Field(default_factory=list)
 
 
 class ArtworkSummary(CamelModel):
@@ -71,7 +70,7 @@ class ArtworkSummary(CamelModel):
     recommended_min_km: float
     recommended_max_km: float
     aspect_ratio: float
-    is_city_signature: bool = False
+    is_city_featured: bool = False
     preview_svg_url: str
     tags: list[str] = Field(default_factory=list)
     city_affinity_tags: list[str] = Field(default_factory=list)
@@ -151,7 +150,6 @@ class RouteDetail(CamelModel):
     scores: ScoreBreakdown
     warnings: list[str] = Field(default_factory=list)
     gpx_url: str
-    gpx_connect_the_dots_url: str | None = None
     share_url: str | None = None
     visibility: str = "private"
 

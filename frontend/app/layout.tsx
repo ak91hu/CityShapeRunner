@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import { I18nProvider } from "@/lib/i18n";
 
 export const metadata: Metadata = {
-  title: "CityShapeRunner — GPS art útvonalak bármely városból",
+  title: "CityShapeRunner - GPS art útvonalak bármely városból",
   description:
     "Generálj GPS art útvonalakat bármelyik városból. Válassz egy várost, aktivitást és távolságot, majd tölts le egy GPX fájlt az órádhoz.",
 };

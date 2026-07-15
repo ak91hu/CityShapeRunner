@@ -7,5 +7,8 @@ const nextConfig = {
       { source: "/assets/:path*", destination: `${api}/assets/:path*` },
     ];
   },
+  devIndicators: {
+    buildActivity: false,
+  },
 };
 export default nextConfig;

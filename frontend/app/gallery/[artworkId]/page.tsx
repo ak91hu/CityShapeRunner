@@ -25,7 +25,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function ArtworkDetailPage({ params }: { params: Promise<{ artworkId: string }> }) {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const { artworkId } = use(params);
   const [art, setArt] = useState<ArtworkDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export default function ArtworkDetailPage({ params }: { params: Promise<{ artwor
 
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-extrabold tracking-tight">{art.name}</h1>
+            <h1 className="text-3xl font-extrabold tracking-tight">{tShape(art.id, art.name)}</h1>
             {art.isCitySignature && (
               <span className="badge-amber">
                 <SparklesIcon size={12} /> {t("artwork.citySignature")}
@@ -67,7 +67,7 @@ export default function ArtworkDetailPage({ params }: { params: Promise<{ artwor
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3">
-            <StatCard label={t("artwork.recDistance")} value={`${art.recommendedMinKm}–${art.recommendedMaxKm} km`} icon={<RulerIcon size={16} />} />
+            <StatCard label={t("artwork.recDistance")} value={`${art.recommendedMinKm}-${art.recommendedMaxKm} km`} icon={<RulerIcon size={16} />} />
             <StatCard label={t("artwork.sampleCount")} value={art.defaultSampleCount} icon={<InfoIcon size={16} />} color="slate" />
             <StatCard label={t("artwork.aspectRatio")} value={art.aspectRatio.toFixed(1)} icon={<InfoIcon size={16} />} color="slate" />
             <StatCard label={t("artwork.normLength")} value={art.normalizedLength.toFixed(2)} icon={<InfoIcon size={16} />} color="slate" />

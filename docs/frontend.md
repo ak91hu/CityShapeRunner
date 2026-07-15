@@ -6,13 +6,13 @@ The frontend is a Next.js 15 App Router application with TypeScript.
 
 | Path | Description |
 |---|---|
-| `/` | Landing page — city search → compatible shapes, featured cities, gallery preview |
-| `/studio` | Generation studio — pick shape → pick city → generate → preview → download |
-| `/gallery` | Artwork gallery — browse 150+ shapes by category, difficulty, or search |
-| `/cities` | City explorer — browse 56 Hungarian cities with road network stats |
-| `/cities/[id]` | City detail — signature shapes, all compatible artworks |
-| `/artworks/[id]` | Artwork detail — metadata, city affinities, how it works |
-| `/routes/[id]` | Route detail — scores, GPX downloads, share link |
+| `/` | Landing page - search, feature overview, and call-to-action |
+| `/studio` | Generation studio - 3-step wizard to create GPS art |
+| `/gallery` | Artwork library - browse 500 shapes by category and difficulty |
+| `/cities` | City explorer - browse 2000 global cities with road network stats |
+| `/cities/[id]` | City detail - featured shapes and compatibility |
+| `/artworks/[id]` | Artwork detail - metadata, city affinities, how it works |
+| `/routes/[id]` | Route detail - scores, GPX downloads, share link |
 | `/share/[code]` | Shared route view |
 
 ## Key components
@@ -31,10 +31,10 @@ The frontend is a Next.js 15 App Router application with TypeScript.
 
 ## State management
 
-- **API data** — fetched client-side via `lib/api.ts` (wrapper around `fetch`)
-- **Generation flow** — state lifted to `StudioWizard` (shape, city, activity, distance)
-- **Job polling** — `useEffect` with exponential backoff polls `GET /api/generation/jobs/{id}`
-- **I18n** — React context provider in `lib/i18n.tsx`, supports HU/EN toggle
+- **API data** - fetched client-side via `lib/api.ts` (wrapper around `fetch`)
+- **Generation flow** - state lifted to `StudioWizard` (shape, city, activity, distance)
+- **Job polling** - `useEffect` with exponential backoff polls `GET /api/generation/jobs/{id}`
+- **I18n** - React context provider in `lib/i18n.tsx`, supports HU/EN toggle
 
 ## API client
 
@@ -53,7 +53,7 @@ const job = await api.generate({ cityId: "budapest", artworkId: "heart", activit
 
 - Tailwind CSS v4
 - Components follow a shared design language (card, button, input styles)
-- Responsive — works on mobile and desktop
+- Responsive - works on mobile and desktop
 - Hungarian default, English toggle in navbar
 
 ## Internationalization

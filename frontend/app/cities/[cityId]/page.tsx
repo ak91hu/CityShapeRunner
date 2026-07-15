@@ -30,7 +30,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function CityDetailPage({ params }: { params: Promise<{ cityId: string }> }) {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const { cityId } = use(params);
   const [city, setCity] = useState<CityDetail | null>(null);
   const [signatureArtworks, setSignatureArtworks] = useState<ArtworkSummary[]>([]);
@@ -100,10 +100,10 @@ export default function CityDetailPage({ params }: { params: Promise<{ cityId: s
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3">
-            <StatCard label={t("cities.roadDensity")} value={city.roadDensity ? city.roadDensity.toFixed(2) : "—"} icon={<SparklesIcon size={16} />} color="brand" />
+            <StatCard label={t("cities.roadDensity")} value={city.roadDensity ? city.roadDensity.toFixed(2) : "-"} icon={<SparklesIcon size={16} />} color="brand" />
             <StatCard label={t("cities.bridges")} value={city.bridgeCount ?? 0} icon={<BridgeIcon size={16} />} color={city.bridgeCount ? "accent" : "slate"} />
             <StatCard label={t("cities.river")} value={city.hasRiver ? t("cities.yes") : t("cities.no")} icon={<RiverIcon size={16} />} color={city.hasRiver ? "accent" : "slate"} />
-            <StatCard label="OSM ID" value={city.osmId ?? "—"} icon={<BuildingIcon size={16} />} color="slate" />
+            <StatCard label="OSM ID" value={city.osmId ?? "-"} icon={<BuildingIcon size={16} />} color="slate" />
           </div>
 
           {city.cityAffinityTags && city.cityAffinityTags.length > 0 && (
@@ -147,31 +147,6 @@ export default function CityDetailPage({ params }: { params: Promise<{ cityId: s
         </div>
       </div>
 
-      {signatureArtworks.length > 0 && (
-        <div className="mt-10">
-          <h2 className="section-title flex items-center gap-2">
-            <SparklesIcon size={24} className="text-amber-500" />
-            {t("city.signatureTitle")}
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">{t("city.signatureDesc")}</p>
-          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {signatureArtworks.map((a) => (
-              <Link key={a.id} href={`/gallery/${a.id}`} className="card card-hover group flex flex-col overflow-hidden">
-                <div className={`flex h-24 items-center justify-center bg-gradient-to-br ${CATEGORY_COLORS[a.category] || "from-slate-400 to-slate-500"} p-3`}>
-                  <img src={a.previewSvgUrl} alt={a.name} className="h-full w-full invert transition-transform group-hover:scale-110" />
-                </div>
-                <div className="p-2.5">
-                  <div className="font-semibold text-sm text-slate-900">{a.name}</div>
-                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                    <RulerIcon size={10} />
-                    {a.recommendedMinKm}–{a.recommendedMaxKm} km
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
 
       {allArtworks.length > 0 && (
         <div className="mt-10">
@@ -182,8 +157,8 @@ export default function CityDetailPage({ params }: { params: Promise<{ cityId: s
               <Link key={a.id} href={`/gallery/${a.id}`} className="card card-hover flex items-center gap-2.5 px-3 py-2">
                 <img src={a.previewSvgUrl} alt={a.name} className="h-8 w-8 rounded-lg bg-slate-50 p-1" />
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">{a.name}</div>
-                  <div className="text-xs text-slate-500">{a.recommendedMinKm}–{a.recommendedMaxKm} km</div>
+                  <div className="text-sm font-semibold text-slate-900">{tShape(a.id, a.name)}</div>
+                  <div className="text-xs text-slate-500">{a.recommendedMinKm}-{a.recommendedMaxKm} km</div>
                 </div>
                 <CategoryBadge category={a.category} />
               </Link>

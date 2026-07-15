@@ -57,7 +57,7 @@ def test_list_artworks_distance_filter():
     assert all(a.recommended_min_km * 0.5 <= 10.0 <= a.recommended_max_km * 2.0 for a in filtered)
 
 
-def test_city_detail_signature_artworks():
+def test_city_detail_featured_artworks():
     bp = get_city("budapest")
-    assert "heart" in bp.signature_artwork_ids
-    assert "parliament" in bp.signature_artwork_ids
+    assert "heart" in bp.featured_artwork_ids
+    assert "parliament" in bp.featured_artwork_ids

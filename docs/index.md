@@ -1,38 +1,34 @@
-# CityShapeRunner — Documentation
+# CityShapeRunner - Documentation
 
 CityShapeRunner is a GPS art generation platform. It takes an SVG shape and a
 city, and produces a GPX route that follows real streets while tracing that
-shape — ready to load onto a Garmin, Strava, or Komoot.
+shape - ready to load onto a Garmin, Strava, or Komoot.
 
 ## How it works
 
-1. **Pick a shape** — hearts, stars, animals, landmarks, and more (150+ curated
-   SVGs).
-2. **Pick a city** — 56 Hungarian cities with analysed road networks.
-3. **Generate** — the engine evaluates thousands of placements, rotations, and
-   scales; matches the shape to real streets via beam search; and returns
-   ranked route candidates.
-4. **Export** — download a `continuous` (dense trackpoints) or `connect-the-dots`
-   GPX file.
+1. **Pick a shape** - from the gallery of 500 SVG artworks.
+2. **Pick a city** - 2000 global cities with analysed road networks.
+3. **Generate** - the app maps the SVG to the real streets.
+4. **Download** - save the GPX 1.1 file and load it to your GPS watch.
 
 ## Key design decisions
 
 | Decision | Rationale |
 |---|---|
 | SVG-first, not image-based | Vectors preserve sharp corners and scale cleanly |
-| Graph-based matching | Roads are a graph — beam search over graph nodes |
+| Graph-based matching | Roads are a graph - beam search over graph nodes |
 | City-specific road graphs | Different densities suit different activities (run, cycle, walk) |
 | Corridor scoring + beam search | Fast rejection of bad fits before expensive route construction |
 | AI-assisted retry | Low-confidence results can request LLM refinement |
 
 ## Core stack
 
-- **Backend** — Python 3.13+, FastAPI, Uvicorn
-- **Geometry engine** — Shapely, OSMnx, NetworkX
-- **Frontend** — Next.js 15 (App Router), TypeScript, Leaflet, Tailwind CSS
-- **Database** — SQLite (dev), PostgreSQL/PostGIS (prod)
-- **Map data** — OpenStreetMap via OSMnx + OpenRouteService
-- **Build** — Docker Compose, Alembic
+- **Backend** - Python 3.13+, FastAPI, Uvicorn
+- **Geometry engine** - Shapely, OSMnx, NetworkX
+- **Frontend** - Next.js 15 (App Router), TypeScript, Leaflet, Tailwind CSS
+- **Database** - SQLite (dev), PostgreSQL/PostGIS (prod)
+- **Map data** - OpenStreetMap via OSMnx + Mapbox Directions API
+- **Build** - Docker Compose, Alembic
 
 ## Quick start
 
@@ -50,4 +46,4 @@ See [Getting started](getting-started.md) for the full guide.
 
 ---
 
-*CityShapeRunner — OpenStreetMap contributors*
+*CityShapeRunner - OpenStreetMap contributors*

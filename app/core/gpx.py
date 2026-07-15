@@ -58,7 +58,7 @@ def build_gpx(
     lines.append("  <trk>")
     lines.append(f"    <name>{escape(name)}</name>")
     lines.append("  <trkseg>")
-    for i, (lat, lon) in enumerate(pts):
+    for i, (lon, lat) in enumerate(pts):
         extra = ""
         if ele and i < len(ele) and ele[i] is not None:
             extra += f"<ele>{ele[i]:.1f}</ele>"
@@ -75,17 +75,12 @@ def build_continuous_gpx(route_lonlat: list[GeoPoint], name: str, description: s
     return build_gpx(route_lonlat, name, description, mode="continuous")
 
 
-def build_connect_the_dots_gpx(keypoint_lonlat: list[GeoPoint], name: str, description: str) -> str:
-    if len(keypoint_lonlat) < 2:
-        keypoint_lonlat = keypoint_lonlat + [keypoint_lonlat[-1]] if keypoint_lonlat else []
-    desc = description + " (connect-the-dots: pause/resume GPS recording between points to draw straight lines.)"
-    return build_gpx(keypoint_lonlat, name, desc, mode="connect_the_dots")
 
 
-def file_name(city: str, artwork: str, distance_km: float, activity: str, mode: str = "continuous") -> str:
+
+def file_name(city: str, artwork: str, distance_km: float, activity: str) -> str:
     dist_rounded = int(round(distance_km))
-    suffix = "-dots" if mode == "connect_the_dots" else ""
-    return f"{slugify(city)}-{slugify(artwork)}-{dist_rounded}k-{slugify(activity)}{suffix}.gpx"
+    return f"{slugify(city)}-{slugify(artwork)}-{dist_rounded}k-{slugify(activity)}.gpx"
 
 
 @dataclass

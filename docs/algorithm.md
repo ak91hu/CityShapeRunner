@@ -136,7 +136,7 @@ Start from street centerlines, preferably OpenStreetMap data.
 edge R-tree:
   nearest-street and corridor queries
 
-node signature index:
+node feature index:
   degree, outgoing bearing angles, local edge lengths
 
 bearing buckets:
@@ -152,7 +152,7 @@ routing accelerator:
   A* with landmarks, contraction hierarchy, or multi-level Dijkstra
 ```
 
-For prototypes, NetworkX is acceptable. For speed at city scale, use igraph, graph-tool, OSRM/Valhalla-style routing, contraction hierarchies, or a custom A* with geometric landmarks.
+For prototypes, NetworkX is acceptable. For speed at city scale, use igraph, graph-tool, contraction hierarchies, or a custom A* with geometric landmarks.
 
 ### 2. Parse each SVG into a weighted shape graph
 
@@ -277,7 +277,7 @@ branch points
 closed-shape extrema
 ```
 
-Find compatible city anchors through the node signature index:
+Find compatible city anchors through the node feature index:
 
 ```text
 intersection degree is compatible
@@ -1011,7 +1011,7 @@ Geometry:
 
 Graph routing:
   NetworkX for prototype
-  igraph, graph-tool, OSRM, Valhalla, or custom contraction hierarchy for speed
+  igraph, graph-tool, or custom contraction hierarchy for speed
 
 Spatial index:
   STRtree or R-tree

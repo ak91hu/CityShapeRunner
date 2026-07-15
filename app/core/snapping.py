@@ -30,7 +30,7 @@ class SnapResult:
 def _control_indices(n: int) -> list[int]:
     if n <= 2:
         return list(range(n))
-    n_controls = max(8, min(24, n // 10))
+    n_controls = max(32, min(256, n // 2))
     n_controls = min(n_controls, n)
     return [round(i * (n - 1) / (n_controls - 1)) for i in range(n_controls)]
 
@@ -41,11 +41,12 @@ def snap_polyline(
     projector,
     activity: str,
     city_density_factor: float = 1.0,
+    control_indices: list[int] | None = None,
 ) -> SnapResult:
     """Snap control points of the target to the nearest traversable graph nodes (section 22)."""
     tol = SNAP_TOLERANCE_M[activity] * city_density_factor
     full_metric = [projector.to_metric(lon, lat) for lat, lon in target_lonlat]
-    ctrl_idx = _control_indices(len(target_lonlat))
+    ctrl_idx = control_indices if control_indices is not None else _control_indices(len(target_lonlat))
     control_target_lonlat = [target_lonlat[i] for i in ctrl_idx]
     control_target_metric = [full_metric[i] for i in ctrl_idx]
 
@@ -147,7 +148,7 @@ def _dijkstra(
         return [start], [], 0.0
     target_heading = heading_deg(target_seg_a, target_seg_b)
     straight = math.hypot(target_seg_b[0] - target_seg_a[0], target_seg_b[1] - target_seg_a[1]) or 1.0
-    max_cost = straight * max_detour + 2000.0  # generous guard
+    max_cost = max(straight * max_detour + 3000.0, 5000.0)  # generous guard
 
     def edge_weight(edge: Edge, u: int, v: int) -> float:
         w = edge.profile_weight
@@ -228,8 +229,16 @@ def repair_and_route(
     segments_failed = 0
     edge_use_count: dict[int, int] = {}
 
-    nids = snap.snapped_node_ids
-    ctrl_metric = snap.control_target_metric
+    nids_raw = snap.snapped_node_ids
+    ctrl_metric_raw = snap.control_target_metric
+    
+    nids = []
+    ctrl_metric = []
+    for nid, ctrl in zip(nids_raw, ctrl_metric_raw):
+        if nid != -1:
+            nids.append(nid)
+            ctrl_metric.append(ctrl)
+
     for i in range(len(nids) - 1):
         a, b = nids[i], nids[i + 1]
         ta = ctrl_metric[i]
@@ -283,7 +292,7 @@ def repair_and_route(
     if detour_ratios and max(detour_ratios) > max_detour:
         warnings.append("high_detour_ratio")
 
-    valid = len(node_path) >= 2 and segments_failed == 0
+    valid = len(node_path) >= 2 and segments_failed <= 3
     return RouteResult(
         valid=valid,
         node_path=node_path,

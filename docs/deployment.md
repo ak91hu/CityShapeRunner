@@ -7,9 +7,9 @@ docker compose up --build -d
 ```
 
 Services:
-- `api` — FastAPI on port 8000
-- `frontend` — Next.js on port 3000
-- `db` — PostgreSQL 16 + PostGIS
+- `api` - FastAPI on port 8000
+- `frontend` - Next.js on port 3000
+- `db` - PostgreSQL 16 + PostGIS
 
 ## Manual deployment
 
@@ -35,10 +35,9 @@ npm start  # Next.js production server on port 3000
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CSR_ORS_API_KEY` | No | — | OpenRouteService API key for road snapping |
-| `CSR_ZEN_API_KEY` | No | — | Zen API key (AI-assisted retry) |
+| `CSR_MAPBOX_ACCESS_TOKEN` | No | - | Mapbox Access Token for road snapping |
+| `CSR_ZEN_API_KEY` | No | - | Zen API key (AI-assisted retry) |
 | `CSR_DATABASE_URL` | No | `sqlite://` | PostgreSQL connection string |
-| `CSR_DISABLE_ORS` | No | `false` | Skip ORS snapping, use grid |
 | `CSR_LOG_LEVEL` | No | `INFO` | Logging level |
 | `CSR_CORS_ORIGINS` | No | `*` | Allowed CORS origins |
 

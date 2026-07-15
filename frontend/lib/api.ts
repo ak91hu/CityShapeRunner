@@ -69,7 +69,7 @@ export const api = {
     cityId: string;
     activity: Activity;
     targetDistanceKm: number;
-    difficulty: Difficulty;
+    difficulty?: Difficulty;
     maxSuggestions: number;
     artworkIds?: string[];
   }) => json<GenerationJobCreated>(`/api/generation/jobs`, {

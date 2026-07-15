@@ -64,7 +64,7 @@ class Artwork(Base):
     recommended_min_km: Mapped[float] = mapped_column(Float, nullable=False)
     recommended_max_km: Mapped[float] = mapped_column(Float, nullable=False)
     default_sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
-    is_city_signature: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_city_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

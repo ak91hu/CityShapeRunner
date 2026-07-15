@@ -1,5 +1,5 @@
 site_name: CityShapeRunner
-site_description: GPS art generation platform — SVG shape matching to real streets
+site_description: GPS art generation platform - SVG shape matching to real streets
 site_url: https://github.com/anon/PathForge
 repo_url: https://github.com/anon/PathForge
 edit_uri: blob/main/docs/

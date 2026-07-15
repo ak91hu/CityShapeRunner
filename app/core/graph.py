@@ -80,12 +80,12 @@ class RoadGraph:
         for e in self.edges:
             apply_profile_weight(e, activity, difficulty)
         filtered = RoadGraph(nodes=dict(self.nodes), projector=self.projector)
+        filtered.edges = list(self.edges)
         for n in self.nodes.values():
             filtered.adj.setdefault(n.id, [])
         for e in self.edges:
             if e.rejected:
                 continue
-            filtered.edges.append(e)
             filtered.adj[e.from_id].append((e.to_id, e))
             # Respect oneway for cycling; for running/walking treat as bidirectional.
             directed = activity == "cycling" and e.oneway == "yes"
@@ -226,7 +226,7 @@ class FixtureCity:
     graph: RoadGraph
     has_river: bool = False
     bridge_count: int = 0
-    signature_artwork_ids: list[str] = field(default_factory=list)
+    featured_artwork_ids: list[str] = field(default_factory=list)
 
 
 def _make_grid_graph(
@@ -331,7 +331,7 @@ def build_mini_grid_city() -> FixtureCity:
         centroid=centroid,
         bbox_metric=(0.0, 0.0, (cols - 1) * spacing, (rows - 1) * spacing),
         graph=graph,
-        signature_artwork_ids=["heart", "star"],
+        featured_artwork_ids=["heart", "star"],
     )
 
 
@@ -345,6 +345,14 @@ def build_river_city() -> FixtureCity:
     right_origin = (700.0, 0.0)
     left_ids, left_edges, left_nodes = _make_grid_graph(proj, cols, rows, spacing, left_origin)
     right_ids, right_edges, right_nodes = _make_grid_graph(proj, cols, rows, spacing, right_origin)
+    # Offset right-grid node IDs to avoid collision with left grid
+    node_offset = max(left_nodes.keys()) + 1
+    right_nodes = {nid + node_offset: node for nid, node in right_nodes.items()}
+    for new_id, node in right_nodes.items():
+        node.id = new_id
+    for e in right_edges:
+        e.from_id += node_offset
+        e.to_id += node_offset
     nodes = {**left_nodes, **right_nodes}
     edges = list(left_edges) + list(right_edges)
     eid = max(e.id for e in edges) + 1 if edges else 0
@@ -380,7 +388,7 @@ def build_river_city() -> FixtureCity:
         graph=graph,
         has_river=True,
         bridge_count=2,
-        signature_artwork_ids=["bridge", "danube-wave"],
+        featured_artwork_ids=["bridge", "danube-wave"],
     )
 
 
@@ -408,7 +416,7 @@ def build_restricted_city() -> FixtureCity:
         centroid=centroid,
         bbox_metric=(0.0, 0.0, (cols - 1) * spacing, (rows - 1) * spacing),
         graph=graph,
-        signature_artwork_ids=["star", "crown"],
+        featured_artwork_ids=["star", "crown"],
     )
 
 
@@ -451,9 +459,7 @@ def build_synthetic_graph_for_city(city, max_dim: int = 18) -> tuple[RoadGraph, 
     Returns (graph, projector, bbox_metric).
     """
     proj = Projector.around(city.centroid[0], city.centroid[1])
-    # Center a moderate usable area on the centroid (projector center == (0,0)).
-    side = 6000.0
-    minx, miny, maxx, maxy = -side / 2, -side / 2, side / 2, side / 2
+    minx, miny, maxx, maxy = bbox_metric_for(proj, city.bbox)
     width = maxx - minx
     height = maxy - miny
     spacing = max(80.0, min(200.0, 160.0 - city.road_density * 60.0))
@@ -497,6 +503,14 @@ def build_synthetic_graph_for_city(city, max_dim: int = 18) -> tuple[RoadGraph, 
             proj, right_cols, rows, spacing, right_origin,
             foot_override=foot_override, bicycle_override=bicycle_override, access_override=access_override,
         )
+        # Offset right-grid node IDs to avoid collision with left grid
+        node_offset = max(left_nodes.keys()) + 1
+        right_nodes = {nid + node_offset: node for nid, node in right_nodes.items()}
+        for new_id, node in right_nodes.items():
+            node.id = new_id
+        for e in right_edges:
+            e.from_id += node_offset
+            e.to_id += node_offset
         nodes = {**left_nodes, **right_nodes}
         edges = list(left_edges) + list(right_edges)
         eid = max(e.id for e in edges) + 1 if edges else 0

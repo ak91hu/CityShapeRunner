@@ -34,3 +34,12 @@ site/
 
 # Fly
 fly.secrets.toml
+
+# Playwright
+playwright-report/
+test-results/
+scratch/
+
+*.graphml
+
+data/cache/

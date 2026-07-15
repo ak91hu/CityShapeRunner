@@ -174,10 +174,14 @@ def build_osm_graph_for_city(
             logger.info("Downloading OSM graph for %s", city.id)
             ox.settings.use_cache = True
             ox.settings.cache_folder = str(ox_raw_cache)
-            # OSMnx 2.x expects (north, south, east, west).
+            ox.settings.requests_timeout = 310
+            ox.settings.overpass_settings = '[out:json][timeout:300]'
+            ox.settings.overpass_url = "https://lz4.overpass-api.de/api/interpreter"
+            ox.settings.overpass_rate_limit = False
+            # OSMnx 2.x expects bbox=(left, bottom, right, top) which is (west, south, east, north).
             G_ox = ox.graph.graph_from_bbox(
-                bbox=(north, south, east, west),
-                network_type="all_private",
+                bbox=(west, south, east, north),
+                network_type="all_public",
                 simplify=True,
                 retain_all=False,
             )

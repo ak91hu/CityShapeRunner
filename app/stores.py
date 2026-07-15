@@ -53,8 +53,33 @@ class _Store:
         self.jobs: dict[str, JobRecord] = {}
         self.candidates: dict[str, Candidate] = {}
         self.candidate_city: dict[str, str] = {}
+        self.candidate_activity: dict[str, str] = {}
         self.routes: dict[str, RouteRecord] = {}
         self.shares: dict[str, str] = {}  # share_id -> route_id
+        self.cached_candidates: list[Candidate] = []
+        self._load_pregenerated()
+
+    def _load_pregenerated(self) -> None:
+        import os
+        import json
+        from app.core.schemas import ScoreBreakdown
+        from pathlib import Path
+        path = Path(os.environ.get("CSR_DATA_DIR", "C:/PathForge/data")) / "seed" / "pregenerated_candidates.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                for item in data:
+                    city_id = item.pop("city_id", None)
+                    activity = item.pop("activity", "running")
+                    item["scores"] = ScoreBreakdown(**item["scores"])
+                    c = Candidate(**item)
+                    self.cached_candidates.append(c)
+                    if city_id:
+                        self.candidate_city[c.candidate_id] = city_id
+                    self.candidate_activity[c.candidate_id] = activity
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to load pregenerated candidates: {e}")
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}_{uuid.uuid4().hex[:16]}"

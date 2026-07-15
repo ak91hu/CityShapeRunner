@@ -1,4 +1,4 @@
-# fly.toml — CityShapeRunner Web (Next.js)
+# fly.toml - CityShapeRunner Web (Next.js)
 app = "cityshaperunner-web"
 primary_region = "ams"
 

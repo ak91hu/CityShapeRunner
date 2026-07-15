@@ -17,14 +17,9 @@ class Settings(BaseSettings):
     database_url: str | None = None
     redis_url: str | None = None
 
-    nominatim_base_url: str = "https://nominatim.openstreetmap.org"
-    photon_base_url: str = "https://photon.komoot.io"
-    overpass_base_url: str = "https://overpass-api.de"
-    osrm_base_url: str = "http://router.project-osrm.org"
-
-    # OpenRouteService (snap-to-road + routing)
-    ors_api_key: str = ""
-    ors_base_url: str = "https://api.openrouteservice.org"
+    # Mapbox (snap-to-road + routing)
+    mapbox_access_token: str = ""
+    mapbox_base_url: str = "https://api.mapbox.com/directions/v5"
 
     # AI assistance (OpenCode Zen API)
     zen_api_key: str = ""
@@ -32,7 +27,6 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "change-me"
 
-    enable_connect_the_dots_export: bool = True
     enable_elevation: bool = False
     enable_user_accounts: bool = False
     enable_ai_retry: bool = True
@@ -51,11 +45,11 @@ class Settings(BaseSettings):
     max_ai_retry_rounds: int = 2
     min_corridor_score: float = 0.30
     min_weighted_coverage: float = 0.40
-    coarse_candidate_limit: int = 200
-    medium_candidate_limit: int = 50
-    final_candidate_limit: int = 15
-    beam_width: int = 40
-    candidates_per_sample: int = 5
+    coarse_candidate_limit: int = 400
+    medium_candidate_limit: int = 100
+    final_candidate_limit: int = 30
+    beam_width: int = 150
+    candidates_per_sample: int = 10
 
     data_dir: str = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -64,8 +58,8 @@ class Settings(BaseSettings):
         return bool(self.database_url)
 
     @property
-    def ors_available(self) -> bool:
-        return bool(self.ors_api_key)
+    def mapbox_available(self) -> bool:
+        return bool(self.mapbox_access_token)
 
     @property
     def ai_available(self) -> bool:

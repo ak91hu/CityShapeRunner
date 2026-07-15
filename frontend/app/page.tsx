@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import type { ArtworkSummary, CitySuggestion, ShapeCompatibility } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
+import { shapeNamesHu } from "@/lib/dict_hu";
 import {
   SearchIcon,
   MapPinIcon,
@@ -27,16 +28,16 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function Landing() {
-  const { t } = useI18n();
+  const { t, tShape } = useI18n();
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<CitySuggestion[]>([]);
+  const [results, setResults] = useState<ArtworkSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [artworks, setArtworks] = useState<ArtworkSummary[]>([]);
   const [cityNames, setCityNames] = useState<Record<string, string>>({});
-  const [selectedCity, setSelectedCity] = useState<CitySuggestion | null>(null);
-  const [cityShapes, setCityShapes] = useState<ShapeCompatibility[]>([]);
-  const [loadingShapes, setLoadingShapes] = useState(false);
+  const [selectedArtwork, setSelectedArtwork] = useState<ArtworkSummary | null>(null);
+  const [artworkCities, setArtworkCities] = useState<any[]>([]);
+  const [loadingCities, setLoadingCities] = useState(false);
 
   useEffect(() => {
     api.listArtworks().then(setArtworks).catch(() => {});
@@ -47,32 +48,34 @@ export default function Landing() {
     }).catch(() => {});
   }, []);
 
-  let debounce: ReturnType<typeof setTimeout>;
   const search = (v: string) => {
     setQ(v);
-    clearTimeout(debounce);
-    if (v.trim().length < 2) {
+    if (v.trim().length < 1) {
       setResults([]);
       return;
     }
-    setSearching(true);
-    debounce = setTimeout(() => {
-      api.searchCities(v).then(setResults).catch(() => setResults([])).finally(() => setSearching(false));
-    }, 250);
+    const qLower = v.toLowerCase();
+    const filtered = artworks.filter(a => {
+      const nameEn = a.name.toLowerCase();
+      const nameHu = shapeNamesHu[a.id] || "";
+      const catHu = (t("cat." + a.category) || "").toLowerCase();
+      return nameEn.includes(qLower) || nameHu.includes(qLower) || catHu.includes(qLower) || a.category.includes(qLower);
+    });
+    setResults(filtered.slice(0, 10));
   };
 
-  const selectCity = (c: CitySuggestion) => {
-    setSelectedCity(c);
+  const selectArtwork = (a: ArtworkSummary) => {
+    setSelectedArtwork(a);
     setResults([]);
-    setQ(c.name);
-    setLoadingShapes(true);
-    setCityShapes([]);
-    api.getCityArtworks(c.id).then((r) => {
-      setCityShapes(r.items.slice(0, 24));
-      setLoadingShapes(false);
+    setQ(a.name);
+    setLoadingCities(true);
+    setArtworkCities([]);
+    api.getCompatibleCities(a.id, "running").then((r) => {
+      setArtworkCities(r.items.slice(0, 24));
+      setLoadingCities(false);
     }).catch(() => {
-      setCityShapes([]);
-      setLoadingShapes(false);
+      setArtworkCities([]);
+      setLoadingCities(false);
     });
   };
 
@@ -98,34 +101,36 @@ export default function Landing() {
             {t("landing.desc")}
           </p>
 
-          <div className="relative mx-auto mt-8 max-w-xl">
-            <div className="relative">
-              <SearchIcon size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="relative z-[100] mx-auto mt-8 max-w-xl float-anim">
+            <div className="relative glass-card rounded-2xl overflow-hidden p-1 shadow-2xl shadow-brand-500/20">
+              <SearchIcon size={20} className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
-                className="input py-3.5 pl-12 pr-4 text-base shadow-md"
-                placeholder={t("landing.searchPlaceholder")}
+                className="w-full bg-transparent py-4 pl-14 pr-4 text-lg font-medium placeholder:text-slate-400 focus:outline-none"
+                placeholder={t("studio.searchShape")}
                 value={q}
                 onChange={(e) => search(e.target.value)}
-                aria-label={t("studio.searchCity")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && q.trim()) {
+                    router.push(`/studio?q=${encodeURIComponent(q)}`);
+                  }
+                }}
+                aria-label={t("studio.searchShape")}
               />
-              {searching && (
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
-                </div>
-              )}
             </div>
             {results.length > 0 && (
-              <ul className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-slide-up">
+              <ul className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl animate-slide-up">
                 {results.map((r) => (
                   <li key={r.id}>
                     <button
                       className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-brand-50 transition-colors"
-                      onClick={() => selectCity(r)}
+                      onClick={() => selectArtwork(r)}
                     >
-                      <MapPinIcon size={18} className="text-brand-500" />
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${CATEGORY_COLORS[r.category] || "from-slate-400 to-slate-500"} p-1`}>
+                        <img src={r.previewSvgUrl} alt={r.name} className="h-full w-full invert" />
+                      </div>
                       <div>
-                        <div className="font-semibold text-slate-900">{r.name}</div>
-                        <div className="text-xs text-slate-500">{r.country}</div>
+                        <div className="font-semibold text-slate-900">{tShape(r.id, r.name)}</div>
+                        <div className="text-xs text-slate-500">{t("cat." + r.category) || r.category}</div>
                       </div>
                       <ArrowRightIcon size={16} className="ml-auto text-slate-300" />
                     </button>
@@ -135,8 +140,8 @@ export default function Landing() {
             )}
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/studio" className="btn-primary px-6 py-3 text-base shadow-md">
+          <div className="relative z-0 mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link href={q.trim() ? `/studio?q=${encodeURIComponent(q)}` : "/studio"} className="btn-primary px-6 py-3 text-base shadow-md">
               <SparklesIcon size={18} />
               {t("landing.openStudio")}
             </Link>
@@ -148,43 +153,43 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* City shape opportunities — shown when a city is selected from search */}
-      {selectedCity && (
+      {/* Artwork city opportunities - shown when an artwork is selected from search */}
+      {selectedArtwork && (
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 animate-slide-up">
           <div className="mb-6 flex items-center justify-between">
             <h2 className="section-title flex items-center gap-2">
-              <MapPinIcon size={24} className="text-brand-600" />
-              {selectedCity.name} — {t("landing.shapeOpportunities")}
+              <SparklesIcon size={24} className="text-brand-600" />
+              {tShape(selectedArtwork.id, selectedArtwork.name)} - {t("landing.shapeOpportunities") || "Compatible Cities"}
             </h2>
             <button
               className="btn-secondary px-4 py-2 text-sm"
-              onClick={() => router.push(`/studio?city=${selectedCity.id}`)}
+              onClick={() => router.push(`/studio?artwork=${selectedArtwork.id}`)}
             >
               <SparklesIcon size={16} />
               {t("landing.openStudio")}
             </button>
           </div>
-          {loadingShapes ? (
+          {loadingCities ? (
             <div className="flex items-center gap-3 py-8">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
               <span className="text-sm text-slate-500">{t("studio.loadingCompat")}</span>
             </div>
-          ) : cityShapes.length > 0 ? (
+          ) : artworkCities.length > 0 ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-              {cityShapes.map((s) => (
+              {artworkCities.map((c) => (
                 <Link
-                  key={s.artworkId}
-                  href={`/gallery/${s.artworkId}`}
-                  className="card card-hover group flex flex-col items-center p-3"
+                  key={c.cityId}
+                  href={`/studio?artwork=${selectedArtwork.id}&city=${c.cityId}`}
+                  className="card card-hover group flex flex-col items-center p-3 text-center"
                 >
-                  <div className={`mb-2 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br ${CATEGORY_COLORS[s.category] || "from-slate-400 to-slate-500"} p-1.5 shadow-sm`}>
-                    <img src={s.previewSvgUrl} alt={s.artworkName} className="h-full w-full invert" />
+                  <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600 transition-colors group-hover:bg-brand-100">
+                    <MapPinIcon size={22} />
                   </div>
-                  <span className="text-center text-xs font-medium text-slate-700">{s.artworkName}</span>
+                  <span className="text-center text-sm font-semibold text-slate-900">{c.cityName}</span>
                   <div className="mt-1 flex items-center gap-1.5 text-[10px]">
-                    {s.isSignature && <span className="badge-amber text-[8px]">{t("studio.signature")}</span>}
-                    <span className="font-mono text-accent-600">{Math.round(s.fitScore * 100)}%</span>
-                    <span className="text-slate-400">{s.minKm}–{s.maxKm}km</span>
+                    {c.isSignature && <span className="badge-amber text-[8px]">{t("studio.signature")}</span>}
+                    <span className="font-mono text-accent-600">{Math.round(c.fitScore * 100)}%</span>
+                    <span className="text-slate-400">{c.minKm}-{c.maxKm}km</span>
                   </div>
                 </Link>
               ))}
@@ -246,7 +251,7 @@ export default function Landing() {
               <div className={`mb-2 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br ${CATEGORY_COLORS[a.category] || "from-slate-400 to-slate-500"} p-1.5 shadow-sm`}>
                 <img src={a.previewSvgUrl} alt={a.name} className="h-full w-full invert" />
               </div>
-              <span className="text-center text-xs font-medium text-slate-700">{a.name}</span>
+              <span className="text-center text-xs font-medium text-slate-700">{tShape(a.id, a.name)}</span>
             </Link>
           ))}
         </div>
@@ -274,10 +279,6 @@ export default function Landing() {
                 <div>
                   <div className="font-semibold">{t("landing.continuousMode")}</div>
                   <p className="mt-1 text-white/80">{t("landing.continuousDesc")}</p>
-                </div>
-                <div>
-                  <div className="font-semibold">{t("landing.dotsMode")}</div>
-                  <p className="mt-1 text-white/80">{t("landing.dotsDesc")}</p>
                 </div>
               </div>
               <Link href="/studio" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2.5 text-sm font-semibold backdrop-blur hover:bg-white/30 transition-colors">
