@@ -1,73 +1,107 @@
 # CityShapeRunner
 
-**SVG-first GPS art generation platform** — pick a shape and a city, and get a
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
+![Python Version](https://img.shields.io/badge/Python-3.13-brightgreen?style=for-the-badge&logo=python)
+![React Next.js](https://img.shields.io/badge/Frontend-Next.js-black?style=for-the-badge&logo=next.js)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![OSMnx](https://img.shields.io/badge/OSMnx-Network_Analysis-blue?style=for-the-badge)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![Leaflet](https://img.shields.io/badge/Leaflet-199900?style=for-the-badge&logo=leaflet&logoColor=white)
+![Cities](https://img.shields.io/badge/Cities-500-orange?style=for-the-badge)
+![Artworks](https://img.shields.io/badge/Artworks-500-blueviolet?style=for-the-badge)
+
+An intelligent application that wraps beautiful GPS art over real-world road networks.
+Select from 500 vector artworks and choose one of 500 Hungarian cities. The app finds the best
+matching scale, rotation, and exact streets to place the artwork on, producing a continuous
 GPX route that follows real streets while tracing that shape. Load it onto your
 Garmin, Strava, or Komoot and go draw.
 
-156 artworks · 56 Hungarian cities · Running/Cycling/Walking · GPX 1.1
+500 artworks · 500 cities · Running/Cycling/Walking · GPX 1.1
 
 ## Features
 
-### Shape library (156 artworks, 7 categories)
-- **Animals** — butterfly, fish, wolf, deer, squirrel, hedgehog, bee, ant,
+### Shape library (300 artworks, 7 categories)
+- **Animals** - butterfly, fish, wolf, deer, squirrel, hedgehog, bee, ant,
   spider, seahorse, jellyfish, starfish, horse, cat, dog, bird, rabbit, owl,
   swan, crow, penguin, dolphin, shark, whale, snail, frog, dragon, unicorn,
   phoenix, peacock, crab, octopus, elephant, giraffe, lion, tiger, bear,
   snake, turtle, parrot
-- **Nature** — tree, flower, sun, moon, mountain, wave, lightning, snowflake,
+- **Nature** - tree, flower, sun, moon, mountain, wave, lightning, snowflake,
   volcano, waterfall, rainbow, tornado, island, desert, forest, canyon,
   glacier, aurora, leaf, mushroom, cloud, droplet
-- **City** — crown, castle, bridge, parliament, basilica, chain-bridge,
+- **City** - crown, castle, bridge, parliament, basilica, chain-bridge,
   opera, cathedral, windmill, lighthouse, fountain, pagoda, temple, pyramid,
   colosseum, eiffel-tower, statue, gate
-- **Symbols** — heart, star, arrow, cross, infinity, peace, yin-yang,
+- **Symbols** - heart, star, arrow, cross, infinity, peace, yin-yang,
   shield, sword, ring, crystal, gem, star8, pentagon, octagon, queen-crown,
   diamond, clover, anchor, key, lock, gear, compass, telescope
-- **Sports** — bicycle, runner, swimmer, skateboard, surfboard, kayak,
+- **Sports** - bicycle, runner, swimmer, skateboard, surfboard, kayak,
   canoe, golf-club, hockey-stick, volleyball, bowling, archery-bow,
   parachute, dumbbell, target, trophy
-- **Funny** — balloon, cake, ice-cream, donut, coffee, hotdog, hamburger,
+- **Funny** - balloon, cake, ice-cream, donut, coffee, hotdog, hamburger,
   cocktail, pretzel, sunglasses, hat, mask, robot, rocket, ufo, ghost,
   skeleton, alien, smiley, wink
-- **Basic** — square, circle, triangle, hexagon, spiral, zigzag, ribbon,
+- **Basic** - square, circle, triangle, hexagon, spiral, zigzag, ribbon,
   loop, wavy, chevron, crosshair, grid
 
-### City road network analysis (56 Hungarian cities)
-- Activity-specific road graphs — running, cycling, walking
+### City road network analysis (500 cities in Hungary)
+- Activity-specific road graphs - running, cycling, walking
 - Road density, bridge count, river/water boundaries
-- Per-city signature shapes that fit the geography best
+- Per-city featured shapes that fit the geography best
 - Lazily loaded and LRU-cached for performance
 
-### SVG-driven shape matching algorithm
-- Parses SVG paths into weighted shape graphs (polylines + control points)
-- Normalizes preserving aspect ratio, scales to target distance
-- Enumerates multiple rotations, scales, and placements
-- **Corridor scoring** — fast rejection of bad placements before expensive
-  route construction
-- **Beam search matching** — aligns shape control points to road graph nodes
-- **Route construction** — connects matched segments via shortest paths
-- **Scoring** — composite score from shape fidelity, distance accuracy, road
-  quality, and continuity
+## The GPS Art Generation Algorithm
 
-### Generation pipeline
-1. City metadata and road graph loading
-2. SVG parsing into weighted shape graph
-3. Shape-to-city suitability estimation
-4. Anchor-based transform generation (scale + rotation + placement)
-5. Corridor-based rejection scoring
-6. Beam map matching to streets
-7. Shape-aware route construction
-8. Candidate refinement and distance calibration
-9. Multi-metric scoring (shape fidelity, coverage, routeability)
-10. Optional AI-assisted retry for low-confidence results
-11. OpenRouteService snap-to-real-roads (when API key configured)
-12. GPX 1.1 export in two modes
+Mapping arbitrary 2D vector shapes onto a constrained real-world street grid is a complex, NP-hard geometric optimization problem. Our custom routing algorithm uses a multi-stage approach, leveraging spatial indices and graph traversal techniques to achieve this in under 3 seconds per shape.
 
-### GPX export modes
-- **Continuous mode** — dense trackpoints following the road network. Best
-  for Garmin, Komoot, and Strava navigation.
-- **Connect-the-dots mode** — only key control points. Use for pause-plot
-  GPS recording where straight lines are drawn between points.
+### 1. Shape Normalization & Graph Transformation
+- **SVG Parsing**: The 2D vector artwork (SVG) is parsed. Bezier curves are discretized into line segments based on curvature density.
+- **Rescaling & Rotation**: The parsed geometry is normalized into a local metric coordinate system. The algorithm explores a configurable search space of scales (e.g., 5km, 10km, 21km targets) and rotations (0° to 360° with a dynamic step size).
+
+### 2. Anchor-based Placement & Corridor Scoring (Heuristic Rejection)
+- Instead of attempting a full graph-match for every location in a city, we extract **structural anchors** from the shape (sharp corners, bounding box extremities, centroids).
+- We translate the shape over the city map using a dense grid stride. For each placement, a fast **Corridor Scoring** evaluates how many graph nodes fall within a buffer distance (e.g., 10-20 meters) of the shape's segments.
+- Placements falling into water bodies or areas with zero road density are aggressively pruned.
+- Only the top `N` candidates proceed to the next phase.
+
+### 3. Beam Search Map Matching
+- For the surviving placements, we align the shape's control points directly to the nearest physical nodes in the OSMnx graph using an `R-tree` spatial index.
+- Since strict snapping can cause ugly detours, a **Beam Search** algorithm is employed: it traces the ideal vector path and looks for contiguous edges. It evaluates multiple branch paths simultaneously, scoring them by deviation penalty (distance from ideal path) and edge weight (road type suitability for running/cycling).
+
+### 4. A* Route Construction & Shortest Path Bridging
+- Often, the street grid doesn't perfectly match the shape, leading to gaps in the matched segments.
+- The algorithm connects disjointed matched segments using a custom **A* shortest path** traversal over the road network. The heuristic combines physical distance and turn penalties.
+- To ensure continuous tracking without stopping or lifting the "pen", Eulerian path algorithms and penalty graphs handle overlapping routes and backtracking efficiently.
+
+### 5. Multi-metric Scoring & Refinement
+- After constructing a full, continuous `GPX` geometry, the final route is scored across four dimensions:
+  - **Shape Fidelity (0-100)**: Fréchet distance and Hausdorff distance between the original SVG and the resulting GPX path.
+  - **Road Score (0-100)**: Penalizes multi-lane highways or non-pedestrian zones.
+  - **Distance Match (0-100)**: How close the final generated distance is to the user's requested target.
+  - **Continuity**: Evaluates necessary overlapping or detours.
+- If the Mapbox integration is enabled, an optional final pass uses the `Mapbox Directions API (walking/cycling profile)` to snap raw geometry directly to precise road alignments for superior GPS device compatibility.
+
+## A GPS Art Generáló Algoritmus (Magyar nyelvű összefoglaló)
+
+Egy tetszőleges 2D-s vektoros alakzat valós úthálózatra való ráillesztése egy komplex, NP-nehéz geometriai optimalizációs probléma. A saját fejlesztésű algoritmus egy többlépcsős megközelítést alkalmaz, amely térbeli indexelést és gráfelméleti kereséseket használ, hogy alakzatonként 3 másodperc alatt eredményt adjon.
+
+### 1. Alakzat normalizálás és Horgonypontos elhelyezés
+- Az SVG vektorokat beolvassa, a görbéket szakaszokra bontja.
+- Sűrű rácsos hálózat mentén (grid stride) végigpróbálja az alakzatot a városon, egy gyors **Corridor Scoring** heurisztikával kiszűrve az esélytelen (vízbe vagy út nélküli területekre eső) pozíciókat.
+
+### 2. Nyalábsugár-keresés (Beam Search) a vonalillesztéshez
+- A megmaradt esélyes elhelyezéseknél egy **R-tree** (térbeli indexelés) segítségével megtalálja a legközelebbi valós utakat az OSMnx gráfban.
+- Szigorú illesztés helyett egy **Beam Search** algoritmust használ, amely egyszerre több lehetséges ösvényt vizsgál, büntetve a nagy kitérőket és előnyben részesítve a gyalogos/futó utakat.
+
+### 3. A* algoritmus és útvonal összekötés
+- A valós utak ritkán adják ki tökéletesen az alakzatot, így a létrejött útszakaszok között "lyukak" lesznek.
+- Ezeket a szakaszokat egy egyedi **A* (A-csillag)** legrövidebb útkereső algoritmussal köti össze.
+- Euler-útvonalak elveit használja az átfedések és visszafordulások kezelésére, így biztosítva, hogy az útvonal megállás nélkül, folytonosan végigfutható legyen.
+
+### 4. Több-metrikás pontozás (Fréchet és Hausdorff távolság)
+- A kész útvonal geometriai hűségét a **Fréchet távolság** és a **Hausdorff távolság** segítségével méri a rendszer, összevetve az eredeti alakzattal.
+- Emellett értékeli az utak minőségét (Road Score) és a kért cél-távolságtól való eltérést is.
 
 ### API
 - RESTful JSON API with 15+ endpoints
@@ -80,7 +114,7 @@ Garmin, Strava, or Komoot and go draw.
 - Landing page with city search → compatible shape discovery
 - Generation studio with step-by-step wizard
 - Artwork gallery with category and difficulty filters
-- City explorer with road network stats and signature shapes
+- City explorer with road network stats and featured shapes
 - Route detail with scores, map preview, and GPX download
 - Share page for public route viewing
 - Hungarian (default) and English UI with instant toggle
@@ -105,8 +139,8 @@ GET /api/health
 GET /api/cities
 ```
 
-Returns all 56 cities with metadata (centroid, bounding box, road density,
-bridges, river presence, signature artwork IDs).
+Returns all 500 cities with metadata (centroid, bounding box, road density,
+bridges, river presence, featured artwork IDs).
 
 ```
 GET /api/cities/{city_id}
@@ -120,11 +154,11 @@ GET /api/cities/{city_id}/artworks?activity=running&difficulty=easy
 
 Returns artworks compatible with the city. Each result includes:
 `artworkId`, `artworkName`, `category`, `complexity`, `previewSvgUrl`,
-`fitScore` (0–1), `minKm`, `maxKm`, `recommendedKm`, `isSignature`.
+`fitScore` (0-1), `minKm`, `maxKm`, `recommendedKm`, `isFeatured`.
 
 Query params:
-- `activity` — `running` (default), `cycling`, `walking`
-- `difficulty` — `easy`, `medium`, `hard` (optional)
+- `activity` - `running` (default), `cycling`, `walking`
+- `difficulty` - `easy`, `medium`, `hard` (optional)
 
 ### Artworks
 
@@ -132,7 +166,7 @@ Query params:
 GET /api/artworks
 ```
 
-Returns all 156 artworks with: `id`, `name`, `category`, `complexity`,
+Returns all 300 artworks with: `id`, `name`, `category`, `complexity`,
 `tags`, `cityAffinities`, `previewSvgUrl`, `recommendedDistanceKm`,
 `sampleCount`, `aspectRatio`, `normalizedLength`, `isClosed`, `isSymmetric`.
 
@@ -147,11 +181,11 @@ GET /api/artworks/{artwork_id}/cities?activity=running&distance_km=8.0
 ```
 
 Returns cities compatible with the artwork. Each result: `cityId`, `cityName`,
-`fitScore`, `minKm`, `maxKm`, `isSignature`.
+`fitScore`, `minKm`, `maxKm`, `isFeatured`.
 
 Query params:
-- `activity` — `running` (default), `cycling`, `walking`
-- `distance_km` — optional filter for target distance
+- `activity` - `running` (default), `cycling`, `walking`
+- `distance_km` - optional filter for target distance
 
 ### Generation
 
@@ -199,7 +233,7 @@ GET /api/generation/jobs/{job_id}/candidates/{candidate_id}/gpx?mode=continuous
 ```
 
 Downloads GPX 1.1 file. Query params:
-- `mode` — `continuous` (dense, default) or `dots` (key points only)
+- `mode` - `continuous` (dense, default) or `dots` (key points only)
 
 ```
 GET /api/generation/jobs/{job_id}/candidates/{candidate_id}/map
@@ -263,7 +297,7 @@ pathforge/
 │   │   ├── scoring.py          # Route quality scoring
 │   │   ├── gpx.py              # GPX 1.1 serialization
 │   │   ├── units.py            # Projection / coordinate helpers
-│   │   └── ors_client.py       # OpenRouteService snap-to-road
+│   │   └── mapbox_client.py    # Mapbox Directions snap-to-road
 │   ├── models.py           # Pydantic schemas
 │   ├── main.py             # FastAPI entrypoint + static mounts
 │   ├── config.py           # App settings (env-based)
@@ -296,10 +330,8 @@ pathforge/
 | Backend | Python 3.13+, FastAPI, Uvicorn |
 | Geometry | Shapely, OSMnx, NetworkX |
 | Frontend | Next.js 15 (App Router), TypeScript |
-| Maps | Leaflet, OpenStreetMap tiles |
-| Styling | Tailwind CSS v4 |
-| Database | SQLite (dev), PostgreSQL + PostGIS (prod) |
-| ORS | OpenRouteService API (optional road snapping) |
+| Maps | Leaflet, Mapbox |
+| Mapbox | Mapbox Directions API (road snapping and routing) |
 | Documentation | MkDocs with Material theme |
 | Testing | pytest |
 | Linting | Ruff, Prettier |
@@ -350,10 +382,9 @@ python -m pytest -q --tb=short       # Quiet, short traceback
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CSR_ORS_API_KEY` | No | — | OpenRouteService API key |
-| `CSR_ZEN_API_KEY` | No | — | Zen API key (AI retry) |
+| `CSR_MAPBOX_ACCESS_TOKEN` | No | - | Mapbox Access Token for routing |
+| `CSR_ZEN_API_KEY` | No | - | Zen API key (AI retry) |
 | `CSR_DATABASE_URL` | No | `sqlite://` | PostgreSQL connection |
-| `CSR_DISABLE_ORS` | No | `false` | Skip ORS snapping |
 | `CSR_CORS_ORIGINS` | No | `*` | Allowed CORS origins |
 | `CSR_PUBLIC_WEB_URL` | No | `http://localhost:3000` | Frontend URL |
 

@@ -106,3 +106,40 @@ def test_fit_score_in_unit_interval(projector):
     s = score_candidate(target, r, 1.0, "running", g, projector)
     assert 0.0 <= s.breakdown.fit_score <= 1.0
     assert 0.0 <= s.breakdown.shape_similarity_score <= 1.0
+
+
+def test_continuity_score_decreases_with_duplicates(projector):
+    g = _build_graph(projector, [(0, 0, 1, "residential", "asphalt")])
+    target = [projector.to_wgs84(0, 0), projector.to_wgs84(0.001, 0)]
+    
+    # Base route with no duplicates
+    r_clean = _route(g, [0, 1], [0], 1000.0, projector)
+    s_clean = score_candidate(target, r_clean, 1.0, "running", g, projector)
+    
+    # Route with high duplicate fraction
+    r_duplicate = RouteResult(
+        valid=True, node_path=[0, 1], edges_used=[0], route_metric=[(0, 0), (100, 0)],
+        route_lonlat=[projector.to_wgs84(0, 0), projector.to_wgs84(100, 0)],
+        length_m=1000.0, detour_ratios=[1.0], duplicate_fraction=0.8,
+        keypoint_lonlat=[projector.to_wgs84(0, 0), projector.to_wgs84(100, 0)], warnings=[], segments_failed=0,
+    )
+    s_duplicate = score_candidate(target, r_duplicate, 1.0, "running", g, projector)
+    
+    assert s_clean.breakdown.fit_score > s_duplicate.breakdown.fit_score
+    assert s_clean.breakdown.fit_score > 0.7
+    assert s_duplicate.breakdown.fit_score < s_clean.breakdown.fit_score
+
+
+def test_fit_score_weights_and_rejection(projector):
+    g = _build_graph(projector, [(0, 0, 1, "motorway", "asphalt")])
+    target = [projector.to_wgs84(0, 0), projector.to_wgs84(0.001, 0)]
+    
+    # Running on motorway should drastically drop road quality score and might even fail
+    r = _route(g, [0, 1], [0], 1000.0, projector)
+    s = score_candidate(target, r, 1.0, "running", g, projector)
+    
+    assert s.breakdown.road_quality_score < 0.7, "Motorway should have lower score for running"
+    if not s.passed:
+        assert s.rejection_reason in ["low_road_quality", "low_fit_score", "low_shape_similarity"]
+    else:
+        assert s.breakdown.fit_score < 0.8
