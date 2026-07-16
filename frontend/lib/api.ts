@@ -13,6 +13,7 @@ import type {
   RouteDetail,
   ShapeCompatibility,
   ShareView,
+  SnapEditResponse,
 } from "./types";
 
 const BASE = "";
@@ -97,6 +98,12 @@ export const api = {
   createShare: (routeId: string) =>
     json<{ shareId: string; shareUrl: string }>(`/api/routes/${routeId}/share`, {
       method: "POST",
+    }),
+
+  snapEdit: (req: { city_id: string; activity: Activity; lonlat: number[][]; difficulty?: string }) =>
+    json<SnapEditResponse>(`/api/routes/snap-edit`, {
+      method: "POST",
+      body: JSON.stringify(req),
     }),
 
   getShare: (shareId: string) => json<ShareView>(`/api/share/${shareId}`),

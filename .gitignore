@@ -43,3 +43,4 @@ scratch/
 *.graphml
 
 data/cache/
+cache/

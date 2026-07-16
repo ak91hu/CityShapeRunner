@@ -27,6 +27,16 @@ _MAPBOX_PROFILES = {
     "driving": "mapbox/driving",
 }
 
+# Reuse a single client to avoid the cost of recreating SSL contexts on every call.
+_MAPBOX_CLIENT: httpx.Client | None = None
+
+
+def _get_mapbox_client(timeout: float = 45.0) -> httpx.Client:
+    global _MAPBOX_CLIENT
+    if _MAPBOX_CLIENT is None:
+        _MAPBOX_CLIENT = httpx.Client(timeout=timeout)
+    return _MAPBOX_CLIENT
+
 
 def _adaptive_reduce(points: list[GeoPoint], limit: int) -> list[GeoPoint]:
     """Reduce points down to `limit` to satisfy the provider limit.
@@ -115,28 +125,28 @@ def snap_route_to_roads(
     }
     
     try:
-        with httpx.Client(timeout=45.0) as client:
+        client = _get_mapbox_client()
+        resp = client.get(url, params=params)
+        if resp.status_code == 429:
+            time.sleep(1.5)
             resp = client.get(url, params=params)
-            if resp.status_code == 429:
-                time.sleep(1.5)
-                resp = client.get(url, params=params)
-            
-            if resp.status_code != 200:
-                logger.warning("Mapbox API returned %d: %s", resp.status_code, resp.text[:200])
-                return None
-                
-            data = resp.json()
-            routes = data.get("routes", [])
-            if not routes:
-                return None
-                
-            geom = routes[0].get("geometry", {})
-            coords = geom.get("coordinates", [])
-            
-            if not coords or len(coords) < 2:
-                return None
-                
-            return [(lat, lon) for lon, lat in coords]
+
+        if resp.status_code != 200:
+            logger.warning("Mapbox API returned %d: %s", resp.status_code, resp.text[:200])
+            return None
+
+        data = resp.json()
+        routes = data.get("routes", [])
+        if not routes:
+            return None
+
+        geom = routes[0].get("geometry", {})
+        coords = geom.get("coordinates", [])
+
+        if not coords or len(coords) < 2:
+            return None
+
+        return [(lat, lon) for lon, lat in coords]
 
     except Exception as exc:
         logger.warning("Mapbox snap failed: %s", exc)

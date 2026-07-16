@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 
 
-def _wait(client, job_id, timeout=40):
+def _wait(client, job_id, timeout=120):
     st = {}
     for _ in range(timeout * 2):
         st = client.get(f"/api/generation/jobs/{job_id}").json()

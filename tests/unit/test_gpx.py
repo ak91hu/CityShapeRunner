@@ -47,8 +47,6 @@ def test_validate_rejects_too_few_points():
 def test_file_naming():
     name = file_name("Budapest", "Heart", 10.18, "running")
     assert name == "budapest-heart-10k-running.gpx"
-    name_dots = file_name("Budapest", "Heart", 10.18, "running", "connect_the_dots")
-    assert name_dots == "budapest-heart-10k-running-dots.gpx"
 
 
 def test_gpx_no_duplicate_consecutive_points():

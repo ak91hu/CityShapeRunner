@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from shapely.geometry import LineString, Point, box
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.strtree import STRtree
 
 from app.core.units import Projector
@@ -58,6 +58,10 @@ class RoadGraph:
     projector: Projector | None = None
     _edge_geoms: list[LineString] = field(default_factory=list)
     _tree: STRtree | None = None
+    water_polygons: list[Polygon] = field(default_factory=list)
+    building_polygons: list[Polygon] = field(default_factory=list)
+    _water_tree: STRtree | None = None
+    _building_tree: STRtree | None = None
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.id] = node
@@ -74,6 +78,54 @@ class RoadGraph:
     def build_spatial_index(self) -> None:
         self._edge_geoms = [LineString(e.geometry_xy) for e in self.edges]
         self._tree = STRtree(self._edge_geoms)
+        self.build_barrier_index()
+
+    def build_barrier_index(self) -> None:
+        if self.water_polygons:
+            self._water_tree = STRtree(self.water_polygons)
+        if self.building_polygons:
+            self._building_tree = STRtree(self.building_polygons)
+
+    def has_barriers(self) -> bool:
+        return bool(self.water_polygons or self.building_polygons)
+
+    def crosses_water(self, geom_xy: list[MetricPoint]) -> bool:
+        if not self.water_polygons:
+            return False
+        if self._water_tree is None:
+            self.build_barrier_index()
+        if self._water_tree is None:
+            return False
+        line = LineString(geom_xy) if len(geom_xy) >= 2 else Point(geom_xy[0])
+        idxs = list(self._water_tree.query(line))
+        for idx in idxs:
+            poly = self.water_polygons[idx]
+            if line.intersects(poly) and not line.touches(poly):
+                return True
+        return False
+
+    def crosses_building(self, geom_xy: list[MetricPoint]) -> bool:
+        if not self.building_polygons:
+            return False
+        if self._building_tree is None:
+            self.build_barrier_index()
+        if self._building_tree is None:
+            return False
+        line = LineString(geom_xy) if len(geom_xy) >= 2 else Point(geom_xy[0])
+        idxs = list(self._building_tree.query(line))
+        for idx in idxs:
+            poly = self.building_polygons[idx]
+            if line.intersects(poly) and not line.touches(poly):
+                return True
+        return False
+
+    def barrier_warnings(self, geom_xy: list[MetricPoint]) -> list[str]:
+        warnings: list[str] = []
+        if self.crosses_water(geom_xy):
+            warnings.append("crosses_water")
+        if self.crosses_building(geom_xy):
+            warnings.append("crosses_building")
+        return warnings
 
     def filter_for_profile(self, activity: str, difficulty: str) -> "RoadGraph":
         """Return a view with profile weights set and rejected edges excluded from adj."""
@@ -81,6 +133,8 @@ class RoadGraph:
             apply_profile_weight(e, activity, difficulty)
         filtered = RoadGraph(nodes=dict(self.nodes), projector=self.projector)
         filtered.edges = list(self.edges)
+        filtered.water_polygons = list(self.water_polygons)
+        filtered.building_polygons = list(self.building_polygons)
         for n in self.nodes.values():
             filtered.adj.setdefault(n.id, [])
         for e in self.edges:
@@ -307,12 +361,22 @@ def _make_grid_graph(
     return node_ids, edges, nodes
 
 
-def _assemble(projector: Projector, nodes: Iterable[Node], edges: Iterable[Edge]) -> RoadGraph:
+def _assemble(
+    projector: Projector,
+    nodes: Iterable[Node],
+    edges: Iterable[Edge],
+    water_polygons: list[Polygon] | None = None,
+    building_polygons: list[Polygon] | None = None,
+) -> RoadGraph:
     g = RoadGraph(projector=projector)
     for n in nodes:
         g.add_node(n)
     for e in edges:
         g.add_edge(e)
+    if water_polygons:
+        g.water_polygons = water_polygons
+    if building_polygons:
+        g.building_polygons = building_polygons
     g.build_spatial_index()
     return g
 
@@ -379,7 +443,15 @@ def build_river_city() -> FixtureCity:
     connect((500.0, 200.0), (700.0, 200.0))
     connect((500.0, 400.0), (700.0, 400.0))
 
-    graph = _assemble(proj, nodes.values(), edges)
+    # synthetic water polygon for the river gap between the two grids
+    river_polygon = Polygon([
+        (510.0, -50.0),
+        (690.0, -50.0),
+        (690.0, 650.0),
+        (510.0, 650.0),
+    ])
+
+    graph = _assemble(proj, nodes.values(), edges, water_polygons=[river_polygon])
     return FixtureCity(
         id="river-city",
         name="River City",
@@ -468,9 +540,6 @@ def build_synthetic_graph_for_city(city, max_dim: int = 18) -> tuple[RoadGraph, 
     spacing = max(spacing, width / max_cells, height / max_cells)
     cols = int(width / spacing) + 1
     rows = int(height / spacing) + 1
-    spacing_x = width / (cols - 1) if cols > 1 else width
-    spacing_y = height / (rows - 1) if rows > 1 else height
-    spacing = (spacing_x + spacing_y) / 2
 
     rng = _lcg(hash(city.id) & 0xFFFFFFFF)
     foot_override: dict[tuple[int, int, int, int], str] = {}
@@ -530,7 +599,15 @@ def build_synthetic_graph_for_city(city, max_dim: int = 18) -> tuple[RoadGraph, 
                 geometry_lonlat=[(na.lat, na.lon), (nb.lat, nb.lon)],
             ))
             eid += 1
-        graph = _assemble(proj, nodes.values(), edges)
+        # synthetic water polygon for the river gap
+        left_edge = minx + left_spacing * (left_cols - 1)
+        river_polygon = Polygon([
+            (left_edge + 10.0, miny - spacing),
+            (right_origin[0] - 10.0, miny - spacing),
+            (right_origin[0] - 10.0, maxy + spacing),
+            (left_edge + 10.0, maxy + spacing),
+        ])
+        graph = _assemble(proj, nodes.values(), edges, water_polygons=[river_polygon])
         return graph, proj, (minx, miny, maxx, maxy)
 
     _, edges, nodes = _make_grid_graph(

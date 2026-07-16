@@ -23,7 +23,7 @@ def test_all_artwork_svgs_parse():
     for a in load_artworks():
         assert a.normalized_length > 0, f"{a.id} has zero normalized length"
         assert len(a.normalized) >= 1
-        assert all(0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 for pl in a.normalized for x, y in pl.points), a.id
+        assert all(-0.5 <= x <= 0.5 and -0.5 <= y <= 0.5 for pl in a.normalized for x, y in pl.points), a.id
 
 
 def test_search_budapest():

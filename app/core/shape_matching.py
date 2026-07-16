@@ -40,6 +40,11 @@ type MetricPoint = tuple[float, float]
 
 ACCEPT_FIT_THRESHOLD = 0.40
 
+# Fail-fast flags for managed routing providers. Set to True after the first
+# failing request in a process so we don't keep waiting on misconfigured keys.
+_ORS_FAILED: bool = False
+_MAPBOX_FAILED: bool = False
+
 
 @dataclass
 class Transform:
@@ -139,9 +144,19 @@ class Router:
     graph: RoadGraph
     activity: str
     difficulty: str
+    _snap_tolerance: float | None = field(default=None, repr=False)
 
     def snap_tolerance(self) -> float:
-        return SNAP_TOLERANCE_M[self.activity]
+        if self._snap_tolerance is None:
+            base = SNAP_TOLERANCE_M[self.activity]
+            # Coarser graphs need a looser snap tolerance or almost no points snap.
+            lengths = [e.length_m for e in self.graph.edges if not e.rejected and e.length_m > 0]
+            if not lengths:
+                self._snap_tolerance = base
+            else:
+                avg_edge = sum(lengths) / len(lengths)
+                self._snap_tolerance = base * max(1.0, min(3.5, avg_edge / 120.0))
+        return self._snap_tolerance
 
     def max_detour(self) -> float:
         d = MAX_DETOUR_RATIO[self.activity]
@@ -398,115 +413,181 @@ class CityCompatibility:
     is_featured: bool
 
 
+def _city_bbox_metric(city: City) -> tuple[float, float, float, float]:
+    """Return approximate city bounding box in meters (width, height)."""
+    import math
+
+    west, south, east, north = city.bbox
+    lat_rad = math.radians(city.centroid[0])
+    width_m = abs(east - west) * 111320.0 * math.cos(lat_rad)
+    height_m = abs(north - south) * 111320.0
+    return (0.0, 0.0, width_m, height_m)
+
+
+def _estimate_shape_city_fit(
+    artwork: Artwork,
+    city: City,
+    sg: geom.ShapeGraph,
+    activity: str,
+    difficulty: str,
+) -> float:
+    """Fast structural fit estimate using only city/shape metadata.
+
+    This intentionally does not load a road graph: it is called by the
+    synchronous city-recommendation API and must return in milliseconds.
+    The full route-search validation happens later, when the user starts a
+    generation job.
+    """
+    import math
+
+    L = sg.normalized_length
+    if L <= 0:
+        return 0.0
+
+    detour = _detour_factor(activity, city.road_density)
+    rec_km = (artwork.recommended_min_km + artwork.recommended_max_km) / 2.0
+    target_m = rec_km * 1000.0
+
+    # City size in meters
+    _, _, width_m, height_m = _city_bbox_metric(city)
+    city_dim_m = min(width_m, height_m)
+    city_diagonal_m = math.hypot(width_m, height_m)
+
+    # Shape size at the recommended scale
+    minx, miny, maxx, maxy = geom.polylines_bbox(artwork.normalized)
+    shape_width_norm = maxx - minx
+    shape_height_norm = maxy - miny
+    shape_diagonal_norm = math.hypot(shape_width_norm, shape_height_norm)
+    scale = target_m / (L * detour)
+    shape_diagonal_m = shape_diagonal_norm * scale
+
+    # 1. Scale feasibility: shape must fit in the city but not be too small.
+    if shape_diagonal_m > city_diagonal_m:
+        scale_fit = max(0.0, 1.0 - (shape_diagonal_m - city_diagonal_m) / city_diagonal_m)
+    elif shape_diagonal_m < 500.0:
+        scale_fit = max(0.0, shape_diagonal_m / 500.0)
+    else:
+        scale_fit = 1.0
+
+    # 2. Road density vs shape complexity: complex shapes need denser networks.
+    n_important = len(sg.important_points)
+    complexity = min(1.0, n_important / 20.0)
+    density_fit = 1.0 - abs(city.road_density - complexity) * 0.5
+
+    # 3. Activity fit: running/walking tolerate more detail; cycling prefers simpler.
+    if activity == "cycling":
+        activity_fit = 1.0 - min(1.0, n_important / 30.0)
+    else:
+        activity_fit = 1.0 - min(1.0, n_important / 50.0)
+
+    # 4. Distance range fit: city size must accommodate the artwork's recommended range.
+    #    Maximum achievable route length in the city, roughly diagonal * detour.
+    max_achievable_km = (city_diagonal_m * detour) / 1000.0
+    art_max_km = artwork.recommended_max_km * 2.0
+    if max_achievable_km < art_max_km:
+        range_fit = max(0.0, max_achievable_km / art_max_km)
+    else:
+        range_fit = 1.0
+
+    # 5. Curvature: very curvy shapes need organic networks; grid cities are penalized.
+    is_curvy = sum(1 for w in sg.weights if w < 0.5) / max(1, len(sg.weights))
+    city_curvature = "organic" if city.has_river else "grid"
+    if city_curvature == "organic":
+        curvature_fit = 0.5 + 0.5 * is_curvy
+    else:
+        curvature_fit = 0.5 + 0.5 * (1.0 - is_curvy)
+
+    score = (
+        0.30 * scale_fit
+        + 0.25 * density_fit
+        + 0.15 * activity_fit
+        + 0.15 * range_fit
+        + 0.15 * curvature_fit
+    )
+
+    # Featured artwork-city pairs get a small, deterministic boost.
+    if artwork.id in city.featured_artwork_ids:
+        score = min(1.0, score + 0.15)
+
+    return max(0.0, min(1.0, score))
+
+
 def compute_shape_city_compatibility(
     artwork: Artwork,
     activity: str = "running",
     difficulty: str = "medium",
 ) -> list[CityCompatibility]:
-    """For a given artwork, compute which cities can support it and valid distance ranges.
-
-    Implements the inverse of rank_shapes_for_city: given a shape, find compatible cities.
-    Uses the algorithm's shape_city_fit_score (section 3) plus distance feasibility checks.
-    """
+    from app.stores import STORE
     from app.core.seed import load_cities
-    from app.graph_provider import graph_for_city
-    from app.core.shape_matching import build_city_indexes, extract_city_features
+    import math
 
-    sg = geom.build_shape_graph_from_normalized(artwork.normalized, artwork.id, artwork.name, artwork.closed_path)
+    sg = geom.build_shape_graph_from_normalized(
+        artwork.normalized, artwork.id, artwork.name, artwork.closed_path
+    )
+    L = sg.normalized_length
     results: list[CityCompatibility] = []
-
     all_cities = load_cities()
-    
+    city_map = {c.id: c for c in all_cities}
+
     for city in all_cities:
-        # To avoid O(N) graph loading across 2000 cities, we approximate city features
-        west, south, east, north = city.bbox
-        
-        # approximate dimensions in meters
-        import math
-        lat_rad = math.radians(city.centroid[0])
-        width_m = (east - west) * 111320.0 * math.cos(lat_rad)
-        height_m = (north - south) * 111320.0
-        
-        # mock bbox as 0,0,width,height
-        bbox = (0.0, 0.0, abs(width_m), abs(height_m))
-        
-        features = CityFeatures(
-            intersection_density=city.road_density * 500.0,
-            orientation_entropy=2.0,
-            dominant_bearings=[0.0, 90.0, 180.0, 270.0],
-            curvature="organic" if city.has_river else "grid",
-            largest_component_length_m=50000.0,
-            avg_block_size=100.0,
-            dead_end_ratio=0.05,
-            total_edge_length_m=500000.0,
-            node_count=2000,
-        )
+        is_featured = artwork.id in city.featured_artwork_ids
 
-        detour = _detour_factor(activity, city.road_density)
-        constraints = MatchingConstraints(
-            target_distance_km=artwork.recommended_min_km,
-            activity=activity,
-            difficulty=difficulty,
-            detour_factor=detour,
-            normalized_length=sg.normalized_length,
-            symmetric=artwork.symmetric,
-        )
+        # Prefer real scores from cached candidates when available.
+        cached = [
+            c for c in STORE.cached_candidates + list(STORE.candidates.values())
+            if c.artwork_id == artwork.id
+            and STORE.candidate_city.get(c.candidate_id) == city.id
+        ]
+        if cached:
+            fit = max(c.scores.fit_score for c in cached)
+        else:
+            fit = _estimate_shape_city_fit(artwork, city, sg, activity, difficulty)
 
-        fit = _shape_city_fit_score(features, sg, constraints)
+        if fit < 0.05:
+            continue
 
-        # Compute valid distance range for this shape in this city
-        # The shape needs to fit within the city bbox at a reasonable scale
-        L = sg.normalized_length
         if L <= 0:
             continue
 
-        minx, miny, maxx, maxy = bbox
-        city_dim_m = min(maxx - minx, maxy - miny)
-        # Max scale = city dimension / shape bounding box (normalized ~1.0)
-        max_scale = city_dim_m * 0.85  # leave margin
-        # Min scale = enough that the route is at least 3km
-        min_scale_for_3km = 3000.0 / (L * detour)
+        _, _, width_m, height_m = _city_bbox_metric(city)
+        city_dim_m = min(width_m, height_m)
+        city_diagonal_m = math.hypot(width_m, height_m)
+        detour_val = _detour_factor(activity, city.road_density)
 
-        # Max distance = max_scale * L * detour
-        max_km = (max_scale * L * detour) / 1000.0
-        # Min distance = min_scale_for_3km * L * detour / 1000, but at least 3
-        min_km = max(3.0, (min_scale_for_3km * L * detour) / 1000.0)
+        # Maximum route length is the shape at the largest scale that still fits.
+        max_scale = city_diagonal_m * 0.85 / L
+        max_km = (max_scale * L * detour_val) / 1000.0
 
-        # Clamp to artwork's recommended range with tolerance
+        # Minimum route length: shape at the smallest useful scale (~500m diagonal).
+        min_scale = max(500.0 / (L * detour_val), 50.0)
+        min_km = max(3.0, (min_scale * L * detour_val) / 1000.0)
+
         art_lo = artwork.recommended_min_km * 0.5
         art_hi = artwork.recommended_max_km * 2.0
         min_km = max(min_km, art_lo)
         max_km = min(max_km, art_hi)
 
-        # Recommended distance
         rec_km = (artwork.recommended_min_km + artwork.recommended_max_km) / 2.0
         rec_km = max(min_km, min(max_km, rec_km))
 
-        if max_km < min_km:
-            continue
+        results.append(
+            CityCompatibility(
+                city_id=city.id,
+                city_name=city.name,
+                fit_score=round(fit, 4),
+                min_km=round(min_km, 1),
+                max_km=round(max_km, 1),
+                recommended_km=round(rec_km, 1),
+                is_featured=is_featured,
+            )
+        )
 
-        is_featured = artwork.id in city.featured_artwork_ids
-        # Featured shapes get a boost
-        if is_featured:
-            fit = min(1.0, fit + 0.15)
+    def _city_area(c: City) -> float:
+        _, _, w, h = _city_bbox_metric(c)
+        return w * h
 
-        # Only include cities with reasonable fit
-        if fit < 0.10:
-            continue
-
-        results.append(CityCompatibility(
-            city_id=city.id,
-            city_name=city.name,
-            fit_score=round(fit, 4),
-            min_km=round(min_km, 1),
-            max_km=round(max_km, 1),
-            recommended_km=round(rec_km, 1),
-            is_featured=is_featured,
-        ))
-
-    results.sort(key=lambda c: c.city_name)
+    results.sort(key=lambda c: (-c.fit_score, -_city_area(city_map[c.city_id]), c.city_name))
     return results
-
 
 @dataclass
 class ShapeCompatibility:
@@ -527,69 +608,38 @@ def compute_city_shape_compatibility(
     activity: str = "running",
     difficulty: str = "medium",
 ) -> list[ShapeCompatibility]:
-    """For a given city, compute which shapes are compatible and at what distances.
-
-    This is the reverse of compute_shape_city_compatibility: given a city, find
-    which artworks fit and rank them by shape_city_fit_score.
-    """
+    from app.stores import STORE
     from app.core.seed import load_artworks, get_city
-    from app.graph_provider import graph_for_city
-    from app.core.shape_matching import build_city_indexes, extract_city_features
-
+    
     city = get_city(city_id)
     if city is None:
         return []
-
-    g = graph_for_city(city_id)
-    if g is None:
-        return []
-    graph, projector, bbox = g
-    filtered = graph.filter_for_profile(activity, difficulty)
-    indexes = build_city_indexes(filtered, projector)
-    features = extract_city_features(filtered, indexes, bbox)
-
-    detour = _detour_factor(activity, city.road_density)
+        
     results: list[ShapeCompatibility] = []
-
-    all_artworks = load_artworks()
-
-    for art in all_artworks:
-        sg = geom.build_shape_graph_from_normalized(art.normalized, art.id, art.name, art.closed_path)
-        L = sg.normalized_length
-        if L <= 0:
-            continue
-
-        constraints = MatchingConstraints(
-            target_distance_km=art.recommended_min_km,
-            activity=activity,
-            difficulty=difficulty,
-            detour_factor=detour,
-            normalized_length=L,
-            symmetric=art.symmetric,
-        )
-        fit = _shape_city_fit_score(features, sg, constraints)
-
-        minx, miny, maxx, maxy = bbox
-        city_dim_m = min(maxx - minx, maxy - miny)
-        max_scale = city_dim_m * 0.85
-        min_scale_for_3km = 3000.0 / (L * detour)
-        max_km = (max_scale * L * detour) / 1000.0
-        min_km = max(3.0, (min_scale_for_3km * L * detour) / 1000.0)
+    all_artworks = {a.id: a for a in load_artworks()}
+    
+    seen_arts = {}
+    
+    for c in STORE.cached_candidates + list(STORE.candidates.values()):
+        if STORE.candidate_city.get(c.candidate_id) == city_id and STORE.candidate_activity.get(c.candidate_id) == activity:
+            if c.artwork_id in all_artworks:
+                if c.artwork_id not in seen_arts or seen_arts[c.artwork_id] < c.scores.fit_score:
+                    seen_arts[c.artwork_id] = c.scores.fit_score
+                    
+    for art_id, best_score in seen_arts.items():
+        art = all_artworks[art_id]
+        
         art_lo = art.recommended_min_km * 0.5
         art_hi = art.recommended_max_km * 2.0
-        min_km = max(min_km, art_lo)
-        max_km = min(max_km, art_hi)
-        rec_km = (art.recommended_min_km + art.recommended_max_km) / 2.0
-        rec_km = max(min_km, min(max_km, rec_km))
-        if max_km < min_km:
-            continue
-
+        min_km = art_lo
+        max_km = art_hi
+        rec_km = (art_lo + art_hi) / 2.0
+        
         is_featured = art.id in city.featured_artwork_ids
+        fit = best_score
         if is_featured:
             fit = min(1.0, fit + 0.15)
-        if fit < 0.10:
-            continue
-
+            
         results.append(ShapeCompatibility(
             artwork_id=art.id,
             artwork_name=art.name,
@@ -602,7 +652,7 @@ def compute_city_shape_compatibility(
             recommended_km=round(rec_km, 1),
             is_featured=is_featured,
         ))
-
+        
     results.sort(key=lambda s: s.fit_score, reverse=True)
     return results
 
@@ -663,20 +713,24 @@ def _build_density_anchors(
         ci = max(0, min(cols - 1, int((mx - minx) / cell_w)))
         cj = max(0, min(rows - 1, int((my - miny) / cell_h)))
         density[(ci, cj)] = density.get((ci, cj), 0.0) + e.length_m
+    center_x = (minx + maxx) / 2.0
+    center_y = (miny + maxy) / 2.0
+    center = (center_x, center_y)
+
     if not density:
-        center = ((minx + maxx) / 2, (miny + maxy) / 2)
         return [center]
-    best = sorted(density.items(), key=lambda kv: kv[1], reverse=True)[:max_anchors]
-    anchors: list[MetricPoint] = []
+
+    best = sorted(density.items(), key=lambda kv: kv[1], reverse=True)
+    anchors: list[MetricPoint] = [center]
     for (ci, cj), _ in best:
         cx = minx + (ci + 0.5) * cell_w
         cy = miny + (cj + 0.5) * cell_h
-        anchors.append((cx, cy))
-    
-    # Always include the absolute center of the bounding box to ensure max_scale shapes fit
-    center_x = (minx + maxx) / 2.0
-    center_y = (miny + maxy) / 2.0
-    anchors.append((center_x, center_y))
+        pt = (cx, cy)
+        # Skip the center if it already appears in the density list.
+        if math.hypot(pt[0] - center_x, pt[1] - center_y) > 1.0:
+            anchors.append(pt)
+        if len(anchors) >= max_anchors:
+            break
     return anchors
 
 
@@ -741,7 +795,7 @@ def score_svg_corridor_support(
     bearing_compat_count = 0
     components: set[int] = set()
 
-    seg_sample_step = max(1, sum(len(pl.points) for pl in transformed) // 200)
+    seg_sample_step = max(1, sum(len(pl.points) for pl in transformed) // 100)
     seg_idx = 0
 
     for pl in transformed:
@@ -1031,23 +1085,45 @@ def construct_shape_aware_route(
             warnings=["snap_not_acceptable"],
             segments_failed=1,
         )
-    from app.core.mapbox_client import snap_route_to_roads, compute_route_distance_km
+    from app.core.mapbox_client import snap_route_to_roads as mapbox_snap, compute_route_distance_km
+    from app.core.ors_client import snap_route_to_roads as ors_snap
     from app.config import get_settings
+
+    global _ORS_FAILED, _MAPBOX_FAILED
 
     settings = get_settings()
     keypoints = snapped.snap.snapped_lonlat
 
-    if not settings.mapbox_available:
+    real_route = None
+    # Managed snap-to-road providers are only useful when routing on real OSM
+    # road data. With deterministic synthetic grids use the graph directly to
+    # avoid slow or rate-limited external calls.
+    use_managed_providers = getattr(settings, "use_osm_graphs", False)
+    if use_managed_providers:
+        # Try managed snap-to-road APIs first, but fail fast if they are unavailable
+        # or misconfigured so we don't waste time on repeated failing requests.
+        if settings.ors_api_key and not _ORS_FAILED:
+            real_route = ors_snap(
+                keypoints,
+                constraints.activity,
+                settings.ors_api_key,
+                settings.ors_base_url,
+            )
+            if real_route is None:
+                _ORS_FAILED = True
+        if real_route is None and settings.mapbox_available and not _MAPBOX_FAILED:
+            real_route = mapbox_snap(
+                keypoints,
+                constraints.activity,
+                settings.mapbox_access_token,
+                settings.mapbox_base_url,
+            )
+            if real_route is None:
+                _MAPBOX_FAILED = True
+    if real_route is None:
         return repair_and_route(
             snapped.snap, city_graph, constraints.activity, constraints.difficulty
         )
-
-    real_route = snap_route_to_roads(
-        keypoints,
-        constraints.activity,
-        settings.mapbox_access_token,
-        settings.mapbox_base_url,
-    )
 
     if not real_route or len(real_route) < 2:
         return RouteResult(
@@ -1264,8 +1340,8 @@ def score_svg_route_match(
 def _detour_factor(activity: str, road_density: float) -> float:
     sparse = 1.0 - max(0.0, min(1.0, road_density))
     if activity == "cycling":
-        return 1.20 + 0.60 * sparse
-    return 1.10 + 0.40 * sparse
+        return 1.35 + 0.65 * sparse
+    return 1.25 + 0.45 * sparse
 
 
 def _build_constraints(
@@ -1343,6 +1419,126 @@ def _diversify(matches: list[MatchResult], max_suggestions: int) -> list[MatchRe
 
 
 
+def refine_provider_route(
+    svg_graph: geom.ShapeGraph,
+    transform: Transform,
+    snapped: SnappedResult,
+    city_graph: RoadGraph,
+    router: Router,
+    constraints: MatchingConstraints,
+    projector: Projector,
+) -> tuple[RouteResult, SnappedResult]:
+    import copy
+    import math
+    from app.core.units import haversine_m
+
+    best_route = construct_shape_aware_route(
+        svg_graph, transform, snapped, city_graph, router, constraints, projector
+    )
+    if not best_route.valid or not best_route.route_metric:
+        return best_route, snapped
+
+    best_snapped = copy.deepcopy(snapped)
+    max_repairs = getattr(constraints, "max_route_repairs", 3)
+
+    # Transform the target shape into metric space and sample it densely for refinement.
+    transformed_polylines = apply_transform_to_metric(svg_graph.polylines, transform)
+    svg_samples: list[tuple[float, float]] = []
+    for pl in transformed_polylines:
+        pts = pl.points
+        if len(pts) < 2:
+            continue
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            seg_len = math.hypot(b[0] - a[0], b[1] - a[1])
+            if seg_len < 1e-9:
+                continue
+            n = max(1, int(seg_len / 20.0))
+            for k in range(n + 1):
+                t = k / n
+                svg_samples.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])))
+
+    target_m = constraints.target_distance_km * 1000.0
+    best_dist = abs(best_route.length_m - target_m)
+
+    for _ in range(max_repairs):
+        max_dist = -1.0
+        worst_pt = None
+        for pt in svg_samples:
+            dist = min(
+                math.hypot(rp[0] - pt[0], rp[1] - pt[1]) for rp in best_route.route_metric
+            )
+            if dist > max_dist:
+                max_dist = dist
+                worst_pt = pt
+
+        if max_dist < router.snap_tolerance() or worst_pt is None:
+            break
+
+        lat, lon = projector.to_wgs84(worst_pt[0], worst_pt[1])
+        new_keypoints = list(best_snapped.snap.snapped_lonlat)
+
+        if len(new_keypoints) < 2:
+            break
+
+        best_idx = 1
+        min_added_dist = float("inf")
+        for i in range(1, len(new_keypoints)):
+            p1 = new_keypoints[i - 1]
+            p2 = new_keypoints[i]
+            d1 = haversine_m(p1, (lat, lon))
+            d2 = haversine_m((lat, lon), p2)
+            d12 = haversine_m(p1, p2)
+            added = d1 + d2 - d12
+            if added < min_added_dist:
+                min_added_dist = added
+                best_idx = i
+
+        new_keypoints.insert(best_idx, (lat, lon))
+
+        new_snapped = copy.deepcopy(best_snapped)
+        new_snapped.snap.snapped_lonlat = new_keypoints
+
+        # Snap the newly inserted keypoint to a graph node so the fallback
+        # repair_and_route can actually use it.
+        mx, my = worst_pt[0], worst_pt[1]
+        best_node = min(
+            city_graph.nodes.values(),
+            key=lambda n: math.hypot(n.x - mx, n.y - my),
+        )
+        new_snapped.snap.snapped_node_ids.insert(
+            best_idx, best_node.id
+        )
+        new_snapped.snap.snapped_metric.insert(
+            best_idx, (best_node.x, best_node.y)
+        )
+        new_snapped.snap.control_target_lonlat.insert(
+            best_idx, (lat, lon)
+        )
+        new_snapped.snap.control_target_metric.insert(
+            best_idx, (mx, my)
+        )
+
+        new_route = construct_shape_aware_route(
+            svg_graph, transform, new_snapped, city_graph, router, constraints, projector
+        )
+
+        if not new_route.valid or not new_route.route_metric:
+            break
+
+        # Only keep the refinement if it brings the route length closer to the
+        # target; otherwise the added keypoint just creates unnecessary detours.
+        new_dist = abs(new_route.length_m - target_m)
+        if new_dist < best_dist:
+            best_route = new_route
+            best_snapped = new_snapped
+            best_dist = new_dist
+        else:
+            break
+
+    return best_route, best_snapped
+
+
 def create_best_gps_art(
     city: City,
     graph: RoadGraph,
@@ -1393,7 +1589,6 @@ def create_best_gps_art(
 
     safe_progress("ranking_shapes", 20)
     ranked = rank_shapes_for_city(city_features, parsed_shapes, constraints)
-
     best_matches: list[MatchResult] = []
     per_shape_budget = max(120, constraints.max_transformations // max(1, len(ranked)))
 

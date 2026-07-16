@@ -8,8 +8,11 @@ from app.core.graph import Edge, RoadGraph
 from app.core.units import GeoPoint, MetricPoint, angle_difference_deg, heading_deg
 
 # Tolerances (meters) per section 22.1
-SNAP_TOLERANCE_M = {"running": 80.0, "walking": 60.0, "cycling": 150.0}
+SNAP_TOLERANCE_M = {"running": 150.0, "walking": 120.0, "cycling": 250.0}
 MAX_DETOUR_RATIO = {"running": 4.0, "walking": 4.0, "cycling": 3.0}
+
+WATER_CROSSING_PENALTY = 100_000.0
+BUILDING_CROSSING_PENALTY = 50_000.0
 
 
 @dataclass
@@ -35,6 +38,11 @@ def _control_indices(n: int) -> list[int]:
     return [round(i * (n - 1) / (n_controls - 1)) for i in range(n_controls)]
 
 
+def _avg_edge_length_m(graph: RoadGraph) -> float:
+    lengths = [e.length_m for e in graph.edges if not e.rejected and e.length_m > 0]
+    return sum(lengths) / len(lengths) if lengths else 150.0
+
+
 def snap_polyline(
     target_lonlat: list[GeoPoint],
     graph: RoadGraph,
@@ -44,7 +52,10 @@ def snap_polyline(
     control_indices: list[int] | None = None,
 ) -> SnapResult:
     """Snap control points of the target to the nearest traversable graph nodes (section 22)."""
-    tol = SNAP_TOLERANCE_M[activity] * city_density_factor
+    # Coarser graphs need a looser tolerance or almost no control points will snap.
+    avg_edge = _avg_edge_length_m(graph)
+    adaptive_factor = max(1.0, min(3.5, avg_edge / 120.0))
+    tol = SNAP_TOLERANCE_M[activity] * city_density_factor * adaptive_factor
     full_metric = [projector.to_metric(lon, lat) for lat, lon in target_lonlat]
     ctrl_idx = control_indices if control_indices is not None else _control_indices(len(target_lonlat))
     control_target_lonlat = [target_lonlat[i] for i in ctrl_idx]
@@ -84,7 +95,8 @@ def snap_polyline(
         snapped_node_ids.append(node.id)
         snapped_lonlat.append((node.lat, node.lon))
         snapped_metric.append((node.x, node.y))
-        distances.append(min(d_from, d_to))
+        # Use the edge perpendicular distance (from nearest_edge) for the tolerance check.
+        distances.append(dist)
 
     within = sum(1 for d in distances if d <= tol) / max(1, len(distances))
     warnings: list[str] = []
@@ -164,6 +176,11 @@ def _dijkstra(
         # duplicate penalty
         if edge.id in used_edges:
             w += 200.0
+        # barrier penalties: avoid edges crossing water (unless bridge) or buildings
+        if not edge.bridge and graph.crosses_water(edge.geometry_xy):
+            w += WATER_CROSSING_PENALTY
+        if graph.crosses_building(edge.geometry_xy):
+            w += BUILDING_CROSSING_PENALTY
         return w
 
     dist = {start: 0.0}
@@ -305,4 +322,105 @@ def repair_and_route(
         keypoint_lonlat=keypoint_lonlat,
         warnings=warnings,
         segments_failed=segments_failed,
+    )
+
+
+def validate_route(
+    route_lonlat: list[GeoPoint],
+    graph: RoadGraph,
+    projector,
+) -> list[str]:
+    """Check a route's geometry against barrier polygons (water, buildings).
+
+    Returns a list of warning strings: 'crosses_water', 'crosses_building'.
+    Each segment between consecutive points is checked.
+    """
+    warnings: list[str] = []
+    if not route_lonlat or len(route_lonlat) < 2:
+        return warnings
+    if not graph.has_barriers():
+        return warnings
+    crosses_water = False
+    crosses_building = False
+    for i in range(len(route_lonlat) - 1):
+        lat1, lon1 = route_lonlat[i]
+        lat2, lon2 = route_lonlat[i + 1]
+        x1, y1 = projector.to_metric(lon1, lat1)
+        x2, y2 = projector.to_metric(lon2, lat2)
+        seg_xy = [(x1, y1), (x2, y2)]
+        if graph.crosses_water(seg_xy):
+            crosses_water = True
+        if graph.crosses_building(seg_xy):
+            crosses_building = True
+    if crosses_water:
+        warnings.append("crosses_water")
+    if crosses_building:
+        warnings.append("crosses_building")
+    return warnings
+
+
+@dataclass
+class SnapEditResult:
+    snapped: bool
+    route_lonlat: list[GeoPoint]
+    original_lonlat: list[GeoPoint]
+    warnings: list[str] = field(default_factory=list)
+    segments_failed: int = 0
+
+
+def snap_edit_route(
+    target_lonlat: list[GeoPoint],
+    graph: RoadGraph,
+    projector,
+    activity: str,
+    difficulty: str = "normal",
+) -> SnapEditResult:
+    """High-level: snap an edited polyline to real roads, avoiding water and buildings.
+
+    Returns the snapped route coordinates plus warnings about barrier crossings
+    and connectivity issues. Falls back to the original input if snapping fails.
+    """
+    if not target_lonlat:
+        return SnapEditResult(snapped=False, route_lonlat=[], original_lonlat=[])
+    if len(target_lonlat) < 2:
+        return SnapEditResult(
+            snapped=False, route_lonlat=list(target_lonlat), original_lonlat=list(target_lonlat)
+        )
+
+    diff = "medium" if difficulty == "normal" else difficulty
+    snap = snap_polyline(target_lonlat, graph, projector, activity)
+    route = repair_and_route(snap, graph, activity, diff)
+
+    warnings = list(route.warnings)
+    if route.route_lonlat and len(route.route_lonlat) >= 2:
+        # Check edges used (not raw coordinates) so bridge crossings are not flagged
+        edge_map = {e.id: e for e in graph.edges}
+        has_water = False
+        has_building = False
+        for eid in route.edges_used:
+            edge = edge_map.get(eid)
+            if edge is None:
+                continue
+            if not edge.bridge and graph.crosses_water(edge.geometry_xy):
+                has_water = True
+            if graph.crosses_building(edge.geometry_xy):
+                has_building = True
+        if has_water:
+            warnings.append("crosses_water")
+        if has_building:
+            warnings.append("crosses_building")
+        return SnapEditResult(
+            snapped=True,
+            route_lonlat=route.route_lonlat,
+            original_lonlat=list(target_lonlat),
+            warnings=warnings,
+            segments_failed=route.segments_failed,
+        )
+    # Fallback: return original but still check for barrier crossings on coordinates
+    warnings.extend(validate_route(target_lonlat, graph, projector))
+    return SnapEditResult(
+        snapped=False,
+        route_lonlat=list(target_lonlat),
+        original_lonlat=list(target_lonlat),
+        warnings=warnings,
     )

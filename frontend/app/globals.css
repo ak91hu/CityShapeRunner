@@ -24,31 +24,31 @@
 
 @layer components {
   .glass {
-    @apply bg-white/80 backdrop-blur-md border border-white/60 shadow-lg;
+    @apply bg-white/70 backdrop-blur-md border border-white/50 shadow-[0_8px_32px_rgba(0,0,0,0.08)] transition-all duration-300;
   }
 
   .card {
-    @apply bg-white rounded-2xl border border-slate-200 shadow-sm transition-all duration-200;
+    @apply bg-white rounded-lg border border-slate-200 transition-colors duration-200;
   }
 
   .card-hover {
-    @apply hover:shadow-lg hover:border-brand-300 hover:-translate-y-0.5;
+    @apply hover:border-slate-400;
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2;
   }
 
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 focus:ring-brand-500 shadow-sm hover:shadow-md;
+    @apply btn bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-900;
   }
 
   .btn-secondary {
-    @apply btn bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 hover:border-slate-400 focus:ring-slate-400;
+    @apply btn bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 focus:ring-slate-200;
   }
 
   .btn-dark {
-    @apply btn bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-700;
+    @apply btn bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-900;
   }
 
   .btn-ghost {
@@ -56,55 +56,47 @@
   }
 
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border border-slate-200;
   }
 
   .badge-green {
-    @apply badge bg-accent-100 text-accent-700;
+    @apply badge bg-emerald-50 text-emerald-700 border-emerald-200;
   }
 
   .badge-amber {
-    @apply badge bg-amber-100 text-amber-700;
+    @apply badge bg-amber-50 text-amber-700 border-amber-200;
   }
 
   .badge-blue {
-    @apply badge bg-brand-100 text-brand-700;
+    @apply badge bg-blue-50 text-blue-700 border-blue-200;
   }
 
   .badge-slate {
-    @apply badge bg-slate-100 text-slate-600;
+    @apply badge bg-slate-50 text-slate-700 border-slate-200;
   }
 
   .badge-rose {
-    @apply badge bg-rose-100 text-rose-700;
+    @apply badge bg-rose-50 text-rose-700 border-rose-200;
   }
 
   .input {
-    @apply w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
+    @apply w-full rounded-md border border-slate-300 px-4 py-2.5 text-sm placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900;
   }
 
   .section-title {
-    @apply text-2xl font-bold tracking-tight text-slate-900;
+    @apply text-2xl font-semibold tracking-tight text-slate-900;
   }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 bg-clip-text text-transparent;
+    @apply text-slate-900;
   }
 
   .hero-gradient {
-    background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.25), transparent),
-      radial-gradient(ellipse 60% 50% at 80% 50%, rgba(16, 185, 129, 0.15), transparent),
-      radial-gradient(ellipse 60% 50% at 20% 50%, rgba(236, 72, 153, 0.1), transparent);
+    @apply bg-white;
   }
 
   .float-anim {
-    animation: float 6s ease-in-out infinite;
-  }
-
-  @keyframes float {
-    0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-    100% { transform: translateY(0px); }
+    @apply transform-none;
   }
 }
 

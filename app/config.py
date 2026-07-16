@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     mapbox_access_token: str = ""
     mapbox_base_url: str = "https://api.mapbox.com/directions/v5"
 
+    # OpenRouteService
+    ors_api_key: str = ""
+    ors_base_url: str = "https://api.openrouteservice.org/v2/directions"
+
     # AI assistance (OpenCode Zen API)
     zen_api_key: str = ""
     zen_base_url: str = "https://api.opencode.ai"
@@ -30,6 +34,9 @@ class Settings(BaseSettings):
     enable_elevation: bool = False
     enable_user_accounts: bool = False
     enable_ai_retry: bool = True
+    # When False (default) the app uses fast deterministic synthetic grids.
+    # Set True to attempt loading cached OSM extracts (much slower first load).
+    use_osm_graphs: bool = False
 
     anon_generation_per_day: int = 10000
     anon_gpx_per_day: int = 10000
@@ -45,11 +52,11 @@ class Settings(BaseSettings):
     max_ai_retry_rounds: int = 2
     min_corridor_score: float = 0.30
     min_weighted_coverage: float = 0.40
-    coarse_candidate_limit: int = 400
-    medium_candidate_limit: int = 100
-    final_candidate_limit: int = 30
-    beam_width: int = 150
-    candidates_per_sample: int = 10
+    coarse_candidate_limit: int = 50
+    medium_candidate_limit: int = 10
+    final_candidate_limit: int = 5
+    beam_width: int = 50
+    candidates_per_sample: int = 5
 
     data_dir: str = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 

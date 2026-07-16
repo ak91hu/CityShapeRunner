@@ -234,7 +234,10 @@ def normalize_polylines(polylines: list[Polyline]) -> list[Polyline]:
     # and shift both axes so normalized coordinates lie in [-0.5, 0.5].
     out = []
     for pl in polylines:
-        pts = [((p[0] - cx) / scale, (cy - p[1]) / scale) for p in pl.points]
+        pts = [(
+            min(0.5, max(-0.5, (p[0] - cx) / scale)),
+            min(0.5, max(-0.5, (cy - p[1]) / scale)),
+        ) for p in pl.points]
         out.append(Polyline(points=pts, closed=pl.closed))
     return out
 

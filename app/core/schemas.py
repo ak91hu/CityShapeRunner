@@ -194,3 +194,11 @@ class HealthResponse(CamelModel):
     status: str
     version: str
     db: bool
+
+
+class SnapEditResponse(CamelModel):
+    lonlat: list[list[float]]
+    snapped: bool
+    warnings: list[str] = Field(default_factory=list)
+    original_lonlat: list[list[float]] = Field(default_factory=list)
+    segments_failed: int = 0

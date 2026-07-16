@@ -115,6 +115,14 @@ export interface HealthResponse {
   db: boolean;
 }
 
+export interface SnapEditResponse {
+  lonlat: number[][];
+  snapped: boolean;
+  warnings: string[];
+  originalLonlat: number[][];
+  segmentsFailed: number;
+}
+
 export interface CityCompatibility {
   cityId: string;
   cityName: string;

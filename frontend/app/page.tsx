@@ -18,13 +18,13 @@ import {
 } from "@/components/Icons";
 
 const CATEGORY_COLORS: Record<string, string> = {
-  basic: "from-rose-500 to-pink-500",
-  animals: "from-amber-500 to-orange-500",
-  sports: "from-accent-500 to-teal-500",
-  nature: "from-green-500 to-emerald-500",
-  city: "from-brand-500 to-violet-500",
-  funny: "from-fuchsia-500 to-pink-500",
-  symbols: "from-cyan-500 to-blue-500",
+  basic: "bg-rose-100 text-rose-700",
+  animals: "bg-amber-100 text-amber-700",
+  sports: "bg-emerald-100 text-emerald-700",
+  nature: "bg-green-100 text-green-700",
+  city: "bg-zinc-100 text-zinc-700",
+  funny: "bg-fuchsia-100 text-fuchsia-700",
+  symbols: "bg-blue-100 text-blue-700",
 };
 
 export default function Landing() {
@@ -125,8 +125,8 @@ export default function Landing() {
                       className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-brand-50 transition-colors"
                       onClick={() => selectArtwork(r)}
                     >
-                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${CATEGORY_COLORS[r.category] || "from-slate-400 to-slate-500"} p-1`}>
-                        <img src={r.previewSvgUrl} alt={r.name} className="h-full w-full invert" />
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-md ${CATEGORY_COLORS[r.category] || "bg-slate-100 text-slate-700"} p-1`}>
+                        <img src={r.previewSvgUrl} alt={r.name} className="h-full w-full invert-0 opacity-70" />
                       </div>
                       <div>
                         <div className="font-semibold text-slate-900">{tShape(r.id, r.name)}</div>
@@ -208,10 +208,10 @@ export default function Landing() {
             { icon: <DownloadIcon size={24} />, title: t("landing.step3Title"), desc: t("landing.step3Desc") },
           ].map(({ icon, title, desc }) => (
             <div key={title} className="card card-hover p-6">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 text-white shadow-md">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md bg-slate-100 text-slate-900 border border-slate-200">
                 {icon}
               </div>
-              <h3 className="font-bold text-slate-900">{title}</h3>
+              <h3 className="font-semibold text-slate-900">{title}</h3>
               <p className="mt-1.5 text-sm text-slate-600">{desc}</p>
             </div>
           ))}
@@ -248,8 +248,8 @@ export default function Landing() {
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-10">
           {artworks.slice(0, 10).map((a) => (
             <Link key={a.id} href={`/gallery/${a.id}`} className="card card-hover group flex flex-col items-center p-3">
-              <div className={`mb-2 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br ${CATEGORY_COLORS[a.category] || "from-slate-400 to-slate-500"} p-1.5 shadow-sm`}>
-                <img src={a.previewSvgUrl} alt={a.name} className="h-full w-full invert" />
+              <div className={`mb-2 flex h-14 w-14 items-center justify-center rounded-lg ${CATEGORY_COLORS[a.category] || "bg-slate-100 text-slate-700"} p-1.5`}>
+                <img src={a.previewSvgUrl} alt={a.name} className="h-full w-full invert-0 opacity-70" />
               </div>
               <span className="text-center text-xs font-medium text-slate-700">{tShape(a.id, a.name)}</span>
             </Link>
@@ -273,15 +273,15 @@ export default function Landing() {
                 ))}
               </ul>
             </div>
-            <div className="bg-gradient-to-br from-brand-600 to-accent-600 p-8 text-white">
-              <h3 className="text-lg font-bold">{t("landing.gpxModes")}</h3>
+            <div className="bg-slate-900 p-8 text-white">
+              <h3 className="text-lg font-semibold">{t("landing.gpxModes")}</h3>
               <div className="mt-4 space-y-4 text-sm">
                 <div>
-                  <div className="font-semibold">{t("landing.continuousMode")}</div>
-                  <p className="mt-1 text-white/80">{t("landing.continuousDesc")}</p>
+                  <div className="font-medium text-slate-200">{t("landing.continuousMode")}</div>
+                  <p className="mt-1 text-slate-400">{t("landing.continuousDesc")}</p>
                 </div>
               </div>
-              <Link href="/studio" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2.5 text-sm font-semibold backdrop-blur hover:bg-white/30 transition-colors">
+              <Link href="/studio" className="mt-6 inline-flex items-center gap-2 rounded-md bg-white text-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-100 transition-colors">
                 <SparklesIcon size={16} />
                 {t("landing.tryNow")}
               </Link>

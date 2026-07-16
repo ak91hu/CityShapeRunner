@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 
 from app.core.graph import Edge, Node, RoadGraph
 from app.core.seed import City
@@ -134,6 +134,75 @@ def _bbox_metric_for_projector(
     return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
 
 
+def _fetch_barrier_polygons(
+    bbox_lonlat: tuple[float, float, float, float],
+    projector: Projector,
+) -> tuple[list[Polygon], list[Polygon]]:
+    """Fetch water bodies and building footprints from OSM.
+
+    Returns (water_polygons, building_polygons) in the projected metric CRS.
+    Falls back to empty lists if OSMnx features API is unavailable or fails.
+    """
+    water_polygons: list[Polygon] = []
+    building_polygons: list[Polygon] = []
+    try:
+        import osmnx as ox
+    except Exception as exc:
+        logger.debug("OSMnx not available for barriers: %s", exc)
+        return water_polygons, building_polygons
+
+    west, south, east, north = bbox_lonlat
+
+    def _extract_polygons(gdf) -> list[Polygon]:
+        polys: list[Polygon] = []
+        for geom in gdf.geometry:
+            if geom is None or geom.is_empty:
+                continue
+            try:
+                if geom.geom_type == "Polygon":
+                    coords_xy = [projector.to_metric(lon, lat) for lon, lat in geom.exterior.coords]
+                    polys.append(Polygon(coords_xy))
+                elif geom.geom_type == "MultiPolygon":
+                    for part in geom.geoms:
+                        if part.geom_type == "Polygon":
+                            coords_xy = [projector.to_metric(lon, lat) for lon, lat in part.exterior.coords]
+                            polys.append(Polygon(coords_xy))
+                elif geom.geom_type in ("LineString", "MultiLineString"):
+                    lines = geom.geoms if geom.geom_type == "MultiLineString" else [geom]
+                    for line in lines:
+                        coords_xy = [projector.to_metric(lon, lat) for lon, lat in line.coords]
+                        if len(coords_xy) >= 2:
+                            buffered = LineString(coords_xy).buffer(15.0)
+                            if buffered.geom_type == "Polygon":
+                                polys.append(buffered)
+            except Exception:
+                continue
+        return polys
+
+    # Water bodies
+    try:
+        ox.settings.use_cache = True
+        water_tags = {"natural": ["water", "wetland"], "waterway": ["riverbank", "dock", "canal"]}
+        water_gdf = ox.features.features_from_bbox(bbox=(west, south, east, north), tags=water_tags)
+        if water_gdf is not None and not water_gdf.empty:
+            water_polygons = _extract_polygons(water_gdf)
+            logger.info("Fetched %d water polygons for barriers", len(water_polygons))
+    except Exception as exc:
+        logger.debug("Failed to fetch water barriers: %s", exc)
+
+    # Buildings
+    try:
+        ox.settings.use_cache = True
+        building_gdf = ox.features.features_from_bbox(bbox=(west, south, east, north), tags={"building": True})
+        if building_gdf is not None and not building_gdf.empty:
+            building_polygons = _extract_polygons(building_gdf)
+            logger.info("Fetched %d building polygons for barriers", len(building_polygons))
+    except Exception as exc:
+        logger.debug("Failed to fetch building barriers: %s", exc)
+
+    return water_polygons, building_polygons
+
+
 def build_osm_graph_for_city(
     city: City, max_cache_age_days: int = 30
 ) -> tuple[RoadGraph, Projector, tuple[float, float, float, float]] | None:
@@ -200,5 +269,18 @@ def build_osm_graph_for_city(
         logger.warning("Failed to convert OSM graph for %s: %s", city.id, exc)
         return None
 
-    logger.info("OSM graph for %s: %d nodes, %d edges", city.id, len(graph.nodes), len(graph.edges))
+    # Fetch water bodies and building footprints as barrier polygons
+    try:
+        water_polys, building_polys = _fetch_barrier_polygons(city.bbox, projector)
+        graph.water_polygons = water_polys
+        graph.building_polygons = building_polys
+        graph.build_barrier_index()
+    except Exception as exc:
+        logger.debug("Barrier fetch failed for %s: %s", city.id, exc)
+
+    logger.info(
+        "OSM graph for %s: %d nodes, %d edges, %d water polys, %d building polys",
+        city.id, len(graph.nodes), len(graph.edges),
+        len(graph.water_polygons), len(graph.building_polygons),
+    )
     return graph, projector, bbox_metric

@@ -20,6 +20,23 @@ import {
   ArrowRightIcon,
 } from "@/components/Icons";
 
+function generateGpx(geoJson: GeoJSON.FeatureCollection): string {
+  let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CityShapeRunner">\n`;
+  gpx += `  <trk>\n    <name>CityShapeRunner Route</name>\n    <trkseg>\n`;
+  
+  const route = geoJson.features.find(f => f.properties?.kind === "route") as GeoJSON.Feature<GeoJSON.LineString>;
+  if (route && route.geometry && route.geometry.type === "LineString") {
+    for (const coords of route.geometry.coordinates) {
+      const lon = coords[0];
+      const lat = coords[1];
+      gpx += `      <trkpt lat="${lat}" lon="${lon}"></trkpt>\n`;
+    }
+  }
+  
+  gpx += `    </trkseg>\n  </trk>\n</gpx>`;
+  return gpx;
+}
+
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 
 export default function RouteViewPage({ params }: { params: Promise<{ routeId: string }> }) {
@@ -27,6 +44,7 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
   const { routeId } = use(params);
   const [route, setRoute] = useState<RouteDetail | null>(null);
   const [share, setShare] = useState<ShareView | null>(null);
+  const [editedGeojson, setEditedGeojson] = useState<GeoJSON.FeatureCollection | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -37,7 +55,10 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
       api.createShare(routeId).then((s) => {
         setShareUrl(`${window.location.origin}/r/${s.shareId}`);
         return api.getShare(s.shareId);
-      }).then(setShare).catch(() => {});
+      }).then((s) => {
+        setShare(s);
+        setEditedGeojson(s.geojson);
+      }).catch(() => {});
     }).catch((e) => setErr((e as Error).message));
   }, [routeId]);
 
@@ -46,6 +67,18 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 500);
+  };
+
+  const handleDownloadGpx = () => {
+    if (!editedGeojson) return;
+    const gpxContent = generateGpx(editedGeojson);
+    const blob = new Blob([gpxContent], { type: "application/gpx+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "route.gpx";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (err) return (
@@ -76,17 +109,17 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
           </div>
         </div>
         <div className="flex gap-2">
-          <a className="btn-primary px-4 py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download="route.gpx">
+          <button className="btn-primary px-4 py-2.5 text-sm" onClick={handleDownloadGpx} disabled={!editedGeojson}>
             <DownloadIcon size={16} /> GPX
-          </a>
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <div className="h-96 overflow-hidden rounded-2xl border border-slate-200 shadow-md lg:h-[500px]">
-            {share ? (
-              <RouteMap key={route.routeId} geojson={share.geojson} showLayers />
+            {share && editedGeojson ? (
+              <RouteMap key={route.routeId} geojson={share.geojson} showLayers editable={true} onGeoJsonChange={setEditedGeojson} />
             ) : (
               <LoadingSpinner label={t("gallery.loading")} />
             )}
@@ -172,9 +205,9 @@ export default function RouteViewPage({ params }: { params: Promise<{ routeId: s
             <h3 className="font-bold">{t("route.continuous")}</h3>
           </div>
           <p className="mt-2 text-sm text-slate-600">{t("route.continuousDesc")}</p>
-          <a className="btn-primary mt-3 w-full py-2.5 text-sm" href={api.gpxUrl(route.routeId, "continuous")} download="route.gpx">
+          <button className="btn-primary mt-3 w-full py-2.5 text-sm" onClick={handleDownloadGpx} disabled={!editedGeojson}>
             <DownloadIcon size={16} /> {t("route.downloadContinuous")}
-          </a>
+          </button>
         </div>
       </div>
     </div>

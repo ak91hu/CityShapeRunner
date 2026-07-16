@@ -17,18 +17,23 @@ type BBoxMetric = tuple[float, float, float, float]
 def graph_for_city(city_id: str) -> tuple[RoadGraph, Projector, BBoxMetric] | None:
     """Return (graph, projector, bbox_metric) for a seed city.
 
-    Tries to load a real OpenStreetMap road graph first; falls back to the
-    deterministic synthetic grid if OSM data is unavailable or fails.
+    By default uses the deterministic synthetic grid for fast, reliable
+    generation. When CSR_USE_OSM_GRAPHS is set, tries to load a real
+    OpenStreetMap road graph first and falls back to synthetic if OSM fails.
     """
+    from app.config import get_settings
+
     city = get_city(city_id)
     if city is None:
         return None
 
-    osm_result = build_osm_graph_for_city(city)
-    if osm_result is not None:
-        return osm_result
+    settings = get_settings()
+    if getattr(settings, "use_osm_graphs", False):
+        osm_result = build_osm_graph_for_city(city)
+        if osm_result is not None:
+            return osm_result
+        logger.warning("Failed to load real OSM data for %s. Falling back to synthetic grid.", city_id)
 
-    logger.warning("Failed to load real OSM data for %s. Falling back to synthetic grid.", city_id)
     return build_synthetic_graph_for_city(city)
 
 

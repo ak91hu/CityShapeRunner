@@ -16,11 +16,11 @@ export default function Footer() {
           <div>
             <h4 className="text-sm font-semibold text-slate-700">{t("footer.explore")}</h4>
             <ul className="mt-2 space-y-1.5 text-sm">
-              <li><Link href="/studio" className="text-slate-500 hover:text-brand-600">{t("nav.studio")}</Link></li>
-              <li><Link href="/gallery" className="text-slate-500 hover:text-brand-600">{t("nav.gallery")}</Link></li>
-              <li><Link href="/cities" className="text-slate-500 hover:text-brand-600">{t("nav.cities")}</Link></li>
-              <li><a href="http://localhost:8000/documentation/" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-brand-600">{t("footer.docs")}</a></li>
-              <li><a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-brand-600">{t("footer.apiDocs")}</a></li>
+              <li><Link href="/studio" className="text-slate-500 hover:text-slate-900 transition-colors">{t("nav.studio")}</Link></li>
+              <li><Link href="/gallery" className="text-slate-500 hover:text-slate-900 transition-colors">{t("nav.gallery")}</Link></li>
+              <li><Link href="/cities" className="text-slate-500 hover:text-slate-900 transition-colors">{t("nav.cities")}</Link></li>
+              <li><a href="http://localhost:8000/documentation/" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-slate-900 transition-colors">{t("footer.docs")}</a></li>
+              <li><a href="http://localhost:8000/docs" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-slate-900 transition-colors">{t("footer.apiDocs")}</a></li>
             </ul>
           </div>
           <div>

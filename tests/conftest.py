@@ -14,7 +14,7 @@ from app.stores import STORE  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _reset_store():
-    """Reset in-memory stores + rate limiter between tests for isolation."""
+    """Reset in-memory stores, rate limiter, graph cache and provider flags between tests."""
     STORE.jobs.clear()
     STORE.candidates.clear()
     STORE.candidate_city.clear()
@@ -26,6 +26,11 @@ def _reset_store():
     rate_limiter._search.clear()
     from app.config import get_settings
     get_settings.cache_clear()
+    from app.graph_provider import graph_for_city
+    graph_for_city.cache_clear()
+    from app.core import shape_matching
+    shape_matching._ORS_FAILED = False
+    shape_matching._MAPBOX_FAILED = False
     yield
     get_settings.cache_clear()
 
@@ -48,6 +53,12 @@ def projector():
 def mini_grid():
     from app.core.graph import build_mini_grid_city
     return build_mini_grid_city()
+
+
+@pytest.fixture
+def river_city():
+    from app.core.graph import build_river_city
+    return build_river_city()
 
 
 @pytest.fixture

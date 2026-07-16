@@ -33,6 +33,23 @@ import { ScoreRing, ScoreBar, WarningList, CategoryBadge } from "./UI";
 
 const RouteMap = dynamic(() => import("./RouteMap"), { ssr: false });
 
+function generateGpx(geoJson: GeoJSON.FeatureCollection): string {
+  let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="CityShapeRunner">\n`;
+  gpx += `  <trk>\n    <name>CityShapeRunner Route</name>\n    <trkseg>\n`;
+  
+  const route = geoJson.features.find(f => f.properties?.kind === "route") as GeoJSON.Feature<GeoJSON.LineString>;
+  if (route && route.geometry && route.geometry.type === "LineString") {
+    for (const coords of route.geometry.coordinates) {
+      const lon = coords[0];
+      const lat = coords[1];
+      gpx += `      <trkpt lat="${lat}" lon="${lon}"></trkpt>\n`;
+    }
+  }
+  
+  gpx += `    </trkseg>\n  </trk>\n</gpx>`;
+  return gpx;
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   basic: "from-rose-500 to-pink-500",
   animals: "from-amber-500 to-orange-500",
@@ -198,6 +215,18 @@ export default function Studio() {
     if (!selected) return;
     const route = await api.createRoute(selected.candidateId);
     setRouteId(route.routeId);
+  };
+
+  const handleDownloadGpx = () => {
+    if (!geojson) return;
+    const gpxContent = generateGpx(geojson);
+    const blob = new Blob([gpxContent], { type: "application/gpx+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "route.gpx";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const share = async () => {
@@ -529,7 +558,7 @@ export default function Studio() {
               </div>
             </div>
           ) : geojson ? (
-            <RouteMap key={selected?.candidateId ?? "empty"} geojson={geojson} center={undefined} />
+            <RouteMap key={selected?.candidateId ?? "empty"} geojson={geojson} center={undefined} editable={true} onGeoJsonChange={setGeojson} cityId={city?.cityId} activity={activity} />
           ) : sortedSuggestions.length > 0 ? (
             <div className="flex h-full items-center justify-center bg-grid-pattern bg-[size:40px_40px]">
               <div className="text-center">
@@ -632,9 +661,9 @@ export default function Studio() {
                 <button className="btn-dark px-4 py-2.5 text-sm" onClick={createRoute} disabled={!selected}>
                   {routeId ? <><CheckIcon size={16} className="text-accent-400" />{t("studio.routeReady")}</> : t("studio.createRoute")}
                 </button>
-                <a className={`btn px-4 py-2.5 text-sm ${routeId ? "bg-brand-600 text-white hover:bg-brand-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`} href={routeId ? api.gpxUrl(routeId, "continuous") : undefined} download="route.gpx">
+                <button className={`btn px-4 py-2.5 text-sm ${geojson ? "bg-brand-600 text-white hover:bg-brand-700" : "bg-slate-200 text-slate-400 cursor-not-allowed"}`} onClick={handleDownloadGpx} disabled={!geojson}>
                   <DownloadIcon size={16} />GPX
-                </a>
+                </button>
                 <button className="btn-secondary px-4 py-2.5 text-sm" disabled={!routeId} onClick={share}>
                   <ShareIcon size={16} />{t("studio.share")}
                 </button>

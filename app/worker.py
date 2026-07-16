@@ -59,6 +59,7 @@ def run_job(job_id: str) -> None:
             difficulty=Difficulty(req.difficulty),
             max_suggestions=req.max_suggestions,
             algorithm_version=_ALGO_VERSION,
+            max_transformations=24,
             progress_callback=progress_callback,
         )
 
