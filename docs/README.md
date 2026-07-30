@@ -4,7 +4,9 @@ Turn a run or ride into a recognisable drawing. Enter an idea such as “a heart
 run in Budapest, about 8 km”, choose one of the 32 quick starts, or ask for a
 city suggestion. The nine-agent pipeline interprets the request, creates and
 places the outline, routes it over streets, measures shape likeness, tests
-nearby alternatives, and exports only candidates that pass every quality gate.
+nearby alternatives, and retains every fully routed candidate. Quality gates
+rank and warn rather than reject, so a user can compare, edit, and export a
+weaker result with explicit review guidance.
 
 Not sure what to draw? Ask the planner to suggest a suitable shape for a city:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
@@ -47,6 +49,36 @@ prompt ─▶ IntentAgent ─▶ PlanningAgent ─▶ ShapeAgent ─▶ Placemen
                                   │                              └──────── RefinementAgent ◀────┘  (bounded measured loop)
                                   │   skills loaded into every LLM agent's prompt from docs/
 ```
+
+## Research-derived design decisions
+
+GPS-art generation is a constrained shape-matching problem on a legal,
+activity-specific road graph—not ordinary waypoint routing. The implementation
+uses the following evidence-to-design mapping:
+
+| Evidence | Result used by the application | Implementation boundary |
+|---|---|---|
+| [Waschk and Krüger's automatic GPS-art planner](https://doi.org/10.1007/s41095-019-0146-z) shows that off-the-shelf routing can create large detours when drawing points lie off-grid, and proposes a graph cost that balances endpoint progress, path length, and distance from the intended segment. | Prefer a road-compatible placement before spending full route calls; then penalise detour stretch and deviation over the returned curve. | Hosted ORS does not expose the paper's custom edge cost. Preflight snapping plus post-route scoring is an approximation, not the same optimiser. |
+| [Powałka's shape-guided route-finding thesis](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad) separates template placement from graph routing, generates and ranks alternatives, and demonstrates move/rotate/scale interaction with route feedback. | Search a broad transform space, preserve multiple candidates, and keep a human correction loop in the product. | Automatic search uses a bounded discrete sample—up to 180 transforms and seven full routes—rather than an exhaustive city graph search. |
+| [Arkin et al.](https://doi.org/10.1109/34.75509) compare polygonal shapes through turning functions that can be normalised across translation, rotation, and scale. | Measure characteristic turns and their sequence in addition to shared-frame point similarity. | Turning similarity is one component; it cannot detect geographic displacement, unsafe roads, or an incorrect target distance by itself. |
+| [Li and Fu](https://doi.org/10.3390/ijgi15030098) model road graphics with invariant turning angles and length ratios. Their experiments show that approximate line segments improve retrieval and that removing length-ratio constraints admits visibly deformed matches. | Preserve corners during guide-point reduction and score angular relations, extent, relative lengths, coverage, and collapse. | The app searches transformed templates and consumes ORS routes; it does not run the paper's road-network subgraph-retrieval algorithm. |
+| [Nassir et al.](https://doi.org/10.3141/2430-18) treat overlap explicitly when constructing useful alternative-route choice sets. | Diversify the shortlist in transform space so scarce Directions calls cover distinct positions, orientations, and scales instead of near-duplicates. | Transform diversity is a proxy for route diversity; final candidates can still share streets where the network has few alternatives. |
+| [Newson and Krumm](https://doi.org/10.1145/1653771.1653818) show that map matching must combine observation distance with plausible network transitions; pedestrian Fréchet work likewise emphasises ordered curve continuity ([Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Treat nearest-edge snapping as non-authoritative and submit every edited guide to the activity profile before recomputing quality; only a successful Directions result is labelled road-routed. | ORS Directions establishes a connected routable result for its graph snapshot, but does not guarantee current legal access, surface quality, or personal safety. |
+
+The resulting funnel is deliberately coarse-to-fine: up to 180 transforms are
+reduced to curvature-preserving 18-point guides for one batched snap request;
+a quality-and-diversity rule selects seven full Directions candidates; every
+returned route is then evaluated using coverage, characteristic turns,
+proportions, distance, closure, and road-routing evidence. Failed or weak
+candidates remain visible with diagnostic warnings rather than being silently
+discarded.
+
+The literature supports these design choices, not the current numeric
+thresholds. Those are explicit engineering heuristics and should be calibrated
+against a labelled evaluation set in which independent reviewers identify the
+intended figure and rate route usability. Full citations, the production
+funnel, and the distinction between snapping and routing are documented in
+[gps-art-research.md](gps-art-research.md).
 
 | Agent | Responsibility |
 |-------|----------------|

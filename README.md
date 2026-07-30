@@ -26,6 +26,29 @@ an explicitly requested drawing misses a recommended target, the planner
 measures simpler city-aware templates and recommends the strongest result
 without removing the original.
 
+## Research basis
+
+The pipeline is an engineering adaptation of published GPS-art, computational
+geometry, route-choice, and map-matching research. It does not claim to
+reproduce every paper's custom graph algorithm; instead, it maps the findings
+to operations available through the hosted OpenRouteService API.
+
+| Research finding | Consequence in GPS Art Wizard |
+|---|---|
+| Ordinary waypoint routers can turn off-network drawing points into large detours or visually destructive turns; GPS art benefits from a shape-aware graph cost ([Waschk & Krüger, 2019](https://doi.org/10.1007/s41095-019-0146-z)). | Placements are screened before Directions routing, curvature-bearing guide points are preserved, and the complete returned street polyline is measured against the intended outline. |
+| Template placement, graph search, candidate comparison, and interactive adjustment are complementary stages rather than one routing call ([Powałka, 2023](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad)). | A city-wide transform search produces several routed alternatives, while the browser editor lets the user correct control points and request a fresh route. |
+| Turning functions compare polygonal shape in a way that can be normalised for translation, rotation, and scale ([Arkin et al., 1991](https://doi.org/10.1109/34.75509)). | Characteristic turns and their order contribute to recognition; mean point distance is never the sole likeness measure. |
+| Turning angles, approximate road polylines, and internal length ratios help retrieve recognisable graphics and reject stretched lookalikes in road networks ([Li & Fu, 2026](https://doi.org/10.3390/ijgi15030098)). | Preflight and final validation score angular relations, extent, segment proportions, coverage, and collapse instead of accepting nearest-road distance alone. |
+| Useful alternative sets must control overlap, or a top-*k* list can contain near-duplicates ([Nassir et al., 2014](https://doi.org/10.3141/2430-18)). | The seven expensive routing slots balance proxy quality with separation in position, rotation, and scale. |
+| Map matching requires plausible transitions and sequence continuity, not only independent nearest points ([Newson & Krumm, 2009](https://doi.org/10.1145/1653771.1653818); [Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Batched snapping is treated only as a cheap proxy. Guides are submitted to activity-specific Directions routing and whole-curve validation before they are labelled road-routed; a failed routing attempt remains an explicit manual-review fallback. |
+
+These studies justify the architecture and metrics, but they do not prove that
+a generated route is recognisable, safe, legal, or optimal in every city.
+Thresholds remain engineering heuristics and should be calibrated with
+labelled human-recognition tests. See the
+[research notes](docs/gps-art-research.md) for the full evidence-to-algorithm
+mapping and production funnel.
+
 The built-in Leaflet editor exposes numbered draggable control points for every
 candidate. After a correction, `/edit-route` routes the guide through the
 activity-specific street graph again, recalculates quality and distance, and
