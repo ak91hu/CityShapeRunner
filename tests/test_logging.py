@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import logging
+
+import uvicorn
 from fastapi.testclient import TestClient
 
+import gps_art_wizzard.main as main_module
+from gps_art_wizzard.logging_config import (
+    _JsonFormatter,
+    bind_request_id,
+    reset_request_id,
+)
 from gps_art_wizzard.main import create_app
 
 
@@ -28,6 +38,58 @@ def test_unsafe_request_id_is_replaced():
     request_id = response.headers["X-Request-ID"]
     assert request_id != "not safe / header"
     assert len(request_id) == 32
+
+
+def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
+    request_token = bind_request_id("debug-session-123")
+    monkeypatch.setenv("SERVICE_NAME", "gps-art-wizard")
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("APP_REVISION", "abc123")
+    try:
+        record = logging.LogRecord(
+            name="gps_art_wizzard.test",
+            level=logging.WARNING,
+            pathname=__file__,
+            lineno=1,
+            msg="candidate needs review",
+            args=(),
+            exc_info=None,
+        )
+        record.event = "candidate.review.required"
+        record.score = 0.61
+        # Handlers normally apply this context filter before formatting.
+        record.request_id = "debug-session-123"
+
+        payload = json.loads(_JsonFormatter().format(record))
+    finally:
+        reset_request_id(request_token)
+
+    assert payload["severity"] == "WARNING"
+    assert payload["service"] == "gps-art-wizard"
+    assert payload["environment"] == "test"
+    assert payload["revision"] == "abc123"
+    assert payload["request_id"] == "debug-session-123"
+    assert payload["event"] == "candidate.review.required"
+    assert payload["score"] == 0.61
+
+
+def test_server_prefers_platform_port_and_keeps_structured_logging(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_run(app: str, **kwargs) -> None:
+        captured["app"] = app
+        captured.update(kwargs)
+
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setenv("API_PORT", "8000")
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    main_module.run()
+
+    assert captured["app"] == "gps_art_wizzard.main:app"
+    assert captured["port"] == 8080
+    assert captured["log_config"] is None
+    assert captured["access_log"] is False
 
 
 def test_edit_route_endpoint_returns_correlated_manual_gpx_without_ors():

@@ -58,20 +58,45 @@ class _JsonFormatter(logging.Formatter):
     )
 
     def format(self, record: logging.LogRecord) -> str:
+        service = (
+            os.getenv("SERVICE_NAME")
+            or os.getenv("K_SERVICE")
+            or "gps-art-wizard"
+        )
+        environment = os.getenv("APP_ENV", "local")
+        request_id = getattr(record, "request_id", "-")
         payload: dict[str, object] = {
             "timestamp": datetime.now(UTC).isoformat(),
+            "severity": record.levelname,
             "level": record.levelname,
+            "service": service,
+            "environment": environment,
             "logger": record.name,
-            "request_id": getattr(record, "request_id", "-"),
+            "request_id": request_id,
             "message": record.getMessage(),
         }
+        revision = (
+            os.getenv("APP_REVISION")
+            or os.getenv("K_REVISION")
+            or ""
+        ).strip()
+        if revision:
+            payload["revision"] = revision
         for field in self._extra_fields:
             value = getattr(record, field, None)
             if value is not None:
                 payload[field] = value
         if record.exc_info:
+            exception_type = record.exc_info[0]
+            if exception_type is not None:
+                payload["exception_type"] = exception_type.__name__
             payload["exception"] = self.formatException(record.exc_info)
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
 
 
 def configure_logging() -> None:
@@ -99,7 +124,15 @@ def configure_logging() -> None:
     console.addFilter(context_filter)
     handlers.append(console)
 
-    log_file = os.getenv("LOG_FILE", "logs/gps-art-wizard.log").strip()
+    # Production containers emit to stderr for the hosting platform to collect.
+    # Local runs keep rotating JSONL files unless LOG_FILE is explicitly set.
+    environment = os.getenv("APP_ENV", "local").strip().lower()
+    default_log_file = (
+        "logs/gps-art-wizard.log"
+        if environment in {"", "dev", "development", "local", "test"}
+        else ""
+    )
+    log_file = os.getenv("LOG_FILE", default_log_file).strip()
     if log_file:
         try:
             path = Path(log_file)

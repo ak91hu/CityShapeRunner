@@ -51,7 +51,8 @@ def create_app() -> FastAPI:
         )
         token = bind_request_id(request_id)
         started = time.perf_counter()
-        log.info(
+        request_log = log.debug if request.url.path == "/health" else log.info
+        request_log(
             "HTTP request started",
             extra={
                 "event": "http.request.started",
@@ -63,7 +64,7 @@ def create_app() -> FastAPI:
             response = await call_next(request)
             duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
             response.headers["X-Request-ID"] = request_id
-            log.info(
+            request_log(
                 "HTTP request completed",
                 extra={
                     "event": "http.request.completed",
@@ -109,8 +110,16 @@ def run() -> None:
     import uvicorn
 
     host = os.getenv("API_HOST", "127.0.0.1")
-    port = int(os.getenv("API_PORT", "8000"))
-    uvicorn.run("gps_art_wizzard.main:app", host=host, port=port, reload=False)
+    port_value = os.getenv("PORT") or os.getenv("API_PORT") or "8000"
+    port = int(port_value)
+    uvicorn.run(
+        "gps_art_wizzard.main:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_config=None,
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":

@@ -117,7 +117,12 @@ HTTP middleware assigns or validates an `X-Request-ID` and emits structured
 start/completion/failure events. Agent, ORS, validation, editing, and export
 records inherit the same ID. JSON console logs and a rotating file log are
 enabled by default; configure them with `LOG_LEVEL`, `LOG_FORMAT`, `LOG_FILE`,
-`LOG_MAX_BYTES`, and `LOG_BACKUP_COUNT`.
+`LOG_MAX_BYTES`, and `LOG_BACKUP_COUNT`. The production container leaves
+`LOG_FILE` empty and emits host-independent JSON to stderr. Northflank captures
+that stream and its native Loki log sink forwards it to Grafana Cloud without
+exposing Grafana credentials to the application. Grafana Explore can filter
+the JSON by request ID, event, severity, environment, or release revision. See
+[deployment.md](deployment.md) for the exact service and log-sink setup.
 
 **Skills**: every agent's system prompt is augmented at runtime with the
 relevant markdown from `docs/skill-*.md` (shape design, placement, snap, metrics,

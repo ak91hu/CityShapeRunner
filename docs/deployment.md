@@ -5,6 +5,142 @@ and serves the resulting static assets from the same FastAPI process as the API.
 Node, npm caches, source maps from development, test files, and Python build
 tools are not copied into the runtime image.
 
+## Northflank Developer Sandbox
+
+The repository is prepared for a
+[Northflank combined service](https://northflank.com/docs/v1/application/getting-started/build-and-deploy-your-code).
+The service builds the root `Dockerfile`, runs the React SPA and FastAPI API in
+one container, exposes one HTTPS address on Northflank's `code.run` domain, and
+automatically builds and deploys new commits from the linked branch.
+
+Northflank's Developer Sandbox currently provides limited always-on services
+without the sleep cycle used by many free web-service plans. It is intended for
+hobby, preview, and testing workloads rather than production use and carries no
+production SLA. The application's bounded but CPU-heavy geometry search should
+therefore be measured after deployment before increasing external API usage.
+
+### Create the service from the existing project
+
+Inside the Northflank project:
+
+1. Select **Create new → Service → Combined service**.
+2. Use service name `gps-art-wizard`.
+3. Link `ak91hu/CityShapeRunner`, branch `master`.
+4. Select **Dockerfile** with build context `/` and path `/Dockerfile`.
+5. Do not add a build command or command override. The image's default command
+   is `gps-art-wizzard`.
+6. Under **Networking**, expose container port `8000` as public HTTP. The
+   Dockerfile already declares `EXPOSE 8000`; ensure the detected port is
+   publicly exposed.
+7. Under **Health checks**, use HTTP `GET /health` on port `8000`, with an
+   initial delay of at least 20 seconds, a 30-second interval, and a 5-second
+   timeout.
+8. Select one free Sandbox instance and create the service.
+
+The final public URL is displayed in the service header and ends in
+`.code.run`. The application also accepts a platform-provided `PORT` variable
+if Northflank supplies one; otherwise it listens on `0.0.0.0:8000`.
+
+The standard Docker build includes the OpenCode/OpenAI-compatible SDK because
+OpenCode is the default hosted LLM provider. Set the Docker build argument
+`INSTALL_EXTRAS=all` only when Anthropic support is also required. Use an empty
+`INSTALL_EXTRAS` value for a smaller deterministic-only image.
+
+### Runtime variables and secrets
+
+Add the following non-secret runtime variables to the combined service:
+
+```dotenv
+APP_ENV=production
+SERVICE_NAME=gps-art-wizard
+API_HOST=0.0.0.0
+API_PORT=8000
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+LOG_FILE=
+EXPORT_DIR=
+LLM_PROVIDER=opencode
+LLM_FALLBACK=opencode
+NOMINATIM_EMAIL=operations@example.com
+ORS_CONTINUE_STRAIGHT=false
+ORS_PREFERENCE=shortest
+```
+
+Replace `NOMINATIM_EMAIL` with a monitored contact address. `LOG_FILE` and
+`EXPORT_DIR` must remain empty because the Sandbox container filesystem is not
+the source of truth. GPX/TCX documents are generated in memory and downloaded
+by the browser.
+
+Create a Northflank secret group or enter masked runtime secrets for:
+
+```dotenv
+ORS_API_KEY=...
+OPENCODE_API_KEY=...
+```
+
+Never paste these keys into repository files, Docker build arguments, or public
+logs. Without `ORS_API_KEY`, the app still starts but can only produce
+straight-line manual-review guides. Without the optional LLM key, deterministic
+planning remains available.
+
+The SPA and API share one origin, so no production CORS entry is required.
+Only set `WEB_CORS_ORIGINS` if a separate frontend domain must call the API; in
+that case use the exact HTTPS origin rather than `*`.
+
+### Persistent and searchable Grafana Cloud logs
+
+The production image emits one-line structured JSON to stderr. Northflank
+captures that stream and can forward it through its
+[native Loki log sink](https://northflank.com/docs/v1/application/observe/configure-log-sinks),
+so Grafana credentials do not enter the application container and HTTP log
+delivery cannot delay route generation.
+
+Configure the sink once at the Northflank account/team level:
+
+1. In Grafana Cloud, create an access policy with **logs:write only**, then
+   create and securely save its token.
+2. Open the Grafana Cloud stack's Loki details and copy its URL and username.
+3. In Northflank, open **Integrations → Log sinks → Add log sink → Loki**.
+4. Enter the Grafana Loki URL and username; use the access-policy token as the
+   password.
+5. Select **JSON** encoding and restrict the sink to this Northflank project.
+6. Save the sink. Northflank sends a validation entry before enabling it.
+
+In Grafana, open **Explore**, select the Loki data source, and begin with:
+
+```logql
+{host="Northflank"} |= "gps-art-wizard"
+```
+
+Search a user-visible request identifier or an event without promoting those
+high-cardinality values to Loki labels:
+
+```logql
+{host="Northflank"} |= "\"request_id\":\"debug-session-123\""
+{host="Northflank"} |= "\"event\":\"generation.completed\""
+{host="Northflank"} |= "\"severity\":\"ERROR\""
+```
+
+If the selected sink encoding exposes the application JSON directly, Grafana's
+query-time JSON parser can also be used:
+
+```logql
+{host="Northflank"} | json | request_id="debug-session-123"
+```
+
+Keep `service`, `environment`, and bounded severity values as stream metadata;
+keep `request_id`, prompts, route coordinates, and other unbounded/user values
+out of labels. The application deliberately excludes API keys and prompt text,
+but operational logs can still contain provider failures or route diagnostics.
+Do not expose logs through a public application endpoint.
+
+Locally, rotating JSONL files remain searchable without Grafana:
+
+```powershell
+Select-String -Path "logs\gps-art-wizard.log*" -Pattern '"request_id":"debug-session-123"'
+Select-String -Path "logs\gps-art-wizard.log*" -Pattern '"event":"generation.completed"'
+```
+
 ## Build and run
 
 ```bash
@@ -16,12 +152,12 @@ docker run --rm --name gps-art-wizzard \
   gps-art-wizzard:0.1.0
 ```
 
-The default image contains no hosted-LLM SDK and uses deterministic planning
-when no provider is available. Include the OpenAI-compatible SDK only for an
-OpenCode or OpenAI deployment:
+The default image contains the OpenAI-compatible SDK used by the default
+OpenCode provider. Build a smaller deterministic-only image by overriding the
+default build argument with an empty value:
 
 ```bash
-docker build --build-arg INSTALL_EXTRAS=opencode --tag gps-art-wizzard:0.1.0-opencode .
+docker build --build-arg INSTALL_EXTRAS= --tag gps-art-wizzard:0.1.0-deterministic .
 ```
 
 Use `INSTALL_EXTRAS=anthropic` for Anthropic or `INSTALL_EXTRAS=all` for both
@@ -40,6 +176,8 @@ container; `localhost` refers to the container itself, not its host.
 - Persistent storage: not required. Eligible GPX/TCX documents are returned in
   the API response and remain in memory by default. Configure `EXPORT_DIR` only
   when server-side copies are required.
+- Logging: structured JSON is emitted to stderr. On Northflank, leave
+  `LOG_FILE` empty and use a project-restricted Loki log sink for retention.
 - Network: outbound HTTPS is required for the configured geocoder, road router,
   and hosted LLM provider.
 - Common supported-city/template requests need only the road router at
@@ -73,11 +211,12 @@ OPENCODE_API_KEY=...
 NOMINATIM_EMAIL=operations@example.com
 WEB_CORS_ORIGINS=https://routes.example.com
 API_HOST=0.0.0.0
-# Structured rotating diagnostics:
+# Structured diagnostics for a platform log sink:
+APP_ENV=production
+SERVICE_NAME=gps-art-wizard
+APP_REVISION=
 LOG_FORMAT=json
-LOG_FILE=/data/logs/gps-art-wizard.log
-LOG_MAX_BYTES=5000000
-LOG_BACKUP_COUNT=5
+LOG_FILE=
 # Optional persistent server-side copies:
 # EXPORT_DIR=/data/exports
 ```
@@ -90,10 +229,11 @@ targets are also retained instead of deleted. Without an LLM key,
 deterministic planning remains available; route refinement is always
 deterministic and uses measured geometry.
 
-When `EXPORT_DIR` or `LOG_FILE` uses persistent storage, mount a writable
-volume at the configured path and grant it to container user `10001`. Do not
-set `EXPORT_DIR` on stateless deployments; console JSON logging continues if a
-file path is unavailable.
+For a VM or paid container platform with an attached volume, set
+`LOG_FILE=/data/logs/gps-art-wizard.log`, tune `LOG_MAX_BYTES` and
+`LOG_BACKUP_COUNT`, mount `/data`, and grant it to container user `10001`.
+Do not set `LOG_FILE` or `EXPORT_DIR` on stateless deployments; console JSON
+logging remains authoritative there.
 
 Restrict `WEB_CORS_ORIGINS` to trusted browser origins. Terminate TLS at the
 hosting platform or reverse proxy, cap request-body size, and apply rate limits
@@ -127,7 +267,6 @@ into the runtime working directory.
 Direct Python dependencies are pinned to audited stable releases in
 `pyproject.toml`. Re-audit release notes and run the full unit and browser test
 suites before changing a pin. Frontend direct dependencies are exact pins in
-`frontend/package.json`; npm currently resolves their transitive dependencies
-at install time. Generate and commit a fresh lockfile in a network-enabled
-release environment, then replace `npm install` with `npm ci` in the image and
-CI to make the complete Node graph reproducible.
+`frontend/package.json`, while `frontend/package-lock.json` pins the transitive
+graph. The production image uses `npm ci`; update and commit both files
+together whenever frontend dependencies change.

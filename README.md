@@ -1,5 +1,14 @@
 # GPS Art Wizard
 
+[![CI](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Node.js 24](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.140-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)](https://react.dev/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+[![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
+[![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
+
 Turn a run or ride into a drawing. Describe an idea—or choose one of 32 quick
 starts—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
@@ -59,6 +68,10 @@ Structured JSON logs are written to the console and, by default, to the
 rotating `logs/gps-art-wizard.log`. Every HTTP request receives an
 `X-Request-ID`, allowing UI reports, API failures, candidate measurements, and
 provider errors to be correlated without logging API keys or the prompt text.
+On Northflank, the production image writes only to the captured console stream.
+The platform's native Loki log sink forwards that stream to Grafana Cloud,
+where entries can be searched by request ID, event, severity, environment, or
+release revision without placing Grafana credentials in the application.
 
 Start with the [complete project guide](docs/README.md). Production operators
 should also read the [deployment guide](docs/deployment.md).
@@ -90,6 +103,16 @@ python -m uvicorn gps_art_wizzard.main:app --reload
 
 The web client is then available after its Vite development server is started
 from `frontend/`, or directly from FastAPI after `frontend/dist` has been built.
+
+## Hosting
+
+The recommended hobby deployment is the
+[Northflank Developer Sandbox with Grafana Cloud Logs](docs/deployment.md#northflank-developer-sandbox).
+A Northflank combined service builds the repository's multi-stage Dockerfile,
+serves the SPA and API from one HTTPS `*.code.run` endpoint, and automatically
+rebuilds the `master` branch after a push. The free Sandbox is always-on but
+resource-limited and has no production SLA; the deployment guide records the
+exact service, port, health-check, environment, and Loki-sink settings.
 
 > Generated routes are planning candidates, not safety guarantees. Review every
 > route against current access rules, crossings, closures, terrain, and local
