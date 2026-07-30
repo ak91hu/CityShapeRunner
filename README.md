@@ -74,7 +74,10 @@ where entries can be searched by request ID, event, severity, environment, or
 release revision without placing Grafana credentials in the application.
 
 Start with the [complete project guide](docs/README.md). Production operators
-should also read the [deployment guide](docs/deployment.md).
+should also read the [deployment guide](docs/deployment.md). The dated
+[2026-07-30 development and production lessons](docs/2026-07-30-lessons-learned.md)
+record the first Northflank incidents, measured performance fix, Grafana
+queries, and the operational troubleshooting checklist.
 
 ## Quick ideas
 

@@ -242,5 +242,7 @@ docs/          project, architecture, deployment, and agent-skill documentation
 ```
 
 See [AGENTS.md](AGENTS.md), [architecture.md](architecture.md),
-[gps-art-research.md](gps-art-research.md), and [deployment.md](deployment.md)
-for the full design, research basis, and operating model.
+[gps-art-research.md](gps-art-research.md), [deployment.md](deployment.md), and
+the [2026-07-30 lessons learned](2026-07-30-lessons-learned.md) for the full
+design, research basis, operating model, measured production incidents, and
+troubleshooting checklist.
