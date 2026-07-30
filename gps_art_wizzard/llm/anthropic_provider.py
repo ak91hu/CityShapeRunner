@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from .base import LLMError, LLMResponse, Message, to_dicts
+
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam
 
 _DEFAULT_MODEL = "claude-3-5-sonnet-latest"
 
@@ -34,7 +39,9 @@ class AnthropicProvider:
         max_tokens: int | None = None,
         system: str | None = None,
     ) -> LLMResponse:
-        msgs = to_dicts(messages)
+        # The provider-neutral Message role is validated by the intent/prompt
+        # pipeline before it reaches this adapter.
+        msgs = cast("list[MessageParam]", to_dicts(messages))
         # Anthropic rejects a leading/standalone system role in messages; pass via system=.
         system_prompt = system or ""
         try:
@@ -47,7 +54,7 @@ class AnthropicProvider:
             )
         except Exception as e:  # noqa: BLE001
             raise LLMError(f"Anthropic call failed: {e}") from e
-        text_parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
+        text_parts = [block.text for block in resp.content if block.type == "text"]
         text = "".join(text_parts)
         usage: dict[str, int] = {}
         if getattr(resp, "usage", None):
