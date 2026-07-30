@@ -245,6 +245,26 @@ def test_closed_route_similarity_ignores_start_vertex():
     assert shape_similarity.fidelity_between_routes(loop, shifted) > 0.98
 
 
+def test_closed_route_preflight_resolution_still_ignores_start_vertex():
+    loop = [
+        (47.0, 19.0),
+        (47.0, 19.01),
+        (47.01, 19.01),
+        (47.01, 19.0),
+        (47.0, 19.0),
+    ]
+    shifted = loop[2:-1] + loop[:3]
+
+    diagnostics = shape_similarity.similarity_diagnostics_between_routes(
+        loop,
+        shifted,
+        n=64,
+        closed_sample_floor=64,
+    )
+
+    assert diagnostics.fidelity > 0.9
+
+
 def test_similarity_rejects_backtracking_scribble_inside_the_right_outline():
     reference = [
         (47.0, 19.0),

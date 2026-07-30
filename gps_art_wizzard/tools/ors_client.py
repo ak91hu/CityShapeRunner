@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -176,6 +177,7 @@ def preflight_route_candidates(
     if response_locations is None:
         return None
 
+    scoring_started = time.perf_counter()
     results: list[SnapPreflightResult] = []
     for candidate_index, guide, (start, end) in zip(
         candidate_indices,
@@ -218,6 +220,7 @@ def preflight_route_candidates(
                 original_valid,
                 snapped_valid,
                 n=64,
+                closed_sample_floor=64,
             )
         else:
             diagnostics = shape_similarity.SimilarityDiagnostics(
@@ -264,6 +267,18 @@ def preflight_route_candidates(
             )
         )
 
+    duration_ms = round((time.perf_counter() - scoring_started) * 1000.0, 2)
+    log.info(
+        "ORS snap preflight scored %d placements in %.2fms",
+        len(results),
+        duration_ms,
+        extra={
+            "event": "preflight.scoring.completed",
+            "candidate_count": len(results),
+            "sample_count": 64,
+            "duration_ms": duration_ms,
+        },
+    )
     return sorted(results, key=lambda result: result.score, reverse=True)
 
 

@@ -336,6 +336,7 @@ def similarity_diagnostics_between_routes(
     snapped: list[LatLon],
     *,
     n: int = 128,
+    closed_sample_floor: int = 256,
 ) -> SimilarityDiagnostics:
     """Return perceptual similarity plus actionable failure diagnostics.
 
@@ -366,7 +367,14 @@ def similarity_diagnostics_between_routes(
         np.linalg.norm(Rn[0] - Rn[-1]) <= 0.05
         and np.linalg.norm(Sn[0] - Sn[-1]) <= 0.05
     )
-    sample_count = max(n, 256) if closed else n
+    # Full route validation deliberately uses a dense closed-loop sample so
+    # cyclic start-point alignment stays precise. Coarse preflight compares
+    # sparse road-snap guides for hundreds of placements, where forcing every
+    # closed candidate to 256 samples turns the O(n²) Fréchet calculation into
+    # the dominant runtime. Callers may lower the floor for that screening
+    # phase without discarding any candidate; final routed candidates still
+    # use the default high-resolution validation.
+    sample_count = max(n, max(2, int(closed_sample_floor))) if closed else n
     Rr = resample(Rn, sample_count)
     Sr = resample(Sn, sample_count)
     return max(
