@@ -1,0 +1,715 @@
+"""OpenRouteService client: snap-to-road + routing for a drawn waypoint list.
+
+Given an ordered list of [lat, lon] waypoints drawn on the map, this asks ORS
+to route through them along the real road network, returning a single
+connected, road-following candidate. Without a hosted-service API key (or a configured
+self-hosted service) it degrades to a great-circle preview (``snapped=False``)
+so the pipeline stays exercisable without claiming road feasibility.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import re
+from dataclasses import dataclass
+
+import httpx
+from shapely.geometry import LineString
+
+from ..config import get_settings
+from . import geo, shape_similarity
+
+log = logging.getLogger(__name__)
+
+LatLon = tuple[float, float]
+
+# The hosted ORS Directions API accepts at most 50 coordinates per request.
+# A closed route's repeated start/end point counts toward that limit.
+_MAX_ORS_COORDINATES = 50
+_MAX_GUIDE_COORDINATES = 24
+_MAX_SNAP_LOCATIONS = 5_000
+_RADIUS_RETRIES = [80, 120, 200, 350]  # bounded shape-preserving search radii (m)
+_MAX_ORS_ATTEMPTS = 7
+_ACCEPTABLE_FIDELITY = 0.70
+_GUIDANCE_SPACING_M = 400.0
+_CORNER_TURN_DEG = 14.0
+_HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=5.0)
+_CONNECTIVITY_ERROR_CODES = {2009, 2013, 2014, 2015, 2016}
+_FAILED_PAIR_PATTERN = re.compile(
+    r"between\s+points?\s+(\d+).*?\band\s+(\d+)",
+    flags=re.IGNORECASE,
+)
+
+_PROFILE_MAP = {
+    "run": "foot-walking",
+    "run-walk": "foot-walking",
+    "bike": "cycling-regular",
+    "bike-road": "cycling-road",
+    "bike-mtb": "cycling-mountain",
+}
+
+
+@dataclass(frozen=True)
+class _ORSFailure:
+    """Structured ORS failure used to choose the next bounded retry."""
+
+    status_code: int | None
+    error_code: int | None
+    message: str
+
+
+@dataclass(frozen=True)
+class SnapPreflightResult:
+    """Cheap road-fit evidence for one transformed guide shape."""
+
+    candidate_index: int
+    score: float
+    snap_coverage: float
+    mean_snap_distance_m: float
+    shape_fidelity: float
+    turning_similarity: float
+    length_similarity: float
+    route_length_ratio: float
+
+
+def profile_for(sport: str) -> str:
+    return _PROFILE_MAP.get(sport, "foot-walking")
+
+
+def _snap_request(
+    url: str,
+    headers: dict,
+    locations: list[list[float]],
+    *,
+    radius: int,
+    client: httpx.Client | None = None,
+) -> list[object] | None:
+    """Snap a batch of locations without calculating routes between them."""
+    try:
+        sender = client if client is not None else httpx
+        response = sender.post(
+            url,
+            json={"locations": locations, "radius": radius},
+            headers=headers,
+            timeout=_HTTP_TIMEOUT,
+        )
+        if response.status_code != 200:
+            log.warning(
+                "ORS snap preflight returned HTTP %d: %s",
+                response.status_code,
+                response.text[:240],
+            )
+            return None
+        payload = response.json()
+        snapped = payload.get("locations") if isinstance(payload, dict) else None
+        if not isinstance(snapped, list) or len(snapped) != len(locations):
+            log.warning("ORS snap preflight returned an incomplete location list")
+            return None
+        return snapped
+    except httpx.HTTPError as error:
+        log.warning("ORS snap preflight network error: %s", error)
+        return None
+    except Exception as error:  # noqa: BLE001
+        log.warning("ORS snap preflight error: %s", error)
+        return None
+
+
+def preflight_route_candidates(
+    candidate_routes: list[list[LatLon]],
+    *,
+    sport: str = "run",
+    closed: bool = False,
+    radius_m: int | None = None,
+    max_guide_points: int = 12,
+) -> list[SnapPreflightResult] | None:
+    """Rank many placements with one cheap batched road-snap request.
+
+    The snap endpoint does not prove connectivity. It is deliberately used as
+    a coarse filter: final candidates still have to pass Directions routing
+    and the full validation gates.
+    """
+    if not candidate_routes:
+        return []
+    cfg = get_settings().routing
+    public_service = cfg.ors_base_url.rstrip("/") == "https://api.openrouteservice.org"
+    if not cfg.ors_api_key and public_service:
+        return None
+
+    guide_budget = min(
+        _MAX_GUIDE_COORDINATES,
+        max(4 if closed else 2, int(max_guide_points)),
+    )
+    guides: list[list[LatLon]] = []
+    flattened: list[list[float]] = []
+    slices: list[tuple[int, int]] = []
+    candidate_indices: list[int] = []
+    for candidate_index, route in enumerate(candidate_routes):
+        guide = _subsample(route, closed=closed, max_points=guide_budget)
+        if len(guide) < 2:
+            continue
+        if len(flattened) + len(guide) > _MAX_SNAP_LOCATIONS:
+            break
+        start = len(flattened)
+        flattened.extend([[lon, lat] for lat, lon in guide])
+        slices.append((start, len(flattened)))
+        guides.append(guide)
+        candidate_indices.append(candidate_index)
+    if not flattened:
+        return []
+
+    profile = profile_for(sport)
+    url = f"{cfg.ors_base_url.rstrip('/')}/v2/snap/{profile}/json"
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if cfg.ors_api_key:
+        headers["Authorization"] = cfg.ors_api_key
+    radius = max(1, min(350, int(radius_m or cfg.snap_radius_m)))
+
+    with httpx.Client() as client:
+        response_locations = _snap_request(
+            url,
+            headers,
+            flattened,
+            radius=radius,
+            client=client,
+        )
+    if response_locations is None:
+        return None
+
+    results: list[SnapPreflightResult] = []
+    for candidate_index, guide, (start, end) in zip(
+        candidate_indices,
+        guides,
+        slices,
+        strict=True,
+    ):
+        original_valid: list[LatLon] = []
+        snapped_valid: list[LatLon] = []
+        snap_distances: list[float] = []
+        for original, item in zip(
+            guide,
+            response_locations[start:end],
+            strict=True,
+        ):
+            if not isinstance(item, dict):
+                continue
+            location = item.get("location")
+            if (
+                not isinstance(location, list | tuple)
+                or len(location) < 2
+            ):
+                continue
+            try:
+                snapped_point = _validate_waypoint(
+                    (float(location[1]), float(location[0]))
+                )
+                snap_distance = float(item.get("snapped_distance", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(snap_distance) or snap_distance < 0:
+                continue
+            original_valid.append(original)
+            snapped_valid.append(snapped_point)
+            snap_distances.append(snap_distance)
+
+        coverage = len(snapped_valid) / len(guide)
+        if len(snapped_valid) >= 2:
+            diagnostics = shape_similarity.similarity_diagnostics_between_routes(
+                original_valid,
+                snapped_valid,
+                n=64,
+            )
+        else:
+            diagnostics = shape_similarity.SimilarityDiagnostics(
+                fidelity=0.0,
+                spatial_similarity=0.0,
+                coverage_similarity=0.0,
+                turning_similarity=0.0,
+                length_similarity=0.0,
+                extent_similarity=0.0,
+                route_length_ratio=0.0,
+                mean_deviation_ratio=float("inf"),
+            )
+        mean_snap = (
+            sum(snap_distances) / len(snap_distances)
+            if snap_distances
+            else float(radius)
+        )
+        snap_distance_score = math.exp(-mean_snap / max(radius * 0.75, 20.0))
+        distinct_ratio = (
+            len({(round(lat, 7), round(lon, 7)) for lat, lon in snapped_valid})
+            / len(snapped_valid)
+            if snapped_valid
+            else 0.0
+        )
+        score = coverage * math.sqrt(distinct_ratio) * (
+            0.45 * diagnostics.fidelity
+            + 0.20 * diagnostics.turning_similarity
+            + 0.15 * diagnostics.length_similarity
+            + 0.10 * diagnostics.coverage_similarity
+            + 0.10 * snap_distance_score
+        )
+        if coverage < 0.75:
+            score = min(score, 0.25 * coverage)
+        results.append(
+            SnapPreflightResult(
+                candidate_index=candidate_index,
+                score=float(min(1.0, max(0.0, score))),
+                snap_coverage=float(coverage),
+                mean_snap_distance_m=float(mean_snap),
+                shape_fidelity=diagnostics.fidelity,
+                turning_similarity=diagnostics.turning_similarity,
+                length_similarity=diagnostics.length_similarity,
+                route_length_ratio=diagnostics.route_length_ratio,
+            )
+        )
+
+    return sorted(results, key=lambda result: result.score, reverse=True)
+
+
+def _validate_waypoint(point: LatLon) -> LatLon:
+    if len(point) != 2:
+        raise ValueError("each waypoint must contain latitude and longitude")
+    lat, lon = float(point[0]), float(point[1])
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        raise ValueError("waypoint coordinates must be finite")
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        raise ValueError("waypoint coordinates fall outside valid latitude/longitude ranges")
+    return lat, lon
+
+
+def _prepare_waypoints(waypoints: list[LatLon], *, closed: bool) -> list[LatLon]:
+    """Validate, de-duplicate, and optionally close a waypoint sequence."""
+    prepared: list[LatLon] = []
+    for raw_point in waypoints:
+        point = _validate_waypoint(raw_point)
+        if not prepared or point != prepared[-1]:
+            prepared.append(point)
+    if closed and len(prepared) > 1 and prepared[-1] != prepared[0]:
+        prepared.append(prepared[0])
+    return prepared
+
+
+def _straight_line_connector(waypoints: list[LatLon], *, closed: bool) -> tuple[list[LatLon], float, bool]:
+    """Great-circle preview used when no routing service is available.
+
+    The returned ``snapped`` flag is always false: this geometry is useful for
+    previewing the selected shape but is not claimed to be street-feasible.
+    """
+    pts = _prepare_waypoints(waypoints, closed=closed)
+    if not pts:
+        return [], 0.0, False
+    # Densify so the GPX isn't just corner-to-corner segments.
+    densified: list[LatLon] = []
+    for a, b in zip(pts, pts[1:], strict=False):
+        densified.append(a)
+        densified.extend(_interpolate(a, b, step_m=40.0))
+    densified.append(pts[-1])
+    dist = geo.path_distance_m(densified)
+    return densified, dist, False
+
+
+def _interpolate(a: LatLon, b: LatLon, *, step_m: float) -> list[LatLon]:
+    seg = geo.haversine(*a, *b)
+    if seg <= step_m:
+        return []
+    n = max(1, int(seg / step_m))
+    out: list[LatLon] = []
+    for i in range(1, n):
+        f = i / n
+        lat = a[0] + (b[0] - a[0]) * f
+        lon = a[1] + (b[1] - a[1]) * f
+        out.append((lat, lon))
+    return out
+
+
+def _subsample(
+    waypoints: list[LatLon], *, closed: bool, max_points: int = _MAX_ORS_COORDINATES
+) -> list[LatLon]:
+    """Build a bounded, curvature-preserving set of ORS guide points.
+
+    Sparse templates used to send only their authored corners: a 10 km diamond
+    therefore gave ORS five coordinates and several kilometres of freedom
+    between each pair. Dense templates had the opposite problem and were
+    simplified to a similarly sparse outline. This sampler protects meaningful
+    turns, then splits the largest remaining arc-length gaps until consecutive
+    guides are roughly 400 m apart (subject to the caller's visual-guide
+    budget and ORS's hard 50-coordinate limit).
+
+    When a drawing contains more protected turns than the budget can hold, a
+    metre-space Douglas-Peucker pass provides the least aggressive fallback.
+    """
+    minimum = 3 if closed else 2
+    if max_points < minimum:
+        raise ValueError(f"max_points must be at least {minimum}")
+    pts = _prepare_waypoints(waypoints, closed=closed)
+    if len(pts) < 2:
+        return pts
+
+    center_lat = sum(point[0] for point in pts) / len(pts)
+    center_lon = sum(point[1] for point in pts) / len(pts)
+    cos_lat = max(abs(math.cos(math.radians(center_lat))), 1e-8)
+
+    def to_metres(point: LatLon) -> tuple[float, float]:
+        lat, lon = point
+        return (
+            math.radians(lon - center_lon) * geo.EARTH_R_M * cos_lat,
+            math.radians(lat - center_lat) * geo.EARTH_R_M,
+        )
+
+    def to_latlon(point: tuple[float, float]) -> LatLon:
+        x, y = point
+        return (
+            center_lat + math.degrees(y / geo.EARTH_R_M),
+            center_lon + math.degrees(x / (geo.EARTH_R_M * cos_lat)),
+        )
+
+    metre_points = [to_metres(point) for point in pts]
+    line = LineString(metre_points)
+    total_length = float(line.length)
+    if total_length <= 1e-6:
+        return pts[:minimum]
+    segment_lengths = [
+        math.hypot(b[0] - a[0], b[1] - a[1])
+        for a, b in zip(metre_points, metre_points[1:], strict=False)
+    ]
+    if len(pts) <= max_points and max(segment_lengths, default=0.0) <= _GUIDANCE_SPACING_M:
+        return pts
+
+    protected_indices = {0, len(pts) - 1}
+    turn_threshold = math.radians(_CORNER_TURN_DEG)
+    for index in range(1, len(metre_points) - 1):
+        previous = metre_points[index - 1]
+        current = metre_points[index]
+        following = metre_points[index + 1]
+        incoming = (current[0] - previous[0], current[1] - previous[1])
+        outgoing = (following[0] - current[0], following[1] - current[1])
+        incoming_length = math.hypot(*incoming)
+        outgoing_length = math.hypot(*outgoing)
+        if incoming_length <= 1e-6 or outgoing_length <= 1e-6:
+            continue
+        cosine = (
+            incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+        ) / (incoming_length * outgoing_length)
+        turn = math.acos(min(1.0, max(-1.0, cosine)))
+        if turn >= turn_threshold:
+            protected_indices.add(index)
+
+    if len(protected_indices) > max_points:
+        return _simplify_to_budget(
+            pts,
+            line,
+            to_latlon=to_latlon,
+            closed=closed,
+            max_points=max_points,
+        )
+
+    cumulative = [0.0]
+    for length in segment_lengths:
+        cumulative.append(cumulative[-1] + length)
+
+    selected: dict[float, LatLon | None] = {
+        cumulative[index]: pts[index] for index in protected_indices
+    }
+    desired_count = min(
+        max_points,
+        max(minimum, len(selected), math.ceil(total_length / _GUIDANCE_SPACING_M) + 1),
+    )
+
+    # Repeatedly bisect the largest uncovered interval. Unlike plain uniform
+    # resampling, this never displaces a protected corner to make room.
+    while len(selected) < max_points:
+        positions = sorted(selected)
+        gap_start, gap_end = max(
+            zip(positions, positions[1:], strict=False),
+            key=lambda interval: interval[1] - interval[0],
+        )
+        if (
+            len(selected) >= desired_count
+            and gap_end - gap_start <= _GUIDANCE_SPACING_M
+        ):
+            break
+        midpoint = (gap_start + gap_end) / 2.0
+        if midpoint in selected or gap_end - gap_start <= 1e-6:
+            break
+        selected[midpoint] = None
+
+    guided: list[LatLon] = []
+    for position in sorted(selected):
+        authored = selected[position]
+        if authored is not None:
+            guided.append(authored)
+            continue
+        point = line.interpolate(position)
+        guided.append(to_latlon((float(point.x), float(point.y))))
+
+    guided[0] = pts[0]
+    guided[-1] = pts[-1]
+    return _prepare_waypoints(guided, closed=closed)
+
+
+def _simplify_to_budget(
+    pts: list[LatLon],
+    line: LineString,
+    *,
+    to_latlon,
+    closed: bool,
+    max_points: int,
+) -> list[LatLon]:
+    """Least-aggressive metre-space simplification for corner-heavy shapes."""
+    min_x, min_y, max_x, max_y = line.bounds
+    low, high = 0.0, max(math.hypot(max_x - min_x, max_y - min_y), 1.0)
+    best: list[LatLon] | None = None
+    for _ in range(24):
+        tolerance = (low + high) / 2.0
+        simplified = [to_latlon(point) for point in line.simplify(tolerance).coords]
+        if len(simplified) <= max_points:
+            best = simplified
+            high = tolerance
+        else:
+            low = tolerance
+
+    if best is None:
+        # Defensive fallback for unusual/degenerate geometries. Even sampling
+        # preserves both endpoints (including the repeated endpoint of a loop).
+        indices = [
+            round(index * (len(pts) - 1) / (max_points - 1))
+            for index in range(max_points)
+        ]
+        best = [pts[index] for index in indices]
+
+    best[0] = pts[0]
+    best[-1] = pts[-1]
+    return _prepare_waypoints(best, closed=closed)
+
+
+def _ors_request(
+    url: str, headers: dict, coords: list, *, preference: str, continue_straight: bool,
+    radius: int, client: httpx.Client | None = None,
+) -> tuple[list[LatLon], float] | _ORSFailure:
+    """Return a route or a structured failure from one ORS request."""
+    payload = {
+        "coordinates": coords,
+        "preference": preference,
+        "geometry_simplify": False,
+        "instructions": False,
+        "continue_straight": continue_straight,
+        "radiuses": [radius] * len(coords),
+    }
+    try:
+        sender = client if client is not None else httpx
+        r = sender.post(url, json=payload, headers=headers, timeout=_HTTP_TIMEOUT)
+        if r.status_code != 200:
+            failure = _response_failure(r)
+            log.warning(
+                "ORS returned HTTP %d, code=%s (radius=%dm): %s",
+                r.status_code,
+                failure.error_code if failure.error_code is not None else "unknown",
+                radius,
+                failure.message[:240],
+            )
+            return failure
+        data = r.json()
+        features = data.get("features") or []
+        if not features:
+            log.warning("ORS returned no features (radius=%dm)", radius)
+            return _ORSFailure(r.status_code, None, "ORS returned no route features")
+        feature = features[0]
+        geom = feature.get("geometry") or {}
+        coords_xy = geom.get("coordinates") or []
+        polyline = [_validate_waypoint((coord[1], coord[0])) for coord in coords_xy]
+        if len(polyline) < 2:
+            log.warning("ORS returned fewer than two geometry points (radius=%dm)", radius)
+            return _ORSFailure(r.status_code, None, "ORS returned incomplete route geometry")
+
+        properties = feature.get("properties") or {}
+        summary = properties.get("summary") or {}
+        distance = summary.get("distance")
+        if distance is None:
+            segment_distances = [
+                segment.get("distance")
+                for segment in (properties.get("segments") or [])
+                if segment.get("distance") is not None
+            ]
+            distance = sum(float(value) for value in segment_distances) if segment_distances else None
+        geometry_distance = geo.path_distance_m(polyline)
+        distance = float(distance) if distance is not None else geometry_distance
+        if not math.isfinite(distance) or distance <= 0:
+            distance = geometry_distance
+        # A malformed/partial summary must never under-report the geometry.
+        distance = max(distance, geometry_distance)
+        return polyline, distance
+    except httpx.HTTPError as e:
+        log.warning("ORS network error (radius=%dm): %s", radius, e)
+        return _ORSFailure(None, None, str(e))
+    except Exception as e:  # noqa: BLE001
+        log.warning("ORS routing error (radius=%dm): %s", radius, e)
+        return _ORSFailure(None, None, str(e))
+
+
+def _response_failure(response) -> _ORSFailure:
+    """Extract the ORS internal error code without trusting its response body."""
+    error_code: int | None = None
+    message = response.text[:300] or f"HTTP {response.status_code}"
+    try:
+        data = response.json()
+        error = data.get("error") if isinstance(data, dict) else None
+        if isinstance(error, dict):
+            raw_code = error.get("code")
+            error_code = int(raw_code) if raw_code is not None else None
+            raw_message = error.get("message")
+            if isinstance(raw_message, str) and raw_message.strip():
+                message = raw_message.strip()
+    except (TypeError, ValueError):
+        pass
+    return _ORSFailure(int(response.status_code), error_code, message)
+
+
+def _prune_failed_pair(
+    waypoints: list[LatLon], message: str, *, closed: bool
+) -> list[LatLon] | None:
+    """Drop one interior via-point from the pair named by ORS error 2009.
+
+    ORS reports zero-based indexes for the unconnectable pair. Removing the
+    second interior point normally preserves the incoming shape edge while
+    allowing the router to bridge over an isolated footway or turn trap.
+    Start/end points and a closed loop's repeated endpoint are never removed.
+    """
+    match = _FAILED_PAIR_PATTERN.search(message)
+    if match is None:
+        return None
+    first, second = (int(match.group(1)), int(match.group(2)))
+    last = len(waypoints) - 1
+    for index in (second, first):
+        if index <= 0 or index >= last:
+            continue
+        reduced = waypoints[:index] + waypoints[index + 1 :]
+        minimum = 4 if closed else 2
+        if len(reduced) >= minimum:
+            return _prepare_waypoints(reduced, closed=closed)
+    return None
+
+
+def _reduce_waypoints(waypoints: list[LatLon], *, closed: bool) -> list[LatLon] | None:
+    """Reduce detail by roughly 28%, preserving endpoints and loop closure."""
+    minimum = 4 if closed else 2
+    if len(waypoints) <= minimum:
+        return None
+    next_budget = max(minimum, math.floor(len(waypoints) * 0.72))
+    if next_budget >= len(waypoints):
+        next_budget = len(waypoints) - 1
+    return _subsample(waypoints, closed=closed, max_points=next_budget)
+
+
+def snap_route(
+    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False
+) -> tuple[list[LatLon], float, bool]:
+    """Snap ``waypoints`` to roads and return ``(polyline, distance_m, snapped)``.
+
+    Two bounded retry strategies:
+    - **Radius widening** (error 2010): a via-point lands on a building/park
+      with no road nearby → widen the search radius and retry.
+    - **Waypoint reduction** (error 2009): two consecutive via-points can't be
+      connected (e.g. shape crosses a lake) → reduce the via-point budget so
+      ORS has freedom to find a detour around the obstacle.
+    """
+    cfg = get_settings().routing
+    prepared = _prepare_waypoints(waypoints, closed=closed)
+    if len(prepared) < 2:
+        return _straight_line_connector(prepared, closed=closed)
+
+    public_service = cfg.ors_base_url.rstrip("/") == "https://api.openrouteservice.org"
+    if not cfg.ors_api_key and public_service:
+        return _straight_line_connector(prepared, closed=closed)
+
+    # The hosted API permits 50 coordinates, but treating that limit as a
+    # target forces the router through unnecessary off-grid points and creates
+    # U-turn scribbles. Preserve authored corners within a smaller visual-guide
+    # budget; validation reports the resulting quality if detail is lost.
+    via = _subsample(
+        prepared,
+        closed=closed,
+        max_points=min(_MAX_GUIDE_COORDINATES, _MAX_ORS_COORDINATES),
+    )
+    profile = profile_for(sport)
+    url = f"{cfg.ors_base_url.rstrip('/')}/v2/directions/{profile}/geojson"
+    headers = {"Content-Type": "application/json"}
+    if cfg.ors_api_key:
+        headers["Authorization"] = cfg.ors_api_key
+
+    start = max(1, int(cfg.snap_radius_m))
+    radii = [start] + [radius for radius in _RADIUS_RETRIES if radius > start]
+
+    attempts = 0
+    radius_index = 0
+    current_via = via
+    with httpx.Client() as client:
+        while attempts < _MAX_ORS_ATTEMPTS:
+            radius = radii[min(radius_index, len(radii) - 1)]
+            attempts += 1
+            coords = [[lon, lat] for lat, lon in current_via]
+            result = _ors_request(
+                url,
+                headers,
+                coords,
+                preference=cfg.preference,
+                continue_straight=cfg.continue_straight,
+                radius=radius,
+                client=client,
+            )
+            if isinstance(result, tuple):
+                polyline, distance = result
+                fidelity = shape_similarity.fidelity_between_routes(prepared, polyline, n=96)
+                log_method = log.info if fidelity >= _ACCEPTABLE_FIDELITY else log.warning
+                log_method(
+                    "ORS succeeded (attempt=%d, radius=%dm, via=%d, fidelity=%.3f%s)",
+                    attempts,
+                    radius,
+                    len(current_via),
+                    fidelity,
+                    "" if fidelity >= _ACCEPTABLE_FIDELITY else "; refinement required",
+                )
+                return polyline, distance, True
+
+            # Error 2009 means two snapped graph locations cannot be joined.
+            # Widening the search radius does not repair that. Remove the
+            # precise failing interior via-point when ORS identifies it, then
+            # fall back to a curvature-preserving detail reduction.
+            if result is None:
+                failure = _ORSFailure(None, None, "routing request failed")
+            else:
+                failure = result
+            if failure.error_code in _CONNECTIVITY_ERROR_CODES:
+                reduced = _prune_failed_pair(
+                    current_via, failure.message, closed=closed
+                ) or _reduce_waypoints(current_via, closed=closed)
+                if reduced is None or reduced == current_via:
+                    break
+                log.info(
+                    "ORS connectivity retry: via-points %d -> %d",
+                    len(current_via),
+                    len(reduced),
+                )
+                current_via = reduced
+                radius_index = 0
+                continue
+
+            # Error 2010 means a point was not found near a routable edge.
+            # Only this class of error benefits from a larger snap radius.
+            if failure.error_code == 2010 and radius_index + 1 < len(radii):
+                radius_index += 1
+                continue
+
+            # Authentication, quota, invalid request, and network failures
+            # should not fan out into seven identical paid API calls.
+            if failure.status_code in {400, 401, 403, 413, 429} or failure.status_code is None:
+                break
+
+            reduced = _reduce_waypoints(current_via, closed=closed)
+            if reduced is None or reduced == current_via:
+                break
+            current_via = reduced
+            radius_index = 0
+
+    log.warning("ORS routing failed — using straight-line fallback")
+    return _straight_line_connector(prepared, closed=closed)

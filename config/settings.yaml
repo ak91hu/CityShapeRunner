@@ -1,0 +1,44 @@
+project:
+  name: GPS Art Wizard
+  description: AI-powered GPS art route planner
+
+llm:
+  # Provider selection is env-driven (LLM_PROVIDER). This file holds tuning defaults.
+  temperature: 0.2
+  max_tokens: 2048
+  # When the primary provider errors, walk this list before giving up.
+  fallback_order: [anthropic, openai, ollama]
+  structured_output: json_mode   # json_mode | tool_use | best_effort
+
+workflow:
+  # Two distance brackets plus six distinct grid/orientation candidates.
+  max_refinement_iterations: 8
+  validation_score_threshold: 0.72
+  # If shape fidelity drops below this, force a refinement pass.
+  min_shape_fidelity: 0.7
+  # Coarse-to-fine street-fit search: batch-snap many cheap transformations,
+  # then spend Directions calls only on the best ranked placements.
+  preflight_enabled: true
+  preflight_max_placements: 180
+  preflight_shortlist: 7
+  preflight_guide_points: 18
+  sport_default: run             # run | bike
+  city_default: Budapest
+  # Target distance bounds (km) per sport; the planner scales the shape to fit.
+  distance_bounds:
+    run:  [3, 60]
+    bike: [10, 200]
+  # Used when the prompt omits a target; avoid the former 31.5 km run midpoint.
+  distance_defaults:
+    run: 8
+    bike: 20
+
+routing:
+  provider: openrouteservice
+  # Keep guide points close to the intended contour. Larger radii made ORS
+  # accept routes hundreds of metres away and destroyed recognisability.
+  snap_radius_m: 120
+  # GPS-art cusps and lettering need U-turns at intermediate waypoints.
+  continue_straight: false
+  # GPS art values segment fidelity over scenic/recommended detours.
+  preference: shortest          # recommended | shortest

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<rect x="20" y="40" width="60" height="40" stroke="black" fill="none" stroke-width="2"/>
-<polygon points="20.00,40.00 20.00,28.00 26.00,34.00 32.00,28.00 38.00,34.00 44.00,28.00 50.00,34.00 56.00,28.00 62.00,34.00 68.00,28.00 74.00,34.00 80.00,28.00 80.00,40.00" stroke="black" fill="none" stroke-width="2"/>
-<rect x="30" y="55" width="14" height="25" stroke="black" fill="none" stroke-width="2"/>
-<rect x="60" y="50" width="8" height="8" stroke="black" fill="none" stroke-width="2"/>
-<rect x="40" y="50" width="8" height="8" stroke="black" fill="none" stroke-width="2"/>
-</svg>

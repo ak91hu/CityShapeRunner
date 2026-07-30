@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<path d="M10 60 C 20 50, 40 45, 50 45 C 60 45, 80 50, 90 60" stroke="black" fill="none" stroke-width="2"/>
-<polygon points="30.00,45.00 40.00,20.00 50.00,25.00 60.00,18.00 65.00,40.00" stroke="black" fill="none" stroke-width="2"/>
-<polyline points="10.00,60.00 10.00,65.00 90.00,65.00 90.00,60.00" stroke="black" fill="none" stroke-width="2"/>
-</svg>

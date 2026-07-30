@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<ellipse cx="40" cy="28" rx="7" ry="20" stroke="black" fill="none" stroke-width="2"/>
-<ellipse cx="60" cy="28" rx="7" ry="20" stroke="black" fill="none" stroke-width="2"/>
-<ellipse cx="50" cy="62" rx="26" ry="24" stroke="black" fill="none" stroke-width="2"/>
-<circle cx="42" cy="56" r="3" stroke="black" fill="black" stroke-width="2"/>
-<circle cx="58" cy="56" r="3" stroke="black" fill="black" stroke-width="2"/>
-<ellipse cx="50" cy="66" rx="6" ry="4" stroke="black" fill="none" stroke-width="2"/>
-</svg>

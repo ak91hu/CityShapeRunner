@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<rect x="45" y="28" width="10" height="58" stroke="black" fill="none" stroke-width="2"/>
-<polyline points="30.00,62.00 30.00,48.00 40.00,48.00 40.00,58.00" stroke="black" fill="none" stroke-width="2"/>
-<polyline points="60.00,58.00 60.00,48.00 70.00,48.00 70.00,62.00" stroke="black" fill="none" stroke-width="2"/>
-</svg>

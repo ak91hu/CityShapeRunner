@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<path d="M12 55 C 28 47, 55 47, 70 50 C 80 52, 84 48, 88 42 L 84 58 C 78 64, 60 65, 40 62 C 25 60, 15 60, 12 55 Z" stroke="black" fill="none" stroke-width="2"/>
-<polygon points="48.00,47.00 44.00,32.00 56.00,38.00" stroke="black" fill="none" stroke-width="2"/>
-<polygon points="82.00,52.00 88.00,44.00 88.00,58.00" stroke="black" fill="none" stroke-width="2"/>
-<circle cx="72" cy="52" r="2" stroke="black" fill="black" stroke-width="2"/>
-</svg>

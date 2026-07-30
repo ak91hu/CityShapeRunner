@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<polyline points="15.00,75.00 30.00,58.00 45.00,75.00 60.00,58.00 75.00,75.00 85.00,58.00" stroke="black" fill="none" stroke-width="2"/>
-<circle cx="86" cy="54" r="6" stroke="black" fill="none" stroke-width="2"/>
-<polyline points="92.00,52.00 88.00,50.00" stroke="black" fill="none" stroke-width="2"/>
-<circle cx="86" cy="52" r="2" stroke="black" fill="black" stroke-width="2"/>
-</svg>

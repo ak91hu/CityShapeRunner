@@ -1,46 +1,48 @@
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+*$py.class
 *.egg-info/
+.eggs/
+build/
 dist/
+.venv/
+venv/
+env/
+.python-version
 
-# Node
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tmp/
+
+# Node / browser tests
 node_modules/
-.next/
-
-# Database
-*.db
-*.sqlite3
-
-# Environment
-.env
-.env.*
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Build artifacts
-site/
-*.gpx
-*.log
-
-# Fly
-fly.secrets.toml
-
-# Playwright
+frontend/dist/
+coverage/
 playwright-report/
 test-results/
-scratch/
+npm-debug.log*
+error*.png
 
-*.graphml
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
 
-data/cache/
-cache/
+# Secrets / runtime
+.env
+.env.local
+*.gpx
+!tests/fixtures/*.gpx
+*.tcx
+*.log
+.vite.*
+
+# Caches
+.cache/

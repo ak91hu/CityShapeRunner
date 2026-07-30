@@ -1,86 +1,135 @@
 # Architecture
 
-## Monorepo layout
+## Component view
 
 ```
-pathforge/
-├── app/                    # Backend (FastAPI)
-│   ├── api/                # Route handlers
-│   │   ├── routers/        # /api/cities, /api/artworks, /api/generation, ...
-│   │   └── deps.py         # DI helpers
-│   ├── core/               # Domain logic
-│   │   ├── shape_matching.py  # SVG → street matching (core algorithm)
-│   │   ├── generation.py     # Orchestration / worker
-│   │   ├── graph.py          # Road graph construction
-│   │   ├── geometry.py       # SVG anchor extraction, transforms
-│   │   ├── scoring.py        # Route quality scoring
-│   │   ├── gpx.py            # GPX 1.1 serialization
-│   │   ├── units.py          # Projection / coordinate helpers
-│   │   └── mapbox_client.py  # Mapbox Directions snap-to-road
-│   ├── models.py           # Pydantic / SQLModel schemas
-│   ├── stores.py           # In-memory / DB stores
-│   ├── services.py         # Rate limiter, background worker
-│   ├── config.py           # App settings (env-based)
-│   ├── graph_provider.py   # Lazy city-graph loader
-│   ├── main.py             # FastAPI entrypoint
-│   └── seed.py             # Seed data access
-├── data/                   # Data files
-│   ├── shapes/             # Generated SVG files (150+)
-│   ├── seed/               # Seed data JSON
-│   └── cache/              # LRU-cached city graphs
-├── frontend/               # Next.js 15 App Router
-│   ├── app/                # Pages & layouts
-│   ├── components/         # Reusable UI components
-│   └── lib/                # API client, types, i18n
-├── docs/                   # MkDocs documentation
-├── scripts/                # Utilities
-│   ├── generate_shapes.py  # SVG file generator
-│   └── seed.py             # Database seeder
-├── tests/                  # Test suite
-│   ├── unit/               # Unit tests
-│   └── api/                # Integration tests
-├── infrastructure/         # Docker, CI/CD
-└── alembic/                # DB migrations
+            ┌─────────────────────┐
+            │   FastAPI (api/)    │  POST /generate { prompt }
+            └──────────┬──────────┘
+                       │
+                       ▼
+            ┌─────────────────────┐
+            │   orchestrator.py   │  graph engine: nodes + refinement loop
+            │   (state machine)   │
+            └──────────┬──────────┘
+                       │  threads WorkflowState through nodes
+       ┌───────────────┼───────────────┐
+       ▼               ▼               ▼
+  ┌─────────┐     ┌─────────┐     ┌─────────┐
+  │ agents/ │◄───▶│ llm/    │     │ tools/  │
+  │ 9 agents│     │agnostic │     │ ORS,geo │
+  └─────────┘     └─────────┘     │ shapes  │
+       │                               │GPX     │
+       └────────── prompts/ ◀──────────┘
 ```
 
-## System architecture (C4 Level 1)
+## Data flow (the state object)
 
-```
-┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-│   Browser    │────▶│   FastAPI App   │────▶│  PostgreSQL  │
-│  (Next.js)   │     │   (Uvicorn)     │     │  + PostGIS   │
-└──────────────┘     └─────────────────┘     └──────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │    Redis    │  (rate limits, cache)
-                    └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │  Mapbox API │  (snap-to-road)
-                    └─────────────┘
-```
+`WorkflowState` carries the complete exchange between nodes. Agents may update
+their owned fields during a run, but they do not retain private state between
+runs:
 
-## Request flow: generation
+| Field | Producer | Consumers |
+|-------|----------|-----------|
+| `prompt` | API | IntentAgent |
+| `intent` | IntentAgent | PlanningAgent, ShapeAgent, PlacementAgent, PreflightAgent |
+| `plan` | PlanningAgent | ShapeAgent, PlacementAgent, PreflightAgent |
+| `shape` | ShapeAgent | PlacementAgent, PreflightAgent, ValidationAgent |
+| `route_draft` | PlacementAgent / PreflightAgent / RefinementAgent | SnapAgent |
+| `placement_candidates` | PreflightAgent | RefinementAgent |
+| `preflight_candidates` | PreflightAgent | API diagnostics |
+| `candidates` | ValidationAgent | API candidate selector/editor |
+| `snapped` | SnapAgent | ValidationAgent, ExportAgent |
+| `validation` | ValidationAgent | Orchestrator (loop control), RefinementAgent |
+| `export` | ExportAgent | API (optional; absent for unsafe candidates) |
+| `iterations`, `history` | Orchestrator | RefinementAgent |
+| `errors` | any | Orchestrator |
 
-1. `POST /api/generation/generate` - accepts `(city_id, artwork_id, activity, distance_km)`
-2. Worker picks up the job, updates status to `processing`
-3. **SVG parsing** - the artwork SVG is loaded and decomposed into a weighted shape graph (polylines + control points)
-4. **City suitability** - the engine estimates whether the shape fits the city's road network dimensions
-5. **Anchor generation** - control points are extracted and assigned weights
-6. **Transform enumeration** - multiple scale/rotation/placement combinations are generated
-7. **Corridor scoring** - each transform is quickly rejected or accepted based on road alignment
-8. **Beam matching** - accepted transforms are matched to the road graph via beam search
-9. **Route construction** - matched segments are connected into a continuous route
-10. **Refinement** - top candidates are refined for distance accuracy
-11. **Scoring** - each candidate is scored on shape fidelity, distance accuracy, and route quality
-12. **Mapbox Directions snap** - if a Mapbox token is configured, the route is snapped to real roads
-13. **GPX export** - top candidate is serialized to GPX 1.1
-14. **Job completion** - status set to `completed` with results
+In addition to strategy fields, `plan` persists the resolved `center_lat`,
+`center_lon`, and `city_bbox`. Placement consumes that same resolution, so a
+normal pipeline geocodes its city once. There is no process-global geocoder
+cache; a transient fallback therefore cannot leak into later requests.
+Supported cities resolve directly from the curated route database without a
+public Nominatim round trip. Common known-template requests also bypass LLM
+intent/planning calls; remote reasoning is reserved for ambiguous or free-form
+requests.
 
-## Key architectural decisions
+## Why a custom graph, not LangGraph?
 
-- **In-memory store by default** - zero-dependency startup for development; pluggable DB backend for production
-- **Lazy graph loading** - city road graphs are built on first access and cached (LRU)
-- **Background worker** - generation runs on a thread pool so the API stays responsive
-- **Rate limiting** - per-client-IP limits on generation, GPX download, and search
-- **SVG as source of truth** - shapes are defined as SVG paths, not raster images; this preserves sharp angles and scales arbitrarily
+The custom graph avoids adding an orchestration framework for one refinement
+loop and provider fallback. Its node boundary follows the simple
+`def run(state) -> state` convention, which keeps a future framework migration
+explicit without coupling the current runtime to one.
+
+## Geo maths
+
+- Unit-space → lat/lon: equirectangular projection around the city centre
+  (`tools/geo.py:unit_to_latlon`), good enough for city-scale (<50 km).
+- Shape scaling: the intended polyline length includes visible strokes,
+  unavoidable transfers, a sport factor, and an empirical shape-specific
+  detour prior. Scale is then solved near the target; real ORS measurements
+  drive every subsequent correction.
+- Rotation: known local map context can suggest a street orientation. The long
+  axis of the city bbox is only a coarse city-extent fallback, after which the
+  RefinementAgent may test bounded adjustments.
+- ORS guidance: authored vertices and sharp corners are protected, then the
+  longest uncovered arcs are bisected until guide points are roughly 400 m
+  apart or the 50-coordinate provider limit is reached. Sparse shapes therefore
+  cannot give the router several kilometres of unconstrained freedom.
+- Placement preflight: up to 180 candidates combine a 3×3 city-wide grid, six
+  rotations, and three scales. Curvature-preserving guides are sent in one
+  ORS nearest-edge snap request and ranked by coverage, collapse resistance,
+  snap distance, silhouette, turning, and length preservation. A greedy
+  quality/diversity objective avoids spending all seven Directions calls on
+  nearly identical placements. Every proxy result and every full route is
+  retained; connectivity is still unproven until full routing.
+- Shape fidelity: express the intended and routed lines in a shared metric
+  frame, resample both by arc length, then blend discrete Fréchet and Hausdorff
+  distances with NumPy (`tools/shape_similarity.py`). Route direction and the
+  start vertex of a closed loop do not affect the score.
+- Candidate selection: each export gate is normalised to its minimum, and the
+  weakest gate is the primary ranking key. This prevents excellent distance
+  accuracy from hiding an unrecognisable outline while still moving the search
+  toward a candidate that can actually be exported.
+- Refinement search: the road-fit-ranked shortlist is consumed before a full
+  measured scale correction and damped square-root bracket are tried. Tested
+  scale/rotation/offset/tolerance signatures are remembered, so an already measured
+  candidate cannot consume the remaining iteration budget repeatedly.
+- Smart suggestions measure up to three distinct, city-specific templates on
+  the real road network. A primary route that already passes both quality
+  gates is accepted immediately to avoid unnecessary router calls.
+
+## Failure modes & degradation
+
+| Missing | Behaviour |
+|---------|-----------|
+| No LLM key | agents use rule-based fallbacks; an unsupported shape becomes an explicitly labelled fallback star |
+| No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide that remains editable/exportable with warnings |
+| LLM returns malformed or invalid data | the agent rejects the payload and applies its bounded deterministic fallback |
+| Validation never reaches threshold | orchestrator returns the best iteration + a `below_threshold` flag |
+| Score, shape fidelity, or distance fit below its recommended minimum | candidate remains selectable, editable, and exportable with warnings |
+| Geocoder rate-limited | city centre falls back to the configured default city |
+
+## Testing strategy
+
+- `tests/test_pipeline.py`: offline end-to-end (no keys) using the sample
+  prompt, asserting the guide is marked non-routable, retained with warnings,
+  and the loop terminates.
+- `tests/test_skills.py`: skill discovery, routing, and prompt injection.
+- `tests/test_route_engine.py`: parser boundaries, geometry edge cases,
+  explicit offline-city substitution, direction-independent similarity,
+  waypoint budgeting, ORS request semantics, preflight ranking/index
+  preservation, city-wide shortlist generation, self-hosted routing, measured
+  refinement direction, practical omitted-distance defaults, routable
+  templates, export quality gates, preview limits, provider caching, and
+  invalid prompt handling.
+- Unit tests for shape templates, geo maths, routing helpers, validation, and
+  API serialisation run without paid services.
+- Playwright functional tests exercise the built user interface with explicit
+  desktop/mobile assertions, including the 32-item quick-idea catalog,
+  generator focus, responsive containment, result wording, and safe download
+  gates. Their API responses are deterministic and do not consume external
+  service quotas.
+
+The Python suite defaults to strict configuration and marker validation. Set
+`GEOCODE_OFFLINE=1` for deterministic local and CI runs.

@@ -1,60 +1,47 @@
-# ---- Stage 1: Build Next.js ----
-FROM node:20-slim AS frontend-builder
-WORKDIR /build
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci
-COPY frontend/ .
+# syntax=docker/dockerfile:1
+
+FROM node:24-alpine AS frontend-build
+WORKDIR /build/frontend
+COPY frontend/package.json ./
+RUN npm install --no-audit --no-fund
+COPY frontend/ ./
 RUN npm run build
 
-# ---- Stage 2: Python backend + runtime ----
-FROM python:3.13-slim
+FROM python:3.14-slim-bookworm AS python-build
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+WORKDIR /build
+ARG INSTALL_EXTRAS=
+COPY pyproject.toml ./
+COPY docs/README.md ./docs/README.md
+COPY gps_art_wizzard/ ./gps_art_wizzard/
+RUN if [ -n "${INSTALL_EXTRAS}" ]; then \
+        python -m pip install --prefix=/runtime ".[${INSTALL_EXTRAS}]"; \
+    else \
+        python -m pip install --prefix=/runtime .; \
+    fi
 
-ENV PYTHONUNBUFFERED=1 \
+FROM python:3.14-slim-bookworm AS runtime
+ENV API_HOST=0.0.0.0 \
+    API_PORT=8000 \
+    OLLAMA_BASE_URL= \
     PYTHONDONTWRITEBYTECODE=1 \
-    NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 \
-    NODE_ENV=production
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gdal-bin libgdal-dev \
-    libspatialindex-dev \
-    nginx \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js for Next.js runtime
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app app
 
 WORKDIR /app
+COPY --from=python-build /runtime/ /usr/local/
+COPY --chown=app:app gps_art_wizzard/ ./gps_art_wizzard/
+COPY --chown=app:app config/ ./config/
+COPY --chown=app:app docs/ ./docs/
+COPY --from=frontend-build --chown=app:app /build/frontend/dist/ ./frontend/dist/
 
-# Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Backend code
-COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini .
-COPY scripts ./scripts
-COPY data ./data
-
-# Generate shapes
-RUN python scripts/generate_shapes.py
-
-# Frontend build
-COPY --from=frontend-builder /build/.next /app/frontend/.next
-COPY --from=frontend-builder /build/node_modules /app/frontend/node_modules
-COPY --from=frontend-builder /build/package.json /app/frontend/package.json
-COPY --from=frontend-builder /build/next.config.mjs /app/frontend/next.config.mjs
-
-# Startup script
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
-# Nginx config
-COPY infrastructure/nginx/nginx.conf /etc/nginx/nginx.conf
-
-EXPOSE 80
-
-CMD ["/app/start.sh"]
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.getenv('API_PORT', '8000') + '/health', timeout=2)"
+STOPSIGNAL SIGTERM
+CMD ["gps-art-wizzard"]
