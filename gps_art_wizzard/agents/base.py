@@ -28,6 +28,24 @@ class BaseAgent:
         """Base system prompt + the skills loaded for this agent from docs/."""
         return system_prompt_for(self.name)
 
-    def _record(self, state: WorkflowState, note: str) -> None:
-        self.log.info(note)
-        state.history.append({"agent": self.name, "iteration": state.iterations, "note": note})
+    def _record(
+        self,
+        state: WorkflowState,
+        note: str,
+        *,
+        event: str | None = None,
+        **context: object,
+    ) -> None:
+        """Write one readable log line plus searchable structured context."""
+
+        log_context = dict(context)
+        if event:
+            log_context["event"] = event
+        self.log.info(note, extra=log_context)
+        state.history.append(
+            {
+                "agent": self.name,
+                "iteration": state.iterations,
+                "note": note,
+            }
+        )

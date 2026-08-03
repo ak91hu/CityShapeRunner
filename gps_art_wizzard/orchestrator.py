@@ -23,6 +23,7 @@ from typing import Protocol
 from .config import get_settings
 from .graph import build_nodes
 from .logging_config import current_request_id
+from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
 from .state import FitDecision, WorkflowState
 
 log = logging.getLogger(__name__)
@@ -163,10 +164,31 @@ class Orchestrator:
         state.history.append(state.snapshot())
 
         n["export"].run(state)
+        final_report = quality_gate_report(
+            best_v,
+            closed=bool(state.shape and state.shape.closed),
+            candidate_shape=state.shape.name if state.shape else None,
+            selected_shape=state.shape.name if state.shape else None,
+        )
+        decision = "verified" if final_report["passed"] else "review"
         log.info(
-            "pipeline done: score=%.3f iters=%d below_threshold=%s gpx=%d chars",
-            best_v.score, state.iterations, state.below_threshold,
-            len(state.export.gpx) if state.export else 0,
+            (
+                "Generation complete: shape=%s in %s, decision=%s, "
+                "street matched=%s, overall=%.1f%%, likeness=%.1f%%, "
+                "distance=%.2f km, iterations=%d, full candidates=%d, "
+                "failed checks=%s, GPX prepared=%s."
+            ),
+            state.shape.name if state.shape else "unknown",
+            state.intent.city if state.intent and state.intent.city else "unspecified city",
+            decision,
+            "yes" if best_v.on_roads else "no",
+            best_v.score * 100,
+            best_v.shape_fidelity * 100,
+            best_v.actual_distance_km,
+            state.iterations,
+            len(state.candidates),
+            ", ".join(final_report["failed_gates"]) or "none",
+            "yes" if state.export else "no",
             extra={
                 "event": "generation.completed",
                 "shape": state.shape.name if state.shape else None,
@@ -177,6 +199,16 @@ class Orchestrator:
                 "score": best_v.score,
                 "fidelity": best_v.shape_fidelity,
                 "snapped": bool(state.snapped and state.snapped.snapped),
+                "decision": decision,
+                "verified": final_report["passed"],
+                "failed_gates": final_report["failed_gates"],
+                "distance_km": best_v.actual_distance_km,
+                "target_distance_km": best_v.target_distance_km,
+                "distance_fit": best_v.distance_fit,
+                "closure": best_v.closure,
+                "route_point_count": best_v.route_point_count,
+                "guide_point_count": best_v.guide_point_count,
+                "export_mode": "verified" if final_report["passed"] else "user_acceptance",
             },
         )
         return state
@@ -186,7 +218,7 @@ class Orchestrator:
         state: WorkflowState,
         nodes: Mapping[str, WorkflowNode],
     ) -> None:
-        """Replace an unrecognisable request with a measured, passing shape."""
+        """Handle unavailable-source substitutions without replacing explicit shapes."""
         validation = state.validation
         plan = state.plan
         intent = state.intent
@@ -225,6 +257,55 @@ class Orchestrator:
                         ),
                     ],
                 )
+            return
+
+        # Keep an explicitly selected drawing even when one automatic
+        # benchmark misses. The scientific report still identifies the weak
+        # components, but the user—not a simpler fallback template—decides
+        # whether the measured route is recognisable enough to accept.
+        if not source_substitution:
+            state.fit_decision = FitDecision(
+                requested_shape=requested,
+                selected_shape=shape.name,
+                substituted=False,
+                requested_score=validation.score,
+                requested_fidelity=validation.shape_fidelity,
+                selected_score=validation.score,
+                selected_fidelity=validation.shape_fidelity,
+                candidates_tested=[shape.name],
+                reasons=self._fit_reasons(validation)
+                + [
+                    "The requested drawing was retained for your review; automatic "
+                    "benchmarks inform the decision but do not replace your selected shape."
+                ],
+            )
+            log.warning(
+                (
+                    "Explicit shape %s retained for user review: overall=%.1f%%, "
+                    "likeness=%.1f%%, failed checks=%s."
+                ),
+                shape.name,
+                validation.score * 100,
+                validation.shape_fidelity * 100,
+                ", ".join(
+                    quality_gate_report(
+                        validation,
+                        closed=shape.closed,
+                        candidate_shape=shape.name,
+                        selected_shape=shape.name,
+                    )["failed_gates"]
+                ) or "none",
+                extra={
+                    "event": "route.explicit_shape.retained",
+                    "shape": shape.name,
+                    "city": intent.city,
+                    "sport": intent.sport,
+                    "decision": "review",
+                    "verified": False,
+                    "score": validation.score,
+                    "fidelity": validation.shape_fidelity,
+                },
+            )
             return
 
         requested_score = validation.score
@@ -490,6 +571,11 @@ class Orchestrator:
                 f"{validation.shape_fidelity:.0%} of the recognisable silhouette; "
                 f"the required minimum is {workflow.min_shape_fidelity:.0%}."
             )
+        if validation.spatial_similarity < workflow.min_shape_fidelity:
+            reasons.append(
+                f"Ordered curve similarity was {validation.spatial_similarity:.0%}: the "
+                "street traversal departed too far from the selected drawing."
+            )
         if validation.coverage_similarity < workflow.min_shape_fidelity:
             reasons.append(
                 f"Outline coverage was {validation.coverage_similarity:.0%}: streets pulled "
@@ -499,6 +585,11 @@ class Orchestrator:
             reasons.append(
                 f"Characteristic-turn preservation was {validation.turning_similarity:.0%}, "
                 "so the corners/curves that identify the shape were lost."
+            )
+        if validation.landmark_similarity < workflow.min_shape_fidelity:
+            reasons.append(
+                f"Salient-landmark preservation was {validation.landmark_similarity:.0%}, "
+                "so one or more dominant tips, corners, or notches were lost."
             )
         if validation.length_similarity < workflow.min_shape_fidelity:
             reasons.append(
@@ -555,23 +646,14 @@ class Orchestrator:
 
     @staticmethod
     def _passes_quality(validation) -> bool:
-        workflow = get_settings().workflow
-        return bool(
-            validation.on_roads
-            and validation.score >= workflow.validation_score_threshold
-            and validation.shape_fidelity >= workflow.min_shape_fidelity
-            and validation.distance_fit >= 0.6
-            and validation.closure >= 0.6
-        )
+        # Open routes receive closure=1.0 in ValidationAgent, so treating the
+        # closure gate as applicable here is equivalent while keeping this
+        # state-free helper useful in candidate comparisons.
+        return passes_quality_gates(validation, closed=True)
 
     @staticmethod
     def _quality_rank(validation) -> tuple[bool, float, float, float]:
-        workflow = get_settings().workflow
-        bottleneck = min(
-            validation.shape_fidelity / max(workflow.min_shape_fidelity, 1e-9),
-            validation.distance_fit / 0.6,
-            validation.closure / 0.6,
-        )
+        bottleneck = quality_bottleneck(validation, closed=True)
         return (
             Orchestrator._passes_quality(validation),
             bottleneck,

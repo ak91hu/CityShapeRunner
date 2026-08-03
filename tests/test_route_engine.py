@@ -27,7 +27,9 @@ from gps_art_wizzard.api.routes import (
 from gps_art_wizzard.config import RoutingConfig
 from gps_art_wizzard.llm import factory as llm_factory
 from gps_art_wizzard.orchestrator import Orchestrator
+from gps_art_wizzard.quality import quality_gate_report
 from gps_art_wizzard.state import (
+    EvaluatedCandidate,
     Intent,
     Plan,
     RouteDraft,
@@ -298,6 +300,68 @@ def test_similarity_rejects_backtracking_scribble_inside_the_right_outline():
     assert diagnostics.turning_similarity < 0.5
     assert diagnostics.route_length_ratio > 1.8
     assert diagnostics.fidelity < 0.7
+
+
+def test_landmark_similarity_detects_a_lost_arrow_tip_and_notches():
+    reference_xy = [
+        (-1.0, 0.0),
+        (0.6, 0.0),
+        (0.6, 0.4),
+        (1.0, 0.0),
+        (0.6, -0.4),
+        (0.6, 0.0),
+        (-1.0, 0.0),
+    ]
+    rounded_head_xy = [
+        (-1.0, 0.0),
+        (0.6, 0.0),
+        (0.8, 0.2),
+        (1.0, 0.0),
+        (0.8, -0.2),
+        (0.6, 0.0),
+        (-1.0, 0.0),
+    ]
+    reference = [
+        geo.unit_to_latlon(x, y, 47.5, 19.0, 1_000.0)
+        for x, y in reference_xy
+    ]
+    rounded_head = [
+        geo.unit_to_latlon(x, y, 47.5, 19.0, 1_000.0)
+        for x, y in rounded_head_xy
+    ]
+
+    identical = shape_similarity.similarity_diagnostics_between_routes(
+        reference,
+        reference[::-1],
+    )
+    distorted = shape_similarity.similarity_diagnostics_between_routes(
+        reference,
+        rounded_head,
+    )
+
+    assert identical.landmark_similarity > 0.99
+    assert distorted.coverage_similarity > 0.8
+    assert distorted.landmark_similarity < 0.5
+    assert distorted.fidelity < identical.fidelity - 0.3
+
+
+def test_display_landmarks_expose_corners_but_not_arbitrary_circle_phases():
+    _, arrow_paths, _ = shape_library.arrow()
+    arrow_route = [
+        geo.unit_to_latlon(x, y, 47.5, 19.0, 1_000.0)
+        for x, y in geo.normalize_shape(arrow_paths)[0]
+    ]
+    _, circle_paths, _ = shape_library.circle()
+    circle_route = [
+        geo.unit_to_latlon(x, y, 47.5, 19.0, 1_000.0)
+        for x, y in geo.normalize_shape(circle_paths)[0]
+    ]
+
+    landmarks = shape_similarity.salient_route_landmarks(arrow_route)
+
+    assert 4 <= len(landmarks) <= 12
+    assert all(-90 <= lat <= 90 and -180 <= lon <= 180 for lat, lon in landmarks)
+    assert shape_similarity.salient_route_landmarks(circle_route) == []
 
 
 def test_subsample_honours_closed_coordinate_budget_and_extrema():
@@ -1075,6 +1139,12 @@ def test_candidate_selection_prefers_visible_shape_over_distance_only_score():
         distance_fit=0.947,
         shape_fidelity=0.363,
         on_roads=True,
+        spatial_similarity=0.363,
+        coverage_similarity=0.363,
+        turning_similarity=0.363,
+        landmark_similarity=0.363,
+        length_similarity=0.363,
+        extent_similarity=0.363,
     )
     candidate = Validation(
         score=0.631,
@@ -1082,6 +1152,12 @@ def test_candidate_selection_prefers_visible_shape_over_distance_only_score():
         distance_fit=0.411,
         shape_fidelity=0.616,
         on_roads=True,
+        spatial_similarity=0.616,
+        coverage_similarity=0.616,
+        turning_similarity=0.616,
+        landmark_similarity=0.616,
+        length_similarity=0.616,
+        extent_similarity=0.616,
     )
 
     assert Orchestrator._candidate_is_better(candidate, incumbent) is True
@@ -1107,7 +1183,19 @@ def test_suggestion_search_skips_extra_routes_when_primary_is_already_good():
             47.0, 19.0, 1_000.0, 0.0, 0.0, 0.0, 0.8, points, True, 10.0
         ),
         snapped=SnappedRoute(points, 10_000.0, snapped=True),
-        validation=Validation(0.82, 1.0, 0.9, 0.78, on_roads=True),
+        validation=Validation(
+            0.82,
+            1.0,
+            0.9,
+            0.78,
+            on_roads=True,
+            spatial_similarity=0.78,
+            coverage_similarity=0.78,
+            turning_similarity=0.78,
+            landmark_similarity=0.78,
+            length_similarity=0.78,
+            extent_similarity=0.78,
+        ),
     )
     nodes = {
         name: UnexpectedNode()
@@ -1171,6 +1259,12 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
             distance_fit=0.9,
             shape_fidelity=fidelity,
             on_roads=True,
+            spatial_similarity=fidelity,
+            coverage_similarity=fidelity,
+            turning_similarity=fidelity,
+            landmark_similarity=fidelity,
+            length_similarity=fidelity,
+            extent_similarity=fidelity,
         )
 
     nodes = {
@@ -1194,7 +1288,7 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
     } == {"triangle", "diamond"}
 
 
-def test_failed_explicit_shape_is_replaced_only_by_a_measured_passing_route():
+def test_failed_explicit_shape_is_retained_for_user_review():
     class Node:
         def __init__(self, operation):
             self.operation = operation
@@ -1260,6 +1354,7 @@ def test_failed_explicit_shape_is_replaced_only_by_a_measured_passing_route():
             spatial_similarity=fidelity,
             coverage_similarity=fidelity,
             turning_similarity=fidelity,
+            landmark_similarity=fidelity,
             length_similarity=fidelity,
             extent_similarity=fidelity,
             route_length_ratio=1.0,
@@ -1274,15 +1369,16 @@ def test_failed_explicit_shape_is_replaced_only_by_a_measured_passing_route():
 
     Orchestrator(nodes={})._evaluate_fallback_candidates(state, nodes)
 
-    assert state.shape.name == "diamond"
-    assert state.intent.shape == "diamond"
+    assert state.shape.name == "cat"
+    assert state.intent.shape == "cat"
     assert state.fit_decision is not None
-    assert state.fit_decision.substituted is True
+    assert state.fit_decision.substituted is False
     assert state.fit_decision.requested_shape == "cat"
-    assert state.fit_decision.selected_shape == "diamond"
-    assert state.fit_decision.candidates_tested == ["triangle", "diamond"]
-    assert state.validation.shape_fidelity == pytest.approx(0.82)
-    assert state.candidate_count > 7
+    assert state.fit_decision.selected_shape == "cat"
+    assert state.fit_decision.candidates_tested == ["cat"]
+    assert state.validation.shape_fidelity == pytest.approx(0.42)
+    assert any("retained for your review" in reason for reason in state.fit_decision.reasons)
+    assert state.candidate_count == 7
 
 
 def test_validation_cap_preserves_fidelity_ordering(monkeypatch):
@@ -1401,12 +1497,60 @@ def test_preview_sampler_never_exceeds_limit_and_keeps_endpoints():
     assert sampled[-1] == 999
 
 
+def test_candidate_download_keeps_full_geometry_beyond_the_map_preview():
+    points = [(47.0 + index * 0.00001, 19.0) for index in range(600)]
+    validation = Validation(
+        score=0.9,
+        closure=1.0,
+        distance_fit=0.9,
+        shape_fidelity=0.9,
+        on_roads=True,
+        spatial_similarity=0.9,
+        coverage_similarity=0.9,
+        turning_similarity=0.9,
+        landmark_similarity=0.9,
+        length_similarity=0.9,
+        extent_similarity=0.9,
+        route_point_count=len(points),
+        guide_point_count=len(points),
+    )
+    candidate = EvaluatedCandidate(
+        shape_name="line",
+        shape_source="test",
+        points=points,
+        ideal_points=points,
+        total_distance_m=geo.path_distance_m(points),
+        snapped=True,
+        closed=False,
+        target_distance_km=None,
+        validation=validation,
+        rotation_deg=0.0,
+        scale_m=1_000.0,
+        lat_offset_m=0.0,
+        lon_offset_m=0.0,
+    )
+    state = WorkflowState(
+        prompt="line route",
+        intent=Intent("line", None, "Budapest", "run", None, None),
+        shape=Shape("line", [[(0.0, 0.0), (1.0, 0.0)]], False, "test"),
+        snapped=SnappedRoute(points, candidate.total_distance_m, snapped=True),
+        validation=validation,
+        candidates=[candidate],
+    )
+
+    response = _state_to_response(state)
+
+    assert len(response["candidates"][0]["points_preview"]) == 500
+    assert response["candidates"][0]["gpx"].count("<trkpt") == 600
+
+
 def test_export_is_stateless_for_a_valid_road_route(monkeypatch):
     monkeypatch.delenv("EXPORT_DIR", raising=False)
     points = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
     state = WorkflowState(
-        prompt="heart route",
-        intent=Intent("heart", None, "Budapest", "run", 1.0, None),
+        prompt="cat route",
+        intent=Intent("cat", None, "Budapest", "run", 1.0, None),
+        shape=Shape("diamond", [[(0.0, 0.0), (1.0, 1.0)]], True),
         snapped=SnappedRoute(points, geo.path_distance_m(points), snapped=True),
         validation=Validation(
             score=0.9,
@@ -1414,15 +1558,23 @@ def test_export_is_stateless_for_a_valid_road_route(monkeypatch):
             distance_fit=0.8,
             shape_fidelity=0.9,
             on_roads=True,
+            spatial_similarity=0.9,
+            coverage_similarity=0.9,
+            turning_similarity=0.9,
+            landmark_similarity=0.9,
+            length_similarity=0.9,
+            extent_similarity=0.9,
         ),
     )
     ExportAgent().run(state)
     assert state.export is not None
     assert "<gpx" in state.export.gpx
+    assert state.export.name == "diamond in Budapest"
+    assert "diamond in Budapest" in state.export.gpx
     assert state.export.file_paths == {}
 
 
-def test_export_retains_route_that_misses_recommended_quality_targets():
+def test_export_prepares_route_that_misses_automatic_quality_targets():
     points = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
     state = WorkflowState(
         prompt="heart route",
@@ -1441,14 +1593,42 @@ def test_export_retains_route_that_misses_recommended_quality_targets():
 
     assert state.export is not None
     assert "<gpx" in state.export.gpx
-    assert any("recommended minimum" in error for error in state.errors)
+    assert any("explicit user acceptance" in error for error in state.errors)
+
+
+def test_one_failed_shape_component_rejects_an_otherwise_high_scoring_route():
+    validation = Validation(
+        score=0.92,
+        closure=1.0,
+        distance_fit=0.95,
+        shape_fidelity=0.86,
+        on_roads=True,
+        spatial_similarity=0.9,
+        coverage_similarity=0.9,
+        turning_similarity=0.88,
+        landmark_similarity=0.52,
+        length_similarity=0.9,
+        extent_similarity=0.91,
+    )
+
+    report = quality_gate_report(
+        validation,
+        closed=True,
+        candidate_shape="arrow",
+        selected_shape="arrow",
+    )
+
+    assert report["passed"] is False
+    assert report["shape_following"] is False
+    assert report["failed_gates"] == ["landmark_similarity"]
 
 
 def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     ideal = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
+    target_km = geo.path_distance_m(ideal) / 1000.0
     state = WorkflowState(
         prompt="heart route",
-        intent=Intent("heart", None, "Budapest", "run", 1.0, None),
+        intent=Intent("heart", None, "Budapest", "run", target_km, None),
         shape=Shape("heart", shape_library.heart()[1], True),
         route_draft=RouteDraft(
             47.0,
@@ -1460,7 +1640,7 @@ def test_validation_retains_every_fully_routed_candidate_for_the_editor():
             0.8,
             ideal,
             True,
-            1.0,
+            target_km,
         ),
         snapped=SnappedRoute(ideal, geo.path_distance_m(ideal), snapped=True),
     )
@@ -1472,12 +1652,39 @@ def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     assert len(state.candidates) == 2
     assert state.candidates[0].rotation_deg == 0.0
     assert state.candidates[1].rotation_deg == 90.0
+    # Attempts generated while evaluating fallbacks/suggestions stay in the
+    # audit, but must not leak into the selected shape's route selector.
+    state.candidates[1].shape_name = "diamond"
     response = _state_to_response(state)
-    assert len(response["candidates"]) == 2
+    assert len(response["candidates"]) == 1
+    assert response["candidates"][0]["shape_name"] == "heart"
+    assert response["candidates"][0]["verification"]["passed"] is True
+    assert "<gpx" in response["candidates"][0]["gpx"]
+    assert len(response["candidate_audit"]) == 2
+    assert response["candidate_summary"]["other_shape_count"] == 1
     assert all(candidate["points_preview"] for candidate in response["candidates"])
+    assert "landmark_preview" in response
+    assert all("landmark_preview" in candidate for candidate in response["candidates"])
+    assert all(
+        -90 <= point[0] <= 90 and -180 <= point[1] <= 180
+        for candidate in response["candidates"]
+        for point in candidate["landmark_preview"]
+    )
+
+    # Missing an automatic component target keeps the selected-shape route
+    # visible and exportable after user review; it is no longer silently
+    # removed from the selector.
+    state.candidates[0].validation.landmark_similarity = 0.4
+    review_response = _state_to_response(state)
+    assert len(review_response["candidates"]) == 1
+    assert review_response["candidates"][0]["verification"]["passed"] is False
+    assert review_response["candidates"][0]["requires_user_acceptance"] is True
+    assert "<gpx" in review_response["candidates"][0]["gpx"]
+    assert review_response["candidate_summary"]["verified_count"] == 0
+    assert review_response["candidate_summary"]["review_count"] == 1
 
 
-def test_edit_route_reroutes_control_points_and_always_builds_gpx(monkeypatch):
+def test_edit_route_reroutes_control_points_and_builds_verified_shape_gpx(monkeypatch):
     routed = [
         (47.0, 19.0),
         (47.0005, 19.0007),
@@ -1497,8 +1704,9 @@ def test_edit_route_reroutes_control_points_and_always_builds_gpx(monkeypatch):
             reference_points=[[lat, lon] for lat, lon in routed],
             sport="run",
             closed=False,
-            target_distance_km=0.2,
+            target_distance_km=geo.path_distance_m(routed) / 1000.0,
             name="Edited route",
+            shape_name="heart",
         )
     )
 
@@ -1506,6 +1714,8 @@ def test_edit_route_reroutes_control_points_and_always_builds_gpx(monkeypatch):
     assert response["points_preview"] == [[lat, lon] for lat, lon in routed]
     assert "<gpx" in response["gpx"]
     assert "Edited route" in response["gpx"]
+    assert response["route_details"]["shape"]["name"] == "heart"
+    assert response["route_verification"]["gates"][0]["value"] == "heart"
 
 
 def test_server_side_export_sanitises_user_derived_filename(tmp_path):

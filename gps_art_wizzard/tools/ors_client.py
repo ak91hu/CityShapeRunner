@@ -72,6 +72,7 @@ class SnapPreflightResult:
     turning_similarity: float
     length_similarity: float
     route_length_ratio: float
+    landmark_similarity: float = 0.0
 
 
 def profile_for(sport: str) -> str:
@@ -246,10 +247,11 @@ def preflight_route_candidates(
             else 0.0
         )
         score = coverage * math.sqrt(distinct_ratio) * (
-            0.45 * diagnostics.fidelity
-            + 0.20 * diagnostics.turning_similarity
-            + 0.15 * diagnostics.length_similarity
-            + 0.10 * diagnostics.coverage_similarity
+            0.40 * diagnostics.fidelity
+            + 0.15 * diagnostics.turning_similarity
+            + 0.15 * diagnostics.landmark_similarity
+            + 0.12 * diagnostics.length_similarity
+            + 0.08 * diagnostics.coverage_similarity
             + 0.10 * snap_distance_score
         )
         if coverage < 0.75:
@@ -264,6 +266,7 @@ def preflight_route_candidates(
                 turning_similarity=diagnostics.turning_similarity,
                 length_similarity=diagnostics.length_similarity,
                 route_length_ratio=diagnostics.route_length_ratio,
+                landmark_similarity=diagnostics.landmark_similarity,
             )
         )
 

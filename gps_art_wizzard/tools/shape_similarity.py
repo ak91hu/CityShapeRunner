@@ -36,6 +36,7 @@ class SimilarityDiagnostics:
     extent_similarity: float
     route_length_ratio: float
     mean_deviation_ratio: float
+    landmark_similarity: float = 0.0
 
 
 _ZERO_DIAGNOSTICS = SimilarityDiagnostics(
@@ -47,6 +48,7 @@ _ZERO_DIAGNOSTICS = SimilarityDiagnostics(
     extent_similarity=0.0,
     route_length_ratio=0.0,
     mean_deviation_ratio=float("inf"),
+    landmark_similarity=0.0,
 )
 
 
@@ -190,6 +192,180 @@ def _turning_similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
     return math.exp(-float(np.mean(angular_error)) / 0.70)
 
 
+def _signed_turns(points: np.ndarray, span: int) -> np.ndarray:
+    """Return signed chord-turn angles at one geometric observation scale.
+
+    Street geometry contains many kerb- and junction-scale wiggles that are not
+    semantic parts of a drawing.  Chords spanning several arc-length samples
+    suppress that noise while retaining a heart notch, arrow tip, ear, or
+    similarly characteristic feature.  Endpoints of open curves deliberately
+    remain zero because there is no two-sided turn to estimate there.
+    """
+    count = len(points)
+    turns = np.zeros(count, dtype=float)
+    closed = count >= 3 and np.linalg.norm(points[0] - points[-1]) <= 0.05
+    core_count = count - 1 if closed else count
+    if core_count < 2 * span + 1:
+        return turns
+
+    indices = range(core_count) if closed else range(span, core_count - span)
+    for index in indices:
+        previous_index = (index - span) % core_count if closed else index - span
+        next_index = (index + span) % core_count if closed else index + span
+        incoming = points[index] - points[previous_index]
+        outgoing = points[next_index] - points[index]
+        incoming_length = float(np.linalg.norm(incoming))
+        outgoing_length = float(np.linalg.norm(outgoing))
+        if incoming_length <= 1e-9 or outgoing_length <= 1e-9:
+            continue
+        cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0]
+        dot = float(np.dot(incoming, outgoing))
+        turns[index] = math.atan2(cross, dot)
+    if closed:
+        turns[-1] = turns[0]
+    return turns
+
+
+def _salient_indices(
+    turns: np.ndarray,
+    *,
+    span: int,
+    closed: bool,
+    maximum: int = 12,
+) -> list[int]:
+    """Select separated curvature extrema instead of uniformly weighted noise."""
+    if len(turns) == 0:
+        return []
+    magnitude = np.abs(turns)
+    core_count = len(turns) - 1 if closed else len(turns)
+    core_magnitude = magnitude[:core_count]
+    mean_magnitude = float(np.mean(core_magnitude))
+    if (
+        mean_magnitude > 1e-9
+        and float(np.std(core_magnitude)) / mean_magnitude < 0.08
+    ):
+        # Constant-curvature contours (notably circles) have no privileged
+        # semantic corner. Selecting arbitrary equal maxima would make the
+        # result depend on the route's starting phase.
+        return []
+    threshold = max(math.radians(10.0), float(np.quantile(magnitude, 0.78)))
+    indices = range(core_count) if closed else range(span, core_count - span)
+    candidates = [
+        index
+        for index in indices
+        if magnitude[index] >= threshold
+        and magnitude[index]
+        >= magnitude[(index - 1) % core_count if closed else max(0, index - 1)]
+        and magnitude[index]
+        >= magnitude[(index + 1) % core_count if closed else min(core_count - 1, index + 1)]
+    ]
+    separation = max(2, span)
+    selected: list[int] = []
+    for index in sorted(candidates, key=lambda item: magnitude[item], reverse=True):
+        if all(
+            (
+                min(abs(index - other), core_count - abs(index - other))
+                if closed
+                else abs(index - other)
+            )
+            > separation
+            for other in selected
+        ):
+            selected.append(index)
+            if len(selected) >= maximum:
+                break
+    return sorted(selected)
+
+
+def _landmark_scale_similarity(
+    reference: np.ndarray,
+    candidate: np.ndarray,
+    *,
+    span: int,
+) -> float:
+    """Compare the sign, magnitude, and arc-length phase of salient turns."""
+    reference_turns = _signed_turns(reference, span)
+    candidate_turns = _signed_turns(candidate, span)
+    closed = (
+        len(reference) >= 3
+        and len(candidate) >= 3
+        and np.linalg.norm(reference[0] - reference[-1]) <= 0.05
+        and np.linalg.norm(candidate[0] - candidate[-1]) <= 0.05
+    )
+    landmarks = _salient_indices(reference_turns, span=span, closed=closed)
+    if not landmarks:
+        # Smooth contours such as circles have no isolated dominant point at
+        # this scale; the other curve/coverage metrics remain authoritative.
+        return 1.0
+
+    search_radius = max(2, len(reference) // 32)
+
+    def score_with_sign(direction_sign: float) -> float:
+        weighted_error = 0.0
+        total_weight = 0.0
+        for index in landmarks:
+            target_turn = reference_turns[index]
+            if closed:
+                core_count = len(candidate_turns) - 1
+                candidate_indices = [
+                    (index + delta) % core_count
+                    for delta in range(-search_radius, search_radius + 1)
+                ]
+            else:
+                start = max(span, index - search_radius)
+                end = min(len(candidate_turns) - span, index + search_radius + 1)
+                candidate_indices = list(range(start, end))
+            if not candidate_indices:
+                best_error = math.pi
+            else:
+                best_error = math.pi
+                for candidate_index in candidate_indices:
+                    candidate_turn = direction_sign * candidate_turns[candidate_index]
+                    angular_error = abs(
+                        math.atan2(
+                            math.sin(target_turn - candidate_turn),
+                            math.cos(target_turn - candidate_turn),
+                        )
+                    )
+                    # Arc-length resampling spreads a mathematically sharp
+                    # corner across neighbouring samples. Treat sub-18°
+                    # differences as the same landmark; larger changes still
+                    # receive their full excess penalty.
+                    angular_error = max(0.0, angular_error - math.radians(18.0))
+                    index_distance = abs(candidate_index - index)
+                    if closed:
+                        index_distance = min(index_distance, core_count - index_distance)
+                    phase_error = 0.06 * index_distance / search_radius
+                    best_error = min(best_error, angular_error + phase_error)
+            # Strong extrema carry more contour information.  Squaring the
+            # bounded magnitude makes a destroyed arrow tip matter more than a
+            # small street kink without allowing a single point to dominate.
+            weight = min(math.pi, abs(target_turn)) ** 2
+            weighted_error += weight * best_error
+            total_weight += weight
+        mean_error = weighted_error / max(total_weight, 1e-12)
+        return math.exp(-mean_error / 0.58)
+
+    # Reversing travel direction flips signed curvature. GPS art must not
+    # change quality merely because the route is traversed backwards.
+    return max(score_with_sign(1.0), score_with_sign(-1.0))
+
+
+def _landmark_similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
+    """Multiscale similarity of perceptually dominant contour landmarks."""
+    if len(reference) < 9 or len(candidate) < 9:
+        return 1.0
+    spans = sorted({max(2, len(reference) // 32), max(3, len(reference) // 16)})
+    scores = [
+        _landmark_scale_similarity(reference, candidate, span=span)
+        for span in spans
+        if len(reference) >= 2 * span + 1 and len(candidate) >= 2 * span + 1
+    ]
+    if not scores:
+        return 1.0
+    return math.exp(sum(math.log(max(score, 1e-12)) for score in scores) / len(scores))
+
+
 def _polyline_length(points: np.ndarray) -> float:
     if len(points) < 2:
         return 0.0
@@ -221,11 +397,12 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
     spatial = _similarity(reference, candidate)
     coverage, mean_deviation = _coverage_components(reference, candidate)
     turning = _turning_similarity(reference, candidate)
+    landmarks = _landmark_similarity(reference, candidate)
     length, length_ratio = _length_components(reference, candidate)
     extent = _extent_similarity(reference, candidate)
 
-    components = (spatial, coverage, turning, length, extent)
-    weights = (0.28, 0.23, 0.22, 0.15, 0.12)
+    components = (spatial, coverage, turning, landmarks, length, extent)
+    weights = (0.24, 0.19, 0.16, 0.20, 0.12, 0.09)
     # A weighted geometric mean prevents a good distance/outline average from
     # hiding one catastrophically lost recognition cue.
     fidelity = math.exp(
@@ -243,6 +420,7 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
         extent_similarity=float(extent),
         route_length_ratio=float(length_ratio),
         mean_deviation_ratio=float(mean_deviation),
+        landmark_similarity=float(landmarks),
     )
 
 
@@ -381,3 +559,65 @@ def similarity_diagnostics_between_routes(
         (_diagnostics(Rr, variant) for variant in _candidate_orientations(Rr, Sr)),
         key=lambda result: result.fidelity,
     )
+
+
+def salient_route_landmarks(
+    route: list[LatLon],
+    *,
+    n: int = 128,
+    maximum: int = 12,
+) -> list[LatLon]:
+    """Return displayable multiscale curvature landmarks for a route.
+
+    The output is diagnostic only: these points explain which notches, tips,
+    and corners carry extra recognition weight. They are not independently
+    snapped waypoints and therefore do not claim graph connectivity.
+    """
+    if len(route) < 3 or maximum <= 0:
+        return []
+    ref = np.asarray(route, dtype=float)
+    if (
+        ref.ndim != 2
+        or ref.shape[1] != 2
+        or not np.isfinite(ref).all()
+        or np.any(np.abs(ref[:, 0]) > 90.0)
+        or np.any(np.abs(ref[:, 1]) > 180.0)
+    ):
+        return []
+    clat, clon = float(ref[:, 0].mean()), float(ref[:, 1].mean())
+    metres = _route_to_metres(route, clat, clon)
+    sample_count = max(32, int(n))
+    sampled = resample(metres, sample_count)
+    # Keep this identical to ``_signed_turns``: using a looser display-only
+    # closure threshold would mix cyclic non-maximum suppression with open
+    # endpoint turns for nearly closed paths.
+    closed = bool(np.linalg.norm(sampled[0] - sampled[-1]) <= 0.05)
+
+    ranked: dict[int, float] = {}
+    spans = sorted({max(2, sample_count // 32), max(3, sample_count // 16)})
+    for span in spans:
+        turns = _signed_turns(sampled, span)
+        for index in _salient_indices(
+            turns,
+            span=span,
+            closed=closed,
+            maximum=maximum,
+        ):
+            ranked[index] = max(ranked.get(index, 0.0), abs(float(turns[index])))
+    chosen = sorted(
+        sorted(ranked, key=lambda index: ranked[index], reverse=True)[:maximum]
+    )
+    if not chosen:
+        return []
+
+    cos_lat = math.cos(math.radians(clat))
+    if abs(cos_lat) <= 1e-12:
+        return []
+    return [
+        (
+            clat + math.degrees(float(sampled[index, 1]) / geo.EARTH_R_M),
+            clon
+            + math.degrees(float(sampled[index, 0]) / (geo.EARTH_R_M * cos_lat)),
+        )
+        for index in chosen
+    ]

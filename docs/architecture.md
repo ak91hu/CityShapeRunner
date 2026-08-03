@@ -38,7 +38,7 @@ runs:
 | `route_draft` | PlacementAgent / PreflightAgent / RefinementAgent | SnapAgent |
 | `placement_candidates` | PreflightAgent | RefinementAgent |
 | `preflight_candidates` | PreflightAgent | API diagnostics |
-| `candidates` | ValidationAgent | API candidate selector/editor |
+| `candidates` | ValidationAgent | API acceptance filter, audit, selector/editor |
 | `snapped` | SnapAgent | ValidationAgent, ExportAgent |
 | `validation` | ValidationAgent | Orchestrator (loop control), RefinementAgent |
 | `export` | ExportAgent | API (optional; absent for unsafe candidates) |
@@ -79,14 +79,24 @@ explicit without coupling the current runtime to one.
 - Placement preflight: up to 180 candidates combine a 3×3 city-wide grid, six
   rotations, and three scales. Curvature-preserving guides are sent in one
   ORS nearest-edge snap request and ranked by coverage, collapse resistance,
-  snap distance, silhouette, turning, and length preservation. A greedy
+  snap distance, silhouette, turning, salient-landmark, and length
+  preservation. A greedy
   quality/diversity objective avoids spending all seven Directions calls on
   nearly identical placements. Every proxy result and every full route is
   retained; connectivity is still unproven until full routing.
 - Shape fidelity: express the intended and routed lines in a shared metric
-  frame, resample both by arc length, then blend discrete Fréchet and Hausdorff
-  distances with NumPy (`tools/shape_similarity.py`). Route direction and the
-  start vertex of a closed loop do not affect the score.
+  frame, resample both by arc length, then combine discrete Fréchet,
+  Hausdorff/coverage, tangent sequence, route-length and extent preservation,
+  plus multiscale salient-curvature landmark matching with NumPy
+  (`tools/shape_similarity.py`). Route direction and the start vertex of a
+  closed loop do not affect the score.
+- Acceptance: `quality.py` is the single source of truth shared by the
+  orchestrator, API, edit endpoint, and exporter. It independently gates shape
+  identity, connected routing, aggregate score, ordered curve, coverage,
+  turns, landmarks, detour, extent, distance, and closure for automatic
+  verification. The API selector contains every fully routed candidate for the
+  final selected shape, labelled `verified` or `review`; other-shape attempts
+  retain metrics and failed-gate IDs in `candidate_audit`.
 - Candidate selection: each export gate is normalised to its minimum, and the
   weakest gate is the primary ranking key. This prevents excellent distance
   accuracy from hiding an unrecognisable outline while still moving the search
@@ -104,17 +114,17 @@ explicit without coupling the current runtime to one.
 | Missing | Behaviour |
 |---------|-----------|
 | No LLM key | agents use rule-based fallbacks; an unsupported shape becomes an explicitly labelled fallback star |
-| No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide that remains editable/exportable with warnings |
+| No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide with a strong obstacle warning; explicit acceptance is required before GPX download |
 | LLM returns malformed or invalid data | the agent rejects the payload and applies its bounded deterministic fallback |
 | Validation never reaches threshold | orchestrator returns the best iteration + a `below_threshold` flag |
-| Score, shape fidelity, or distance fit below its recommended minimum | candidate remains selectable, editable, and exportable with warnings |
+| Any automatic verification gate fails | selected-shape attempt remains selectable and editable; its measurements are explained and explicit acceptance enables GPX |
 | Geocoder rate-limited | city centre falls back to the configured default city |
 
 ## Testing strategy
 
 - `tests/test_pipeline.py`: offline end-to-end (no keys) using the sample
-  prompt, asserting the guide is marked non-routable, retained with warnings,
-  and the loop terminates.
+  prompt, asserting the guide is marked non-routable, retained for review with
+  an acceptance-required GPX, and the loop terminates.
 - `tests/test_skills.py`: skill discovery, routing, and prompt injection.
 - `tests/test_route_engine.py`: parser boundaries, geometry edge cases,
   explicit offline-city substitution, direction-independent similarity,

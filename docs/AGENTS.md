@@ -114,10 +114,11 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### ValidationAgent
 - **Input:** `SnappedRoute` + `RouteDraft` (the placed drawing as reference).
 - **Output:** `Validation` (score 0..1, per-metric, issues[]).
-- **Metrics:** `shape_fidelity` (shared-frame Fréchet+Hausdorff, drawn vs
-  snapped), `distance_fit`, `closure` (closed shapes). Threshold 0.72 gates
-  the loop. Below the 0.70 fidelity floor, the score cap remains monotonic to
-  preserve candidate ordering. See `skill-validation-metrics.md`.
+- **Metrics:** `shape_fidelity` (shared-frame Fréchet/Hausdorff, coverage,
+  tangent sequence, multiscale salient-curvature landmarks, length, and extent;
+  drawn vs snapped), `distance_fit`, `closure` (closed shapes). Threshold 0.72
+  gates the loop. Below the 0.70 fidelity floor, the score cap remains
+  monotonic to preserve candidate ordering. See `skill-validation-metrics.md`.
 
 ### RefinementAgent
 - **Input:** `Validation` + `RouteDraft`.
@@ -135,10 +136,10 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### ExportAgent
 - **Input:** best `SnappedRoute`.
 - **Output:** `Export` — in-memory GPX (+ TCX) for the selected candidate.
-  Quality and road-matching failures are advisory warnings, not deletion
-  conditions; manually review unmatched guides before use.
-  Server-side files are written only when `EXPORT_DIR` is explicitly
-  configured.
+  Every drawable selected-shape result gets an in-memory export. Passing all
+  gates enables an immediate verified download; below-target routes require an
+  explicit user acceptance in the UI. Persistent server-side files are written
+  only for verified routes and only when `EXPORT_DIR` is configured.
 
 ## Loops
 

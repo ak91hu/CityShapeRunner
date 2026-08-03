@@ -1,5 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { editRoute, generate as generateRoute } from "./api.js";
+import {
+  editRoute,
+  generate as generateRoute,
+  recordRouteAcceptance,
+} from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
 
@@ -79,6 +83,42 @@ function formatPercent(value) {
     : "—";
 }
 
+function formatSigned(value, digits = 2, suffix = "") {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}${suffix}`;
+}
+
+function formatGateValue(gate) {
+  if (!gate?.applies) return "Not required";
+  if (typeof gate.value === "boolean") return gate.value ? "Yes" : "No";
+  if (typeof gate.value === "number") return formatPercent(gate.value);
+  return normaliseLabel(gate.value);
+}
+
+function formatGateMinimum(gate) {
+  if (!gate?.applies || typeof gate.minimum === "boolean") return "";
+  if (typeof gate.minimum === "number") return `minimum ${formatPercent(gate.minimum)}`;
+  return gate.minimum ? `must be ${normaliseLabel(gate.minimum)}` : "";
+}
+
+function explainGateResult(gate) {
+  if (!gate?.applies) return "This check does not apply to this route.";
+  if (typeof gate.value === "boolean") {
+    return gate.passed
+      ? "The required condition was observed."
+      : "The required condition was not observed, so manual inspection matters.";
+  }
+  if (typeof gate.value === "number" && typeof gate.minimum === "number") {
+    const difference = Math.round(Math.abs(gate.value - gate.minimum) * 100);
+    return gate.passed
+      ? `${difference} percentage point${difference === 1 ? "" : "s"} above the automatic target; higher is better.`
+      : `${difference} percentage point${difference === 1 ? "" : "s"} below the automatic target; this signals visible distortion, not a probability of failure.`;
+  }
+  return gate.passed
+    ? "This route matches the selected value."
+    : "This route does not match the selected value.";
+}
+
 function normaliseLabel(value) {
   if (!value) return "—";
   return String(value)
@@ -122,29 +162,6 @@ function sampleControlPoints(points, maximum = 18) {
     (_, index) => Math.round((index * (valid.length - 1)) / (maximum - 1)),
   );
   return [...new Set(indices)].map((index) => [...valid[index]]);
-}
-
-function pointsToGpx(points, name) {
-  const escapeXml = (value) =>
-    String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&apos;");
-  const trackPoints = (Array.isArray(points) ? points : [])
-    .filter(
-      (point) =>
-        Array.isArray(point) &&
-        Number.isFinite(point[0]) &&
-        Number.isFinite(point[1]),
-    )
-    .map(
-      ([latitude, longitude]) =>
-        `<trkpt lat="${latitude.toFixed(7)}" lon="${longitude.toFixed(7)}"></trkpt>`,
-    )
-    .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="GPS Art Wizard" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${escapeXml(name)}</name><trkseg>${trackPoints}</trkseg></trk></gpx>`;
 }
 
 function MetricCard({ label, value, detail, tone = "neutral" }) {
@@ -191,6 +208,16 @@ function ResultPanel({ result, onDownload, focusRef }) {
   const [editedRoute, setEditedRoute] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState("");
+  const [acceptedRouteIds, setAcceptedRouteIds] = useState(() => new Set());
+
+  useEffect(() => {
+    setSelectedCandidateId(candidates[0]?.id ?? "best");
+    setEditing(false);
+    setControlPoints([]);
+    setEditedRoute(null);
+    setEditError("");
+    setAcceptedRouteIds(new Set());
+  }, [result.request_id, result.prompt]);
 
   const selectedCandidate =
     candidates.find((candidate) => candidate.id === selectedCandidateId) ??
@@ -209,13 +236,26 @@ function ResultPanel({ result, onDownload, focusRef }) {
       target_distance_km: result.intent?.distance_km,
       validation: result.validation,
       below_recommended: result.below_threshold,
+      verification: result.route_verification,
+      details: result.route_details,
+      gpx: result.gpx,
+      tcx: result.tcx,
     };
   const validation = activeRoute.validation ?? result.validation;
+  const verification = activeRoute.verification ?? result.route_verification;
+  const routeDetails = activeRoute.details ?? result.route_details;
+  const distanceDetails = routeDetails?.distance ?? {};
+  const routingDetails = routeDetails?.routing ?? {};
+  const placementDetails = routeDetails?.placement ?? {};
+  const deviationDetails = routeDetails?.deviation ?? {};
   const score = validation?.score;
-  const routeReady =
-    Boolean(activeRoute.snapped) &&
-    !Boolean(activeRoute.below_recommended);
-  const qualityTone = score == null ? "neutral" : routeReady ? "good" : "warn";
+  const scientificallyVerified = verification
+    ? Boolean(verification.passed)
+    : Boolean(activeRoute.snapped) && !Boolean(activeRoute.below_recommended);
+  const activeRouteId = String(activeRoute.id ?? "best");
+  const userAccepted = acceptedRouteIds.has(activeRouteId);
+  const exportReady = scientificallyVerified || userAccepted;
+  const qualityTone = score == null ? "neutral" : scientificallyVerified ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
   const fitDecision = result.fit_decision;
   const requestedShape = normaliseLabel(
@@ -223,6 +263,19 @@ function ResultPanel({ result, onDownload, focusRef }) {
   );
   const city = result.intent?.city ? normaliseLabel(result.intent.city) : "your selected area";
   const historyRows = (result.history ?? []).filter((entry) => Number.isFinite(entry.score));
+  const auditRows = Array.isArray(result.candidate_audit) ? result.candidate_audit : [];
+  const candidateSummary = result.candidate_summary ?? {};
+  const auditedCount = Number.isFinite(candidateSummary.audited_count)
+    ? candidateSummary.audited_count
+    : candidates.length;
+  const reviewCount = Number.isFinite(candidateSummary.review_count)
+    ? candidateSummary.review_count
+    : Number.isFinite(candidateSummary.rejected_selected_shape_count)
+      ? candidateSummary.rejected_selected_shape_count
+    : 0;
+  const otherShapeCount = Number.isFinite(candidateSummary.other_shape_count)
+    ? candidateSummary.other_shape_count
+    : 0;
   const issueList = [
     ...new Set([
       ...(validation?.issues ?? []),
@@ -230,11 +283,13 @@ function ResultPanel({ result, onDownload, focusRef }) {
       ...(result.errors ?? []),
     ]),
   ];
-  const stateLabel = !activeRoute.snapped
-    ? "Preview only"
-    : routeReady
-      ? "Validated street route"
-      : "Editable candidate";
+  const stateLabel = scientificallyVerified
+    ? "Scientifically verified"
+    : userAccepted
+      ? "Accepted by you"
+      : activeRoute.snapped
+        ? "Ready for your review"
+        : "Guide — review required";
 
   const resetEditor = useCallback(() => {
     setControlPoints(sampleControlPoints(activeRoute.points_preview));
@@ -272,14 +327,23 @@ function ResultPanel({ result, onDownload, focusRef }) {
         target_distance_km:
           activeRoute.target_distance_km ?? result.intent?.distance_km ?? null,
         name: `${shapeName} in ${city}`,
+        shape_name: activeRoute.shape_name ?? result.shape?.name ?? "edited",
+      });
+      const editedRouteId = `${activeRoute.id}-edited`;
+      setAcceptedRouteIds((current) => {
+        const next = new Set(current);
+        next.delete(editedRouteId);
+        return next;
       });
       setEditedRoute({
         ...activeRoute,
-        id: `${activeRoute.id}-edited`,
+        id: editedRouteId,
         points_preview: response.points_preview,
         distance_km: response.distance_km,
         snapped: response.snapped,
         validation: response.validation,
+        verification: response.route_verification,
+        details: response.route_details,
         below_recommended:
           response.below_recommended ??
           !(
@@ -318,7 +382,9 @@ function ResultPanel({ result, onDownload, focusRef }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">
-            {routeReady ? "Recommended GPS art" : "Editable GPS-art candidate"}
+            {scientificallyVerified
+              ? "Verified GPS art"
+              : "Selected-shape route for review"}
           </p>
           <h2 id="result-title">
             {shapeName} in {city}
@@ -329,8 +395,10 @@ function ResultPanel({ result, onDownload, focusRef }) {
             </p>
           )}
         </div>
-        <span className={`route-state route-state--${routeReady ? "good" : "warn"}`}>
-          <span aria-hidden="true">{routeReady ? "✓" : "!"}</span>
+        <span
+          className={`route-state route-state--${scientificallyVerified ? "good" : "warn"}`}
+        >
+          <span aria-hidden="true">{scientificallyVerified || userAccepted ? "✓" : "!"}</span>
           {stateLabel}
         </span>
       </div>
@@ -338,7 +406,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
       <div className="result-layout">
         <div className="map-card">
           <div className="candidate-toolbar">
-            <label htmlFor="route-candidate">Generated route</label>
+            <label htmlFor="route-candidate">Selected-shape route</label>
             <select
               id="route-candidate"
               value={selectedCandidate?.id ?? "best"}
@@ -355,17 +423,18 @@ function ResultPanel({ result, onDownload, focusRef }) {
                   <option key={candidate.id} value={candidate.id}>
                     {index + 1}. {normaliseLabel(candidate.shape_name)} ·{" "}
                     {formatPercent(candidate.validation?.score)} ·{" "}
-                    {formatMetric(candidate.distance_km)} km
+                    {formatMetric(candidate.distance_km)} km ·{" "}
+                    {candidate.verification?.passed ? "Verified" : "Review"}
                   </option>
                 ))
               ) : (
-                <option value="best">Generated candidate</option>
+                <option value="best">Best selected-shape route</option>
               )}
             </select>
             <span>
               {candidates.length > 0
-                ? `${candidates.length} fully routed candidates retained`
-                : "Candidate retained for editing"}
+                ? `${candidates.length} selected-shape route${candidates.length === 1 ? "" : "s"} shown; ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} verified, ${reviewCount} for review`
+                : `${auditedCount} evaluated; the best route remains available for review`}
             </span>
           </div>
 
@@ -381,10 +450,13 @@ function ResultPanel({ result, onDownload, focusRef }) {
               <RouteMap
                 points={activeRoute.points_preview}
                 idealPoints={activeRoute.ideal_preview ?? result.ideal_preview}
+                landmarkPoints={
+                  activeRoute.landmark_preview ?? result.landmark_preview
+                }
                 editPoints={controlPoints}
                 shapeName={shapeName}
                 roadRouted={Boolean(activeRoute.snapped)}
-                accepted={routeReady}
+                accepted={exportReady}
                 editing={editing}
                 onEditPoint={handleEditPoint}
               />
@@ -400,7 +472,8 @@ function ResultPanel({ result, onDownload, focusRef }) {
               <strong>Manual route editor</strong>
               <p>
                 Drag the numbered control points, then rebuild the line on the
-                street network. Every candidate remains available.
+                street network. Export becomes available only after every
+                shape, street, distance, and closure check passes.
               </p>
             </div>
             <div className="editor-actions">
@@ -443,9 +516,9 @@ function ResultPanel({ result, onDownload, focusRef }) {
             {editedRoute && (
               <p className="editor-success" role="status">
                 Edited route ready: {formatMetric(editedRoute.distance_km)} km,
-                {editedRoute.snapped
-                  ? " matched to streets."
-                  : " exported as a manual guide because street routing was unavailable."}
+                {editedRoute.verification?.passed
+                  ? " matched to streets and scientifically verified."
+                  : " with updated measurements; review the highlighted checks before accepting it."}
               </p>
             )}
           </div>
@@ -456,6 +529,12 @@ function ResultPanel({ result, onDownload, focusRef }) {
                 outline
               </span>
             )}
+            {(activeRoute.landmark_preview ?? result.landmark_preview ?? []).length > 0 && (
+              <span>
+                <span className="legend-dot legend-dot--landmark" aria-hidden="true" /> Salient
+                landmarks
+              </span>
+            )}
             <span>
               <span className="legend-dot legend-dot--start" aria-hidden="true" /> Start
             </span>
@@ -464,7 +543,10 @@ function ResultPanel({ result, onDownload, focusRef }) {
             </span>
             <span className="point-count">
               {activeRoute.snapped
-                ? `${(activeRoute.points_preview ?? []).length.toLocaleString()} street-route points`
+                ? `${(activeRoute.points_preview ?? []).length.toLocaleString()} displayed of ${(
+                    routingDetails.route_point_count ??
+                    (activeRoute.points_preview ?? []).length
+                  ).toLocaleString()} route points`
                 : "Drawing preview — not matched to streets"}
             </span>
           </div>
@@ -511,19 +593,20 @@ function ResultPanel({ result, onDownload, focusRef }) {
               }
             />
             <MetricCard
-              label="Full routes"
+              label="Routes shown"
               value={
-                Number.isFinite(result.candidate_count)
-                  ? result.candidate_count
-                  : Number.isFinite(result.iterations)
-                    ? result.iterations + 1
-                    : "—"
+                Number.isFinite(candidateSummary.shown_count)
+                  ? candidateSummary.shown_count
+                  : candidates.length
               }
               detail={
-                Number.isFinite(result.preflight_count) && result.preflight_count > 0
-                  ? `${result.preflight_count} placements screened first`
-                  : "route variants tested"
+                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} verified, ${reviewCount} for review; ${auditedCount} evaluated${
+                  Number.isFinite(result.preflight_count) && result.preflight_count > 0
+                    ? `; ${result.preflight_count} placements screened`
+                    : ""
+                }`
               }
+              tone={(candidateSummary.verified_count ?? 0) > 0 ? "good" : "warn"}
             />
           </dl>
 
@@ -555,40 +638,149 @@ function ResultPanel({ result, onDownload, focusRef }) {
             </div>
           )}
 
-          {(activeRoute.below_recommended || !activeRoute.snapped) && (
+          {!scientificallyVerified && (
             <div className="notice notice--warning" role="status">
-              <strong>
-                {!activeRoute.snapped
-                  ? "Manual review required"
-                  : "This candidate can be improved"}
-              </strong>
+              <strong>Automatic verification recommends a closer look</strong>
               <p>
                 {!activeRoute.snapped
-                  ? "Street routing was unavailable. The candidate is retained and exportable as a guide, but it may cross inaccessible areas; edit and review every segment."
-                  : "One or more recommended recognition or usability targets were missed. The candidate is retained: compare alternatives or correct it in the map editor before export."}
+                  ? "The routing provider did not confirm connected streets, so the line may cross buildings, water, or inaccessible land. You can still accept and export the shown guide after inspecting it carefully."
+                  : "One or more geometric scores missed the automatic target. The route remains the selected shape and is available for your judgment, editing, and explicit GPX acceptance."}
               </p>
             </div>
           )}
 
-          {validation && activeRoute.snapped && (
-            <details className="recognition-checks" open={!routeReady}>
-              <summary>Recognition checks</summary>
+          {verification?.gates?.length > 0 && (
+            <details
+              className={`verification-card verification-card--${scientificallyVerified ? "pass" : "fail"}`}
+            >
+              <summary className="verification-heading">
+                <span>
+                  <span className="eyebrow">Shape-following verification</span>
+                  <span className="verification-title">
+                    {scientificallyVerified
+                      ? "All automatic targets reached"
+                      : `${verification.failed_gates?.length ?? 0} metric target${verification.failed_gates?.length === 1 ? "" : "s"} need review`}
+                  </span>
+                </span>
+                <span className="verification-count">
+                  {verification.passed_count}/{verification.required_count} · view data
+                </span>
+              </summary>
+              <div className="verification-body">
+                <div className="score-explainer">
+                  <strong>How to read these numbers</strong>
+                  <p>
+                    Scores are 0–100 geometric similarity indices: higher means the routed
+                    line preserves more of the intended drawing. They are not probabilities
+                    and do not measure traffic or personal safety. The displayed minimums are
+                    conservative automatic-review targets; your visual judgment remains final.
+                  </p>
+                </div>
+                <ul className="gate-list">
+                  {verification.gates
+                    .filter((gate) => gate.applies)
+                    .map((gate) => (
+                      <li key={gate.key} className={gate.passed ? "gate--pass" : "gate--fail"}>
+                        <span className="gate-icon" aria-hidden="true">
+                          {gate.passed ? "✓" : "!"}
+                        </span>
+                        <span>
+                          <strong>{gate.label}</strong>
+                          <small>{gate.description}</small>
+                          <small className="gate-interpretation">
+                            {explainGateResult(gate)}
+                          </small>
+                        </span>
+                        <span className="gate-value">
+                          {formatGateValue(gate)}
+                          {formatGateMinimum(gate) && <small>{formatGateMinimum(gate)}</small>}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            </details>
+          )}
+
+          {routeDetails && (
+            <details className="route-facts">
+              <summary>Generated route details</summary>
+              <p className="route-facts-intro">
+                Route/guide length shows detour added by streets (1.00× means no added
+                length). Mean deviation is the average outline offset divided by the guide’s
+                overall size, so smaller is better.
+              </p>
               <dl>
                 <div>
-                  <dt>Outline coverage</dt>
-                  <dd>{formatPercent(validation.coverage_similarity)}</dd>
+                  <dt>Selected shape</dt>
+                  <dd>{shapeName}</dd>
                 </div>
                 <div>
-                  <dt>Characteristic turns</dt>
-                  <dd>{formatPercent(validation.turning_similarity)}</dd>
+                  <dt>Activity profile</dt>
+                  <dd>{normaliseLabel(routingDetails.activity)}</dd>
                 </div>
                 <div>
-                  <dt>Detour control</dt>
-                  <dd>{formatPercent(validation.length_similarity)}</dd>
+                  <dt>Street matched</dt>
+                  <dd>{routingDetails.street_matched ? "Yes" : "No"}</dd>
                 </div>
                 <div>
-                  <dt>Width / height</dt>
-                  <dd>{formatPercent(validation.extent_similarity)}</dd>
+                  <dt>Route / guide points</dt>
+                  <dd>
+                    {routingDetails.route_point_count ?? "—"} / {routingDetails.guide_point_count ?? "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Actual / target distance</dt>
+                  <dd>
+                    {formatMetric(distanceDetails.actual_km)} km / {formatMetric(distanceDetails.target_km)} km
+                  </dd>
+                </div>
+                <div>
+                  <dt>Distance difference</dt>
+                  <dd>
+                    {formatSigned(distanceDetails.difference_km, 2, " km")} ({formatSigned(
+                      distanceDetails.difference_percent,
+                      1,
+                      "%",
+                    )})
+                  </dd>
+                </div>
+                <div>
+                  <dt>Route / guide length</dt>
+                  <dd>{formatMetric(distanceDetails.route_to_guide_ratio, 2)}×</dd>
+                </div>
+                <div>
+                  <dt>Mean deviation / guide extent</dt>
+                  <dd>{formatPercent(deviationDetails.mean_outline_deviation_ratio)}</dd>
+                </div>
+                {activeRoute.closed && (
+                  <div>
+                    <dt>Start–finish gap</dt>
+                    <dd>{formatMetric(routingDetails.closure_gap_m, 0)} m</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Rotation / physical scale</dt>
+                  <dd>
+                    {formatMetric(placementDetails.rotation_deg, 1)}° / {formatMetric(
+                      placementDetails.scale_m,
+                      0,
+                    )} m
+                  </dd>
+                </div>
+                <div>
+                  <dt>Placement offset N / E</dt>
+                  <dd>
+                    {formatSigned(placementDetails.lat_offset_m, 0, " m")} / {formatSigned(
+                      placementDetails.lon_offset_m,
+                      0,
+                      " m",
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Preflight road fit</dt>
+                  <dd>{formatPercent(placementDetails.preflight_score)}</dd>
                 </div>
               </dl>
             </details>
@@ -596,43 +788,70 @@ function ResultPanel({ result, onDownload, focusRef }) {
 
           <div className="export-card">
             <div>
-              <p className="eyebrow">Your selected candidate</p>
-              <h3>Download GPX or refine it first</h3>
+              <p className="eyebrow">Your route, your decision</p>
+              <h3>
+                {scientificallyVerified
+                  ? "Scientifically verified GPX ready"
+                  : userAccepted
+                    ? "Your accepted route is ready"
+                    : "Review the evidence, then accept or edit"}
+              </h3>
             </div>
+            {!scientificallyVerified && !userAccepted && (
+              <p className="acceptance-copy">
+                Accepting means you choose this exact shown geometry despite the highlighted
+                automatic checks. Inspect the map and local accessibility before using it.
+              </p>
+            )}
             <div className="download-actions">
-              {(editedRoute?.gpx ||
-                (activeRoute.points_preview ?? []).length > 1) && (
+              {!scientificallyVerified && !userAccepted && activeRoute.gpx && (
+                <button
+                  type="button"
+                  className="button button--primary accept-route-button"
+                  onClick={() => {
+                    setAcceptedRouteIds((current) => new Set(current).add(activeRouteId));
+                    recordRouteAcceptance({
+                      generation_request_id: result.request_id ?? null,
+                      route_id: activeRouteId,
+                      shape_name: activeRoute.shape_name ?? result.shape?.name ?? "route",
+                      scientifically_verified: scientificallyVerified,
+                      snapped: Boolean(activeRoute.snapped),
+                      failed_gates: verification?.failed_gates ?? [],
+                      score: validation?.score ?? null,
+                      shape_fidelity: validation?.shape_fidelity ?? null,
+                      distance_km: activeRoute.distance_km ?? null,
+                    }).catch(() => {
+                      // Telemetry must never block the user's chosen export.
+                    });
+                    onDownload("gpx", activeRoute.gpx);
+                  }}
+                >
+                  Accept shown route &amp; download GPX
+                </button>
+              )}
+              {exportReady && activeRoute.gpx && (
                 <button
                   type="button"
                   className="button button--primary"
-                  onClick={() =>
-                    onDownload(
-                      "gpx",
-                      editedRoute?.gpx ??
-                        pointsToGpx(
-                          activeRoute.points_preview,
-                          `${shapeName} in ${city}`,
-                        ),
-                    )
-                  }
+                  onClick={() => onDownload("gpx", activeRoute.gpx)}
                 >
                   {editedRoute?.gpx ? "Download edited GPX" : "Download candidate GPX"}
                 </button>
               )}
-              {editedRoute?.tcx && (
+              {exportReady && activeRoute.tcx && (
                 <button
                   type="button"
                   className="button button--secondary"
-                  onClick={() => onDownload("tcx", editedRoute.tcx)}
+                  onClick={() => onDownload("tcx", activeRoute.tcx)}
                 >
-                  Download edited TCX
+                  Download TCX
                 </button>
               )}
             </div>
-            {!routeReady && (
+            {!activeRoute.gpx && (
               <p className="export-unavailable">
-                This candidate is below one or more recommended quality targets
-                but remains exportable. Inspect and edit it before use.
+                The route service did not return enough geometry to build a GPX. Edit or
+                regenerate the route and try again.
               </p>
             )}
             <p className="safety-note">
@@ -643,13 +862,10 @@ function ResultPanel({ result, onDownload, focusRef }) {
         </div>
       </div>
 
-      {(issueList.length > 0 || historyRows.length > 0) && (
+      {(issueList.length > 0 || historyRows.length > 0 || auditRows.length > 0) && (
         <div className="details-grid">
           {issueList.length > 0 && (
-            <details
-              className="detail-card"
-              open={activeRoute.below_recommended || !activeRoute.snapped}
-            >
+            <details className="detail-card">
               <summary>
                 Candidate notes <span>{issueList.length}</span>
               </summary>
@@ -692,6 +908,55 @@ function ResultPanel({ result, onDownload, focusRef }) {
                           {formatPercent(entry.fidelity ?? entry.shape_fidelity)}
                         </td>
                         <td data-label="Distance accuracy">{formatPercent(entry.distance_fit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+
+          {auditRows.length > 0 && (
+            <details className="detail-card">
+              <summary>
+                Route-attempt audit <span>{auditRows.length}</span>
+              </summary>
+              <div className="table-wrap">
+                <table>
+                  <caption className="sr-only">
+                    Acceptance results for every fully evaluated route attempt
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Attempt</th>
+                      <th scope="col">Shape</th>
+                      <th scope="col">Decision</th>
+                      <th scope="col">Score</th>
+                      <th scope="col">Likeness</th>
+                      <th scope="col">Distance</th>
+                      <th scope="col">Failed checks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRows.map((entry) => (
+                      <tr key={entry.id}>
+                        <td data-label="Attempt">{entry.id}</td>
+                        <td data-label="Shape">{normaliseLabel(entry.shape_name)}</td>
+                        <td data-label="Decision">
+                          {entry.decision === "verified"
+                            ? "Verified"
+                            : entry.decision === "review"
+                              ? "Review"
+                              : "Other shape"}
+                        </td>
+                        <td data-label="Score">{formatPercent(entry.score)}</td>
+                        <td data-label="Likeness">{formatPercent(entry.shape_fidelity)}</td>
+                        <td data-label="Distance">{formatMetric(entry.distance_km)} km</td>
+                        <td data-label="Failed checks">
+                          {(entry.failed_gates ?? []).length > 0
+                            ? entry.failed_gates.map(normaliseLabel).join(", ")
+                            : "None"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -10,11 +10,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from ..agents.validation_agent import ValidationAgent
-from ..config import get_settings
 from ..logging_config import current_request_id
 from ..orchestrator import generate
+from ..quality import quality_gate_report
 from ..state import Intent, RouteDraft, Shape, SnappedRoute, WorkflowState
-from ..tools import geo, gpx_writer, ors_client
+from ..tools import geo, gpx_writer, ors_client, shape_similarity
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -61,8 +61,13 @@ class GenerateResponse(BaseModel):
     file_paths: dict
     points_preview: list[list[float]]
     ideal_preview: list[list[float]] = Field(default_factory=list)
+    landmark_preview: list[list[float]] = Field(default_factory=list)
     candidates: list[dict] = Field(default_factory=list)
+    candidate_audit: list[dict] = Field(default_factory=list)
+    candidate_summary: dict = Field(default_factory=dict)
     preflight_candidates: list[dict] = Field(default_factory=list)
+    route_verification: dict | None = None
+    route_details: dict | None = None
 
 
 class EditedRouteRequest(BaseModel):
@@ -72,6 +77,15 @@ class EditedRouteRequest(BaseModel):
     closed: bool = False
     target_distance_km: float | None = Field(default=None, gt=0, le=500)
     name: str = Field(default="Edited GPS art route", min_length=1, max_length=120)
+    shape_name: str = Field(default="edited", min_length=1, max_length=80)
+
+    @field_validator("name", "shape_name")
+    @classmethod
+    def normalise_label(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("route and shape names must not be blank")
+        return cleaned
 
     @field_validator("control_points", "reference_points")
     @classmethod
@@ -99,9 +113,36 @@ class EditedRouteResponse(BaseModel):
     snapped: bool
     below_recommended: bool
     validation: dict
-    gpx: str
+    route_verification: dict
+    route_details: dict
+    gpx: str | None
     tcx: str | None
     warnings: list[str] = Field(default_factory=list)
+
+
+class RouteAcceptanceRequest(BaseModel):
+    generation_request_id: str | None = Field(default=None, max_length=80)
+    route_id: str = Field(..., min_length=1, max_length=80)
+    shape_name: str = Field(..., min_length=1, max_length=80)
+    scientifically_verified: bool = False
+    snapped: bool = False
+    failed_gates: list[str] = Field(default_factory=list, max_length=20)
+    score: float | None = Field(default=None, ge=0, le=1)
+    shape_fidelity: float | None = Field(default=None, ge=0, le=1)
+    distance_km: float | None = Field(default=None, ge=0, le=1_000)
+
+    @field_validator("route_id", "shape_name")
+    @classmethod
+    def normalise_acceptance_label(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("route and shape identifiers must not be blank")
+        return cleaned
+
+    @field_validator("failed_gates")
+    @classmethod
+    def normalise_failed_gates(cls, value: list[str]) -> list[str]:
+        return [" ".join(item.split())[:80] for item in value if item.strip()]
 
 
 _MAX_PREVIEW_POINTS = 500
@@ -119,6 +160,57 @@ def _even_sample(points: list, n: int) -> list:
     return [points[i] for i in indices]
 
 
+def _route_details(
+    *,
+    validation,
+    shape_name: str,
+    shape_source: str,
+    sport: str,
+    snapped: bool,
+    closed: bool,
+    distance_km: float,
+    target_distance_km: float | None,
+    route_point_count: int,
+    guide_point_count: int,
+    transform: dict | None = None,
+) -> dict:
+    difference_km = (
+        distance_km - target_distance_km
+        if target_distance_km is not None
+        else None
+    )
+    difference_percent = (
+        100.0 * difference_km / target_distance_km
+        if difference_km is not None and target_distance_km
+        else None
+    )
+    return {
+        "shape": {
+            "name": shape_name,
+            "source": shape_source,
+            "closed": closed,
+        },
+        "routing": {
+            "activity": sport,
+            "street_matched": snapped,
+            "route_point_count": route_point_count,
+            "guide_point_count": guide_point_count,
+            "closure_gap_m": validation.closure_gap_m,
+        },
+        "distance": {
+            "actual_km": distance_km,
+            "target_km": target_distance_km,
+            "difference_km": difference_km,
+            "difference_percent": difference_percent,
+            "route_to_guide_ratio": validation.route_length_ratio,
+        },
+        "deviation": {
+            "mean_outline_deviation_ratio": validation.mean_deviation_ratio,
+        },
+        "placement": transform or {},
+    }
+
+
 def _state_to_response(state) -> dict:
     snapped = state.snapped
     export = state.export
@@ -129,7 +221,13 @@ def _state_to_response(state) -> dict:
         [point[0], point[1]]
         for point in _even_sample(ideal_points, _MAX_PREVIEW_POINTS)
     ]
-    workflow = get_settings().workflow
+    landmark_preview = [
+        [point[0], point[1]]
+        for point in shape_similarity.salient_route_landmarks(ideal_points)
+    ]
+    selected_shape = state.shape.name if state.shape else None
+    selected_shape_source = state.shape.source if state.shape else "unknown"
+    sport = state.intent.sport if state.intent else "run"
     ranked_candidates = sorted(
         enumerate(state.candidates, start=1),
         key=lambda item: (
@@ -141,49 +239,239 @@ def _state_to_response(state) -> dict:
         reverse=True,
     )
     candidates = []
+    candidate_audit = []
+    verified_count = 0
+    review_count = 0
+    other_shape_count = 0
     for original_index, candidate in ranked_candidates:
         validation = candidate.validation
-        below_recommended = not (
-            validation.on_roads
-            and validation.score >= workflow.validation_score_threshold
-            and validation.shape_fidelity >= workflow.min_shape_fidelity
-            and validation.distance_fit >= 0.6
-            and validation.closure >= 0.6
+        verification = quality_gate_report(
+            validation,
+            closed=candidate.closed,
+            candidate_shape=candidate.shape_name,
+            selected_shape=selected_shape,
         )
+        transform = {
+            "rotation_deg": candidate.rotation_deg,
+            "scale_m": candidate.scale_m,
+            "lat_offset_m": candidate.lat_offset_m,
+            "lon_offset_m": candidate.lon_offset_m,
+            "preflight_score": candidate.preflight_score,
+        }
+        distance_km = candidate.total_distance_m / 1000.0
+        details = _route_details(
+            validation=validation,
+            shape_name=candidate.shape_name,
+            shape_source=candidate.shape_source,
+            sport=sport,
+            snapped=candidate.snapped,
+            closed=candidate.closed,
+            distance_km=distance_km,
+            target_distance_km=validation.target_distance_km,
+            route_point_count=len(candidate.points),
+            guide_point_count=len(candidate.ideal_points),
+            transform=transform,
+        )
+        candidate_id = f"candidate-{original_index}"
+        selected_shape_match = bool(
+            selected_shape
+            and candidate.shape_name.casefold() == selected_shape.casefold()
+        )
+        decision = (
+            "other_shape"
+            if not selected_shape_match
+            else "verified" if verification["passed"] else "review"
+        )
+        candidate_audit.append(
+            {
+                "id": candidate_id,
+                "shape_name": candidate.shape_name,
+                "selected_shape_match": selected_shape_match,
+                "accepted": verification["passed"],
+                "verified": verification["passed"],
+                "decision": decision,
+                "failed_gates": verification["failed_gates"],
+                "score": validation.score,
+                "shape_fidelity": validation.shape_fidelity,
+                "distance_km": distance_km,
+                "issues": list(validation.issues),
+            }
+        )
+        log_method = log.info if verification["passed"] else log.warning
+        log_method(
+            (
+                "Route candidate %s: shape=%s, selected-shape match=%s, "
+                "decision=%s, street matched=%s, overall=%.1f%%, "
+                "likeness=%.1f%%, distance=%.2f km, failed checks=%s."
+            ),
+            candidate_id,
+            candidate.shape_name,
+            "yes" if selected_shape_match else "no",
+            decision,
+            "yes" if candidate.snapped else "no",
+            validation.score * 100,
+            validation.shape_fidelity * 100,
+            distance_km,
+            ", ".join(verification["failed_gates"]) or "none",
+            extra={
+                "event": "route.candidate.evaluated",
+                "candidate_id": candidate_id,
+                "shape": candidate.shape_name,
+                "city": state.intent.city if state.intent else None,
+                "sport": sport,
+                "decision": decision,
+                "verified": verification["passed"],
+                "failed_gates": verification["failed_gates"],
+                "selected_shape_match": selected_shape_match,
+                "snapped": candidate.snapped,
+                "score": validation.score,
+                "fidelity": validation.shape_fidelity,
+                "distance_km": distance_km,
+                "target_distance_km": validation.target_distance_km,
+                "distance_fit": validation.distance_fit,
+                "closure": validation.closure,
+                "route_point_count": len(candidate.points),
+                "guide_point_count": len(candidate.ideal_points),
+                **transform,
+            },
+        )
+        # Attempts for fallback/suggestion shapes remain in the audit, but the
+        # selector shows only routes drawn from the final selected shape.
+        if not selected_shape_match:
+            other_shape_count += 1
+            continue
+        if verification["passed"]:
+            verified_count += 1
+        else:
+            review_count += 1
+        export_name = (
+            f"{candidate.shape_name} in {state.intent.city or 'route'}"
+            if state.intent
+            else candidate.shape_name
+        )
+        candidate_gpx = gpx_writer.to_gpx(
+            candidate.points,
+            name=export_name,
+            sport=sport,
+            total_distance_m=candidate.total_distance_m,
+        )
+        try:
+            candidate_tcx = gpx_writer.to_tcx(
+                candidate.points,
+                name=export_name,
+                sport=sport,
+                total_distance_m=candidate.total_distance_m,
+            )
+        except Exception:  # noqa: BLE001
+            candidate_tcx = None
         candidates.append(
             {
-                "id": f"candidate-{original_index}",
+                "id": candidate_id,
                 "shape_name": candidate.shape_name,
                 "shape_source": candidate.shape_source,
                 "points_preview": [
                     [point[0], point[1]]
-                    for point in _even_sample(
-                        candidate.points,
-                        _MAX_PREVIEW_POINTS,
-                    )
+                    for point in _even_sample(candidate.points, _MAX_PREVIEW_POINTS)
                 ],
                 "ideal_preview": [
                     [point[0], point[1]]
-                    for point in _even_sample(
-                        candidate.ideal_points,
-                        _MAX_PREVIEW_POINTS,
+                    for point in _even_sample(candidate.ideal_points, _MAX_PREVIEW_POINTS)
+                ],
+                "landmark_preview": [
+                    [point[0], point[1]]
+                    for point in shape_similarity.salient_route_landmarks(
+                        candidate.ideal_points
                     )
                 ],
-                "distance_km": candidate.total_distance_m / 1000.0,
+                "distance_km": distance_km,
                 "snapped": candidate.snapped,
                 "closed": candidate.closed,
-                "target_distance_km": candidate.target_distance_km,
+                "target_distance_km": validation.target_distance_km,
                 "validation": validation.__dict__,
-                "below_recommended": below_recommended,
-                "transform": {
-                    "rotation_deg": candidate.rotation_deg,
-                    "scale_m": candidate.scale_m,
-                    "lat_offset_m": candidate.lat_offset_m,
-                    "lon_offset_m": candidate.lon_offset_m,
-                    "preflight_score": candidate.preflight_score,
-                },
+                "below_recommended": not verification["passed"],
+                "verification_status": decision,
+                "requires_user_acceptance": not verification["passed"],
+                "verification": verification,
+                "details": details,
+                "transform": transform,
+                "gpx": candidate_gpx,
+                "tcx": candidate_tcx,
             }
         )
+
+    route_verification = (
+        quality_gate_report(
+            state.validation,
+            closed=bool(state.shape and state.shape.closed),
+            candidate_shape=selected_shape,
+            selected_shape=selected_shape,
+        )
+        if state.validation
+        else None
+    )
+    route_details = (
+        _route_details(
+            validation=state.validation,
+            shape_name=selected_shape or "unknown",
+            shape_source=selected_shape_source,
+            sport=sport,
+            snapped=bool(snapped and snapped.snapped),
+            closed=bool(state.shape and state.shape.closed),
+            distance_km=(snapped.total_distance_m / 1000.0) if snapped else 0.0,
+            target_distance_km=state.validation.target_distance_km,
+            route_point_count=len(snapped.points) if snapped else 0,
+            guide_point_count=len(ideal_points),
+            transform=(
+                {
+                    "rotation_deg": state.route_draft.rotation_deg,
+                    "scale_m": state.route_draft.scale_m,
+                    "lat_offset_m": state.route_draft.lat_offset_m,
+                    "lon_offset_m": state.route_draft.lon_offset_m,
+                    "preflight_score": state.route_draft.preflight_score,
+                }
+                if state.route_draft
+                else {}
+            ),
+        )
+        if state.validation
+        else None
+    )
+    candidate_summary = {
+        "selected_shape": selected_shape,
+        "accepted_count": verified_count,
+        "verified_count": verified_count,
+        "review_count": review_count,
+        "shown_count": len(candidates),
+        "rejected_selected_shape_count": review_count,
+        "other_shape_count": other_shape_count,
+        "audited_count": len(candidate_audit),
+        "full_route_attempt_count": state.candidate_count,
+        "preflight_count": state.preflight_count,
+    }
+    log.info(
+        (
+            "Route response prepared for selected shape %s: showing %d route(s), "
+            "%d scientifically verified, %d available for user review, "
+            "%d other-shape attempt(s) kept only in the audit."
+        ),
+        selected_shape or "unknown",
+        len(candidates),
+        verified_count,
+        review_count,
+        other_shape_count,
+        extra={
+            "event": "route.response.prepared",
+            "shape": selected_shape,
+            "city": state.intent.city if state.intent else None,
+            "sport": sport,
+            "shown_count": len(candidates),
+            "verified_count": verified_count,
+            "review_count": review_count,
+            "other_shape_count": other_shape_count,
+            "candidate_count": state.candidate_count,
+            "preflight_count": state.preflight_count,
+        },
+    )
     return dict(
         request_id=state.request_id,
         prompt=state.prompt,
@@ -210,14 +498,67 @@ def _state_to_response(state) -> dict:
         file_paths=export.file_paths if export else {},
         points_preview=preview,
         ideal_preview=ideal_preview,
+        landmark_preview=landmark_preview,
         candidates=candidates,
+        candidate_audit=candidate_audit,
+        candidate_summary=candidate_summary,
         preflight_candidates=state.preflight_candidates,
+        route_verification=route_verification,
+        route_details=route_details,
     )
 
 
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "GPS Art Wizard", "version": "0.1.0"}
+
+
+@router.post("/route-acceptance")
+def record_route_acceptance(req: RouteAcceptanceRequest) -> dict:
+    """Record the user's explicit decision without retaining route geometry."""
+
+    failed_text = ", ".join(req.failed_gates) or "none"
+    score_text = f"{req.score:.1%}" if req.score is not None else "unavailable"
+    fidelity_text = (
+        f"{req.shape_fidelity:.1%}"
+        if req.shape_fidelity is not None
+        else "unavailable"
+    )
+    distance_text = (
+        f"{req.distance_km:.2f} km"
+        if req.distance_km is not None
+        else "unavailable"
+    )
+    log.warning(
+        (
+            "User accepted route for GPX: route=%s, shape=%s, "
+            "system verified=%s, street matched=%s, overall=%s, "
+            "likeness=%s, distance=%s, failed checks=%s."
+        ),
+        req.route_id,
+        req.shape_name,
+        "yes" if req.scientifically_verified else "no",
+        "yes" if req.snapped else "no",
+        score_text,
+        fidelity_text,
+        distance_text,
+        failed_text,
+        extra={
+            "event": "route.user.accepted",
+            "generation_request_id": req.generation_request_id,
+            "candidate_id": req.route_id,
+            "shape": req.shape_name,
+            "decision": "user_accepted",
+            "verified": req.scientifically_verified,
+            "snapped": req.snapped,
+            "failed_gates": req.failed_gates,
+            "score": req.score,
+            "fidelity": req.shape_fidelity,
+            "distance_km": req.distance_km,
+            "export_mode": "user_acceptance",
+        },
+    )
+    return {"recorded": True}
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -244,7 +585,7 @@ def generate_route(req: GenerateRequest) -> dict:
 
 @router.post("/edit-route", response_model=EditedRouteResponse)
 def edit_route(req: EditedRouteRequest) -> dict:
-    """Re-route user-edited control points and always return an editable GPX."""
+    """Re-route edited points and prepare an export with verification context."""
     control_points = [(point[0], point[1]) for point in req.control_points]
     reference_points = [
         (point[0], point[1])
@@ -265,7 +606,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
         prompt="manual route edit",
         request_id=current_request_id(),
         intent=Intent(
-            shape="edited",
+            shape=req.shape_name,
             text=None,
             city=None,
             sport=req.sport,
@@ -273,7 +614,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
             style=None,
         ),
         shape=Shape(
-            name="edited",
+            name=req.shape_name,
             paths=[[(0.0, 0.0), (1.0, 1.0)]],
             closed=req.closed,
             source="manual",
@@ -303,14 +644,21 @@ def edit_route(req: EditedRouteRequest) -> dict:
     warnings = list(temporary.validation.issues)
     if not snapped:
         warnings.append(
-            "Street routing was unavailable; this GPX follows the edited guide points."
+            "Street routing was unavailable. The GPX is a straight-line guide and must be reviewed carefully before use."
         )
+    verification = quality_gate_report(
+        temporary.validation,
+        closed=req.closed,
+        candidate_shape=req.shape_name,
+        selected_shape=req.shape_name,
+    )
     gpx = gpx_writer.to_gpx(
         points,
         name=req.name,
         sport=req.sport,
         total_distance_m=distance_m,
     )
+    tcx = None
     try:
         tcx = gpx_writer.to_tcx(
             points,
@@ -320,25 +668,63 @@ def edit_route(req: EditedRouteRequest) -> dict:
         )
     except Exception:  # noqa: BLE001
         tcx = None
-    log.info(
-        "Edited route generated",
+    if not verification["passed"]:
+        failed_labels = [
+            gate["label"]
+            for gate in verification["gates"]
+            if gate["applies"] and not gate["passed"]
+        ]
+        warnings.append(
+            "Automatic verification is below target for: "
+            + ", ".join(failed_labels)
+            + ". The route can still be exported after explicit user acceptance."
+        )
+    decision = "verified" if verification["passed"] else "review"
+    log_method = log.info if verification["passed"] else log.warning
+    log_method(
+        (
+            "Edited route prepared: shape=%s, decision=%s, street matched=%s, "
+            "overall=%.1f%%, likeness=%.1f%%, distance=%.2f km, "
+            "points=%d, failed checks=%s."
+        ),
+        req.shape_name,
+        decision,
+        "yes" if snapped else "no",
+        temporary.validation.score * 100,
+        temporary.validation.shape_fidelity * 100,
+        distance_m / 1000.0,
+        len(points),
+        ", ".join(verification["failed_gates"]) or "none",
         extra={
             "event": "route.edit.completed",
+            "shape": req.shape_name,
             "sport": req.sport,
             "snapped": snapped,
-            "point_count": len(points),
+            "route_point_count": len(points),
+            "guide_point_count": len(reference_points),
             "distance_km": round(distance_m / 1000.0, 3),
+            "target_distance_km": req.target_distance_km,
             "score": temporary.validation.score,
             "fidelity": temporary.validation.shape_fidelity,
+            "distance_fit": temporary.validation.distance_fit,
+            "closure": temporary.validation.closure,
+            "decision": decision,
+            "verified": verification["passed"],
+            "failed_gates": verification["failed_gates"],
+            "export_mode": "verified" if verification["passed"] else "user_acceptance",
         },
     )
-    workflow = get_settings().workflow
-    below_recommended = not (
-        snapped
-        and temporary.validation.score >= workflow.validation_score_threshold
-        and temporary.validation.shape_fidelity >= workflow.min_shape_fidelity
-        and temporary.validation.distance_fit >= 0.6
-        and temporary.validation.closure >= 0.6
+    route_details = _route_details(
+        validation=temporary.validation,
+        shape_name=req.shape_name,
+        shape_source="manual",
+        sport=req.sport,
+        snapped=snapped,
+        closed=req.closed,
+        distance_km=distance_m / 1000.0,
+        target_distance_km=req.target_distance_km,
+        route_point_count=len(points),
+        guide_point_count=len(reference_points),
     )
     return {
         "request_id": temporary.request_id,
@@ -348,8 +734,10 @@ def edit_route(req: EditedRouteRequest) -> dict:
         ],
         "distance_km": distance_m / 1000.0,
         "snapped": snapped,
-        "below_recommended": below_recommended,
+        "below_recommended": not verification["passed"],
         "validation": temporary.validation.__dict__,
+        "route_verification": verification,
+        "route_details": route_details,
         "gpx": gpx,
         "tcx": tcx,
         "warnings": warnings,

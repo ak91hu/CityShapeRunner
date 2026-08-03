@@ -29,7 +29,7 @@ def test_pipeline_produces_safe_preview_without_a_routing_provider():
     assert 0.0 <= state.validation.score <= 1.0
     assert state.validation.on_roads is False
     assert state.iterations == 0
-    assert any("manual" in error.lower() for error in state.errors)
+    assert any("explicit user acceptance" in error.lower() for error in state.errors)
     assert len(state.candidates) >= 1
     assert state.plan is not None
     assert state.plan.shape_strategy in ("template", "text", "llm")
@@ -42,7 +42,7 @@ def test_pipeline_text_shape():
     assert state.shape is not None
     assert state.shape.source == "text"
     assert state.export is not None
-    assert any("export-warning:" in error for error in state.errors)
+    assert any("explicit user acceptance" in error for error in state.errors)
 
 
 def test_unknown_shape_is_not_mislabelled_as_the_requested_drawing():

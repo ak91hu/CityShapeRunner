@@ -223,7 +223,8 @@ LOG_FILE=
 
 Without `ORS_API_KEY`, the application deliberately returns a straight-line
 fallback marked `snapped=false`; that output is not a usable street route.
-It remains editable/exportable as a guide with a manual-review warning.
+It remains editable and carries a prominent obstacle/manual-review warning;
+the user must explicitly accept it before downloading its GPX.
 Road-matched candidates below the recommended score, fidelity, or distance
 targets are also retained instead of deleted. Without an LLM key,
 deterministic planning remains available; route refinement is always

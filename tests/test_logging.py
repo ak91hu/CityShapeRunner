@@ -9,6 +9,10 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 import gps_art_wizzard.main as main_module
+from gps_art_wizzard.api.routes import (
+    RouteAcceptanceRequest,
+    record_route_acceptance,
+)
 from gps_art_wizzard.logging_config import (
     _JsonFormatter,
     bind_request_id,
@@ -57,6 +61,9 @@ def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
         )
         record.event = "candidate.review.required"
         record.score = 0.61
+        record.decision = "review"
+        record.verified = False
+        record.failed_gates = ["landmark_similarity", "distance_fit"]
         # Handlers normally apply this context filter before formatting.
         record.request_id = "debug-session-123"
 
@@ -71,6 +78,33 @@ def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
     assert payload["request_id"] == "debug-session-123"
     assert payload["event"] == "candidate.review.required"
     assert payload["score"] == 0.61
+    assert payload["decision"] == "review"
+    assert payload["verified"] is False
+    assert payload["failed_gates"] == ["landmark_similarity", "distance_fit"]
+
+
+def test_explicit_route_acceptance_writes_a_readable_debug_event(caplog):
+    with caplog.at_level(logging.WARNING, logger="gps_art_wizzard.api.routes"):
+        response = record_route_acceptance(
+            RouteAcceptanceRequest(
+                generation_request_id="original-request-42",
+                route_id="candidate-3",
+                shape_name="heart",
+                scientifically_verified=False,
+                snapped=True,
+                failed_gates=["landmark_similarity"],
+                score=0.74,
+                shape_fidelity=0.76,
+                distance_km=8.2,
+            )
+        )
+
+    assert response == {"recorded": True}
+    record = caplog.records[-1]
+    assert "User accepted route for GPX" in record.getMessage()
+    assert record.event == "route.user.accepted"
+    assert record.generation_request_id == "original-request-42"
+    assert record.failed_gates == ["landmark_similarity"]
 
 
 def test_server_prefers_platform_port_and_keeps_structured_logging(monkeypatch):
@@ -92,7 +126,7 @@ def test_server_prefers_platform_port_and_keeps_structured_logging(monkeypatch):
     assert captured["access_log"] is False
 
 
-def test_edit_route_endpoint_returns_correlated_manual_gpx_without_ors():
+def test_edit_route_endpoint_prepares_review_gpx_without_ors():
     with TestClient(create_app()) as client:
         response = client.post(
             "/edit-route",
@@ -120,3 +154,6 @@ def test_edit_route_endpoint_returns_correlated_manual_gpx_without_ors():
     assert payload["snapped"] is False
     assert payload["below_recommended"] is True
     assert "<gpx" in payload["gpx"]
+    assert payload["route_verification"]["passed"] is False
+    assert "road_network" in payload["route_verification"]["failed_gates"]
+    assert any("explicit user acceptance" in warning for warning in payload["warnings"])

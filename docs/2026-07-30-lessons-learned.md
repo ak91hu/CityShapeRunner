@@ -149,7 +149,7 @@ kapukat, egyszerűbb, városhoz illő alternatívákat is megmér. Az eredeti
 jelöltet nem szabad eltüntetni: a helyettesítés indoklását és az összehasonlító
 pontszámokat is meg kell mutatni.
 
-### A quality gate rangsoroljon és figyelmeztessen, ne töröljön
+### A quality gate rangsoroljon, auditáljon, és védje az exportot
 
 A mai fontos termékdöntés: rosszabb pontszám miatt egy candidatet sem szabad
 csendben eldobni.
@@ -163,9 +163,12 @@ Megkülönböztetendő:
 
 Minden preflight eredmény bekerül a diagnosztikába. A Directions-kvóta miatt
 csak a minőség és változatosság alapján kiválasztott shortlist kerül teljes
-útvonalazási sorba, de minden ténylegesen útvonalazott jelölt megmarad a
-felhasználónak. A minőségi küszöb ajánlást és figyelmeztetést vezérel, nem
-adatvesztést.
+útvonalazási sorba. Minden ténylegesen útvonalazott jelölt megmarad az
+auditban. A választóban minden, a végleges kiválasztott alakzathoz tartozó
+útvonal megjelenik: az automatikus célokat teljesítők „verified”, a többi
+„review” jelöléssel. Utóbbiak GPX-e csak kifejezett felhasználói elfogadás után
+tölthető le. Így nincs csendes adatvesztés, és a tudományos mérés sem veszi el
+a felhasználótól a végső vizuális döntést.
 
 ### A kézi korrekció a professzionális folyamat része
 
@@ -173,11 +176,12 @@ A teljesen automatikus útvonaltervező nem tud minden helyi gráfhibát,
 átjárhatósági változást vagy vizuálisan zavaró kerülőt tökéletesen kezelni.
 Ezért a felhasználó:
 
-- kiválaszthat egy generált candidatet;
+- kiválaszthat bármely, a kért alakzathoz tartozó teljes candidate-et;
 - számozott kontrollpontokat húzhat a térképen;
 - az új guide-ot ismét elküldheti az aktivitásspecifikus routernek;
 - megkapja az új távolságot és minőségi pontszámot;
-- az eredményt GPX- és TCX-formátumban letöltheti.
+- az eredményt automatikus validáció után közvetlenül, vagy a mért eltérések
+  megismerése és kifejezett elfogadás után töltheti le GPX- és TCX-formátumban.
 
 A szerkesztett guide sem címkézhető valódi utcai útvonalnak, ha a Directions
 hívás sikertelen. Ilyenkor egyértelmű manual-review figyelmeztetés szükséges.

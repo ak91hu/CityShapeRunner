@@ -13,7 +13,97 @@ test.beforeEach(async ({ page }) => {
       body: transparentTile,
     }),
   );
+  await page.route("**/route-acceptance", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ recorded: true }),
+    }),
+  );
 });
+
+function buildVerification(validation, shapeName = "star") {
+  const numericGate = (key, label, value, minimum, group = "shape") => ({
+    key,
+    label,
+    value,
+    minimum,
+    group,
+    applies: true,
+    passed: value >= minimum,
+    description: `${label} is checked independently.`,
+  });
+  const gates = [
+    {
+      key: "selected_shape",
+      label: "Selected shape",
+      value: shapeName,
+      minimum: shapeName,
+      group: "shape",
+      applies: true,
+      passed: true,
+      description: "The candidate belongs to the selected shape.",
+    },
+    {
+      key: "road_network",
+      label: "Connected street route",
+      value: validation.on_roads,
+      minimum: true,
+      group: "route",
+      applies: true,
+      passed: validation.on_roads,
+      description: "The line follows connected streets.",
+    },
+    numericGate("overall_score", "Overall route quality", validation.score, 0.72, "route"),
+    numericGate("shape_fidelity", "Combined shape likeness", validation.shape_fidelity, 0.7),
+    numericGate("spatial_similarity", "Ordered curve match", validation.spatial_similarity, 0.7),
+    numericGate("coverage_similarity", "Outline coverage", validation.coverage_similarity, 0.7),
+    numericGate("turning_similarity", "Characteristic turns", validation.turning_similarity, 0.7),
+    numericGate("landmark_similarity", "Salient landmarks", validation.landmark_similarity, 0.7),
+    numericGate("length_similarity", "Detour control", validation.length_similarity, 0.7),
+    numericGate("extent_similarity", "Width / height preservation", validation.extent_similarity, 0.7),
+    numericGate("distance_fit", "Target-distance accuracy", validation.distance_fit, 0.6, "usability"),
+    numericGate("closure", "Loop closure", validation.closure, 0.6, "usability"),
+  ];
+  const failed = gates.filter((gate) => !gate.passed).map((gate) => gate.key);
+  return {
+    passed: failed.length === 0,
+    shape_following: gates.filter((gate) => gate.group === "shape").every((gate) => gate.passed),
+    passed_count: gates.length - failed.length,
+    required_count: gates.length,
+    failed_gates: failed,
+    gates,
+    thresholds: { overall_score: 0.72, shape: 0.7, usability: 0.6 },
+  };
+}
+
+function buildRouteDetails(validation, distanceKm = 19.82) {
+  return {
+    shape: { name: "star", source: "template", closed: true },
+    routing: {
+      activity: "bike",
+      street_matched: validation.on_roads,
+      route_point_count: 842,
+      guide_point_count: 401,
+      closure_gap_m: 3.4,
+    },
+    distance: {
+      actual_km: distanceKm,
+      target_km: 20,
+      difference_km: distanceKm - 20,
+      difference_percent: ((distanceKm - 20) / 20) * 100,
+      route_to_guide_ratio: validation.route_length_ratio,
+    },
+    deviation: { mean_outline_deviation_ratio: 0.07 },
+    placement: {
+      rotation_deg: 18,
+      scale_m: 3_200,
+      lat_offset_m: 1_500,
+      lon_offset_m: -750,
+      preflight_score: 0.83,
+    },
+  };
+}
 
 const successfulRoute = {
   prompt: "a star bike route in Debrecen, about 20 km",
@@ -34,11 +124,19 @@ const successfulRoute = {
     shape_fidelity: 0.87,
     issues: [],
     on_roads: true,
+    spatial_similarity: 0.9,
     coverage_similarity: 0.89,
     turning_similarity: 0.86,
+    landmark_similarity: 0.88,
     length_similarity: 0.91,
     extent_similarity: 0.94,
     route_length_ratio: 1.04,
+    mean_deviation_ratio: 0.07,
+    closure_gap_m: 3.4,
+    actual_distance_km: 19.82,
+    target_distance_km: 20,
+    route_point_count: 842,
+    guide_point_count: 401,
   },
   distance_km: 19.82,
   snapped: true,
@@ -71,6 +169,25 @@ const successfulRoute = {
     [47.524, 21.634],
     [47.5316, 21.6273],
   ],
+  landmark_preview: [
+    [47.5316, 21.6273],
+    [47.537, 21.641],
+    [47.524, 21.634],
+  ],
+};
+successfulRoute.route_verification = buildVerification(successfulRoute.validation);
+successfulRoute.route_details = buildRouteDetails(successfulRoute.validation);
+successfulRoute.candidate_summary = {
+  selected_shape: "star",
+  accepted_count: 2,
+  verified_count: 2,
+  review_count: 0,
+  shown_count: 2,
+  rejected_selected_shape_count: 0,
+  other_shape_count: 0,
+  audited_count: 2,
+  full_route_attempt_count: 2,
+  preflight_count: 164,
 };
 successfulRoute.candidates = [
   {
@@ -79,12 +196,17 @@ successfulRoute.candidates = [
     shape_source: "template",
     points_preview: successfulRoute.points_preview,
     ideal_preview: successfulRoute.ideal_preview,
+    landmark_preview: successfulRoute.landmark_preview,
     distance_km: 19.82,
     snapped: true,
     closed: true,
     target_distance_km: 20,
     validation: successfulRoute.validation,
     below_recommended: false,
+    verification: successfulRoute.route_verification,
+    details: successfulRoute.route_details,
+    gpx: successfulRoute.gpx,
+    tcx: successfulRoute.tcx,
   },
   {
     id: "candidate-2",
@@ -95,6 +217,7 @@ successfulRoute.candidates = [
       lon,
     ]),
     ideal_preview: successfulRoute.ideal_preview,
+    landmark_preview: successfulRoute.landmark_preview,
     distance_km: 20.31,
     snapped: true,
     closed: true,
@@ -105,8 +228,29 @@ successfulRoute.candidates = [
       shape_fidelity: 0.73,
     },
     below_recommended: false,
+    verification: buildVerification({
+      ...successfulRoute.validation,
+      score: 0.78,
+      shape_fidelity: 0.73,
+    }),
+    details: buildRouteDetails(successfulRoute.validation, 20.31),
+    gpx: successfulRoute.gpx,
+    tcx: successfulRoute.tcx,
   },
 ];
+successfulRoute.candidate_audit = successfulRoute.candidates.map((candidate) => ({
+  id: candidate.id,
+  shape_name: candidate.shape_name,
+  selected_shape_match: true,
+  accepted: true,
+  verified: true,
+  decision: "verified",
+  failed_gates: [],
+  score: candidate.validation.score,
+  shape_fidelity: candidate.validation.shape_fidelity,
+  distance_km: candidate.distance_km,
+  issues: [],
+}));
 
 async function mockHealth(page, ok = true) {
   await page.route("**/health", (route) =>
@@ -183,7 +327,7 @@ test("quick idea generation sends the prompt and renders a usable routed result"
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   expect(requestPayload).toEqual({ prompt: successfulRoute.prompt });
-  await expect(page.locator(".route-state")).toContainText("Validated street route");
+  await expect(page.locator(".route-state")).toContainText("Scientifically verified");
   await expect(
     page.locator(".metric").filter({ hasText: "Route quality" }).locator("dd:not(.metric-detail)"),
   ).toHaveText("91%");
@@ -195,11 +339,29 @@ test("quick idea generation sends the prompt and renders a usable routed result"
       .locator("dd:not(.metric-detail)"),
   ).toHaveText("19.82 km");
   await expect(
-    page.locator(".metric").filter({ hasText: "Full routes" }).locator(".metric-detail"),
-  ).toHaveText("164 placements screened first");
+    page.locator(".metric").filter({ hasText: "Routes shown" }).locator(".metric-detail"),
+  ).toHaveText("2 verified, 0 for review; 2 evaluated; 164 placements screened");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
-  await expect(page.getByLabel("Generated route")).toHaveValue("candidate-1");
-  await expect(page.getByLabel("Generated route").locator("option")).toHaveCount(2);
+  await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
+  await expect(page.getByLabel("Selected-shape route")).toHaveValue("candidate-1");
+  await expect(page.getByLabel("Selected-shape route").locator("option")).toHaveCount(2);
+  await expect(page.getByText("All automatic targets reached")).toBeVisible();
+  await expect(page.locator(".verification-heading")).toContainText("12/12 · view data");
+  await expect(
+    page.locator(".gate-list").getByText("Ordered curve match", { exact: true }),
+  ).toBeHidden();
+  await page.locator(".verification-heading").click();
+  await expect(
+    page.locator(".gate-list").getByText("Ordered curve match", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Scores are 0–100 geometric similarity indices/)).toBeVisible();
+  await expect(page.getByText("Generated route details")).toBeVisible();
+  await page.getByText("Generated route details").click();
+  await expect(page.locator(".route-facts")).toContainText("842 / 401");
+  await expect(page.locator(".route-facts")).toContainText("19.82 km / 20.00 km");
+  await expect(page.getByText("Route-attempt audit")).toContainText("2");
+  await page.getByText("Route-attempt audit").click();
+  await expect(page.locator(".detail-card table").last()).toContainText("Verified");
   await expect(page.getByRole("button", { name: "Download candidate GPX" })).toBeEnabled();
 
   const downloadPromise = page.waitForEvent("download");
@@ -263,49 +425,84 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   await expect.poll(() => attempts).toBe(2);
 });
 
-test("a straight-line fallback is retained, editable, and exported with warnings", async ({
+test("a straight-line guide can be explicitly accepted and exported with warnings", async ({
   page,
 }) => {
   await mockHealth(page);
-  await mockGenerate(page, (route) =>
-    route.fulfill({
+  await mockGenerate(page, (route) => {
+    const failedValidation = {
+      ...successfulRoute.validation,
+      score: 0.42,
+      shape_fidelity: 0.3,
+      distance_fit: 0.4,
+      on_roads: false,
+      issues: ["Route is not matched to the road network."],
+    };
+    const reviewVerification = buildVerification(failedValidation);
+    const reviewCandidate = {
+      ...successfulRoute.candidates[0],
+      snapped: false,
+      below_recommended: true,
+      validation: failedValidation,
+      verification: reviewVerification,
+      verification_status: "review",
+      requires_user_acceptance: true,
+      details: buildRouteDetails(failedValidation),
+    };
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         ...successfulRoute,
         snapped: false,
         below_threshold: true,
-        validation: {
-          ...successfulRoute.validation,
-          score: 0.42,
-          on_roads: false,
-          issues: ["Route is not matched to the road network."],
+        validation: failedValidation,
+        route_verification: reviewVerification,
+        route_details: buildRouteDetails(failedValidation),
+        candidate_summary: {
+          ...successfulRoute.candidate_summary,
+          accepted_count: 0,
+          verified_count: 0,
+          review_count: 1,
+          shown_count: 1,
+          rejected_selected_shape_count: 1,
         },
-        candidates: successfulRoute.candidates.map((candidate) => ({
-          ...candidate,
-          snapped: false,
-          below_recommended: true,
-          validation: {
-            ...candidate.validation,
-            score: 0.42,
-            on_roads: false,
-            issues: ["Route is not matched to the road network."],
+        candidate_audit: [
+          {
+            id: "candidate-1",
+            shape_name: "star",
+            selected_shape_match: true,
+            accepted: false,
+            verified: false,
+            decision: "review",
+            failed_gates: reviewVerification.failed_gates,
+            score: failedValidation.score,
+            shape_fidelity: failedValidation.shape_fidelity,
+            distance_km: successfulRoute.distance_km,
+            issues: failedValidation.issues,
           },
-        })),
+        ],
+        candidates: [reviewCandidate],
       }),
-    }),
-  );
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Find matching routes" }).click();
 
-  await expect(page.getByText("Preview only")).toBeVisible();
+  await expect(page.getByText("Guide — review required")).toBeVisible();
   await expect(
     page.getByRole("region", { name: /drawing preview.*not matched to streets/i }),
   ).toBeVisible();
   await expect(page.getByText("Drawing preview — not matched to streets")).toBeVisible();
-  await expect(page.getByText("Manual review required")).toBeVisible();
+  await expect(page.getByText("Automatic verification recommends a closer look")).toBeVisible();
+  await expect(page.getByText(/metric targets? need review/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Accept shown route & download GPX" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
+  await expect(page.getByText("Accepted by you")).toBeVisible();
   await expect(page.getByRole("button", { name: "Download candidate GPX" })).toBeEnabled();
 });
 
@@ -337,6 +534,7 @@ test("a measured fallback explains why it replaced the requested drawing", async
         candidates: successfulRoute.candidates.map((candidate) => ({
           ...candidate,
           shape_name: "diamond",
+          verification: buildVerification(candidate.validation, "diamond"),
         })),
       }),
     }),
@@ -349,7 +547,7 @@ test("a measured fallback explains why it replaced the requested drawing", async
   await expect(page.getByText("Cat did not fit — using Diamond")).toBeVisible();
   await expect(page.getByText(/preserved 41%/)).toBeVisible();
   await expect(page.getByText("Alternatives measured: Triangle, Diamond.")).toBeVisible();
-  await expect(page.getByText("Validated street route")).toBeVisible();
+  await expect(page.locator(".route-state")).toContainText("Scientifically verified");
 });
 
 test("the online editor reroutes control points and downloads the edited GPX", async ({
@@ -376,6 +574,8 @@ test("the online editor reroutes control points and downloads the edited GPX", a
         snapped: true,
         below_recommended: false,
         validation: successfulRoute.validation,
+        route_verification: successfulRoute.route_verification,
+        route_details: buildRouteDetails(successfulRoute.validation, 19.9),
         gpx: "<?xml version=\"1.0\"?><gpx><trk><name>Edited</name></trk></gpx>",
         tcx: null,
         warnings: [],
@@ -390,6 +590,7 @@ test("the online editor reroutes control points and downloads the edited GPX", a
   await page.getByRole("button", { name: "Update street route" }).click();
 
   await expect.poll(() => editPayload?.control_points?.length).toBe(4);
+  expect(editPayload.shape_name).toBe("star");
   await expect(page.getByText(/Edited route ready: 19.90 km/)).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download edited GPX" }).click();

@@ -86,3 +86,13 @@ export function editRoute(payload, options = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+export function recordRouteAcceptance(payload, options = {}) {
+  return request("/route-acceptance", {
+    ...options,
+    timeoutMs: 7_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

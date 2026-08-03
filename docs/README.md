@@ -5,8 +5,10 @@ run in Budapest, about 8 km”, choose one of the 32 quick starts, or ask for a
 city suggestion. The nine-agent pipeline interprets the request, creates and
 places the outline, routes it over streets, measures shape likeness, tests
 nearby alternatives, and retains every fully routed candidate. Quality gates
-rank and warn rather than reject, so a user can compare, edit, and export a
-weaker result with explicit review guidance.
+rank every attempt, but only candidates for the final selected shape that pass
+all independent shape, street, distance, and closure gates enter the route
+selector or receive GPX/TCX exports. Rejected attempts remain available as an
+audit summary and the best failed attempt can still be edited diagnostically.
 
 Not sure what to draw? Ask the planner to suggest a suitable shape for a city:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
@@ -60,7 +62,7 @@ uses the following evidence-to-design mapping:
 |---|---|---|
 | [Waschk and Krüger's automatic GPS-art planner](https://doi.org/10.1007/s41095-019-0146-z) shows that off-the-shelf routing can create large detours when drawing points lie off-grid, and proposes a graph cost that balances endpoint progress, path length, and distance from the intended segment. | Prefer a road-compatible placement before spending full route calls; then penalise detour stretch and deviation over the returned curve. | Hosted ORS does not expose the paper's custom edge cost. Preflight snapping plus post-route scoring is an approximation, not the same optimiser. |
 | [Powałka's shape-guided route-finding thesis](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad) separates template placement from graph routing, generates and ranks alternatives, and demonstrates move/rotate/scale interaction with route feedback. | Search a broad transform space, preserve multiple candidates, and keep a human correction loop in the product. | Automatic search uses a bounded discrete sample—up to 180 transforms and seven full routes—rather than an exhaustive city graph search. |
-| [Arkin et al.](https://doi.org/10.1109/34.75509) compare polygonal shapes through turning functions that can be normalised across translation, rotation, and scale. | Measure characteristic turns and their sequence in addition to shared-frame point similarity. | Turning similarity is one component; it cannot detect geographic displacement, unsafe roads, or an incorrect target distance by itself. |
+| [Arkin et al.](https://doi.org/10.1109/34.75509) compare polygonal shapes through turning functions that can be normalised across translation, rotation, and scale; [Feldman and Singh](https://doi.org/10.1037/0033-295X.112.1.243) show why high-curvature and concave contour regions carry disproportionate information. | Measure characteristic turns and multiscale salient corners/notches/tips in addition to shared-frame point similarity. | These are components, not substitutes for geographic displacement, access, distance, or safety checks. |
 | [Li and Fu](https://doi.org/10.3390/ijgi15030098) model road graphics with invariant turning angles and length ratios. Their experiments show that approximate line segments improve retrieval and that removing length-ratio constraints admits visibly deformed matches. | Preserve corners during guide-point reduction and score angular relations, extent, relative lengths, coverage, and collapse. | The app searches transformed templates and consumes ORS routes; it does not run the paper's road-network subgraph-retrieval algorithm. |
 | [Nassir et al.](https://doi.org/10.3141/2430-18) treat overlap explicitly when constructing useful alternative-route choice sets. | Diversify the shortlist in transform space so scarce Directions calls cover distinct positions, orientations, and scales instead of near-duplicates. | Transform diversity is a proxy for route diversity; final candidates can still share streets where the network has few alternatives. |
 | [Newson and Krumm](https://doi.org/10.1145/1653771.1653818) show that map matching must combine observation distance with plausible network transitions; pedestrian Fréchet work likewise emphasises ordered curve continuity ([Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Treat nearest-edge snapping as non-authoritative and submit every edited guide to the activity profile before recomputing quality; only a successful Directions result is labelled road-routed. | ORS Directions establishes a connected routable result for its graph snapshot, but does not guarantee current legal access, surface quality, or personal safety. |
@@ -69,9 +71,10 @@ The resulting funnel is deliberately coarse-to-fine: up to 180 transforms are
 reduced to curvature-preserving 18-point guides for one batched snap request;
 a quality-and-diversity rule selects seven full Directions candidates; every
 returned route is then evaluated using coverage, characteristic turns,
-proportions, distance, closure, and road-routing evidence. Failed or weak
-candidates remain visible with diagnostic warnings rather than being silently
-discarded.
+salient curvature landmarks, proportions, distance, closure, and road-routing
+evidence. A failed component cannot be hidden by the aggregate score. Weak and
+different-shape attempts are removed from the selectable route list but remain
+counted—with their failed gates—in the candidate audit.
 
 The literature supports these design choices, not the current numeric
 thresholds. Those are explicit engineering heuristics and should be calibrated
@@ -88,15 +91,16 @@ funnel, and the distinction between snapping and routing are documented in
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
 | **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
-| **ValidationAgent** | Score shape fidelity, distance fit, and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
+| **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
 | **RefinementAgent** | Consume the road-fit-ranked shortlist first, then bracket non-linear distance corrections and use local measured transforms only after the shortlist is exhausted. |
-| **ExportAgent** | Serialise the selected candidate even below recommended targets. Unmatched or weak routes carry explicit review warnings instead of disappearing. |
+| **ExportAgent** | Serialise the full selected-shape geometry. Verified routes download immediately; below-target routes require explicit user acceptance after reviewing the scientific diagnostics. |
 
 The graph engine (`orchestrator.py`) wires these into a state machine with:
 - a **planning step** (one strategy commit, read by shape + placement),
 - a **coarse-to-fine placement search** (city-wide grid × six orientations ×
   three scales → one batched snap → diversity-aware seven-candidate full-route
-  shortlist; all proxy and fully routed candidates remain available),
+  shortlist; all proxy and fully routed attempts remain auditable, while every
+  final selected-shape route remains selectable and clearly labelled),
 - a **refinement loop** (validate → take the next ranked placement or branch
   from the best → re-snap, up to eight iterations; candidate ranking balances
   the weakest export gate, repeated drafts are skipped, and regressions are
@@ -110,19 +114,28 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
 The result screen includes a candidate selector and a Leaflet route editor.
 Numbered control points can be dragged and submitted to `POST /edit-route`;
 the backend re-routes them with the selected activity profile, revalidates the
-result, and returns a fresh GPX/TCX. Quality scores are recommendations, not
-deletion rules.
+result, and returns full GPX/TCX geometry with a verification report. The
+compact screen explains the 0–100 indices and shows every gate, measured value,
+threshold, route/guide point count, distance error, detour ratio, closure gap,
+mean outline deviation, and placement transform. Below-target routes require
+an explicit user acceptance before download.
 
 HTTP middleware assigns or validates an `X-Request-ID` and emits structured
 start/completion/failure events. Agent, ORS, validation, editing, and export
 records inherit the same ID. JSON console logs and a rotating file log are
-enabled by default; configure them with `LOG_LEVEL`, `LOG_FORMAT`, `LOG_FILE`,
+enabled by default. Validation, candidate, edit, final-decision, and export
+events include readable summaries plus searchable component scores, failed
+gates, transforms, point counts, and export mode. Configure them with
+`LOG_LEVEL`, `LOG_FORMAT`, `LOG_FILE`,
 `LOG_MAX_BYTES`, and `LOG_BACKUP_COUNT`. The production container leaves
 `LOG_FILE` empty and emits host-independent JSON to stderr. Northflank captures
 that stream and its native Loki log sink forwards it to Grafana Cloud without
 exposing Grafana credentials to the application. Grafana Explore can filter
 the JSON by request ID, event, severity, environment, or release revision. See
 [deployment.md](deployment.md) for the exact service and log-sink setup.
+The UI also records `route.user.accepted` through `POST /route-acceptance`
+when a user explicitly chooses a below-target route; this event contains the
+decision metrics and IDs but never uploads the route geometry.
 
 **Skills**: every agent's system prompt is augmented at runtime with the
 relevant markdown from `docs/skill-*.md` (shape design, placement, snap, metrics,
@@ -150,7 +163,8 @@ python -m uvicorn gps_art_wizzard.main:app --reload
 The pipeline runs **even without any API key**: LLM calls fall back to
 deterministic rules, and the snap step uses a straight-line fallback when no
 ORS key is set. A straight-line fallback is marked `snapped=false`, remains
-editable/exportable as a guide, and carries an explicit manual-review warning.
+editable as a diagnostic guide, carries an explicit warning, and is not
+exported as a generated route.
 
 ## OpenCode Zen as the LLM
 

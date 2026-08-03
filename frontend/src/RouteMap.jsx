@@ -17,6 +17,7 @@ function isCoordinate(point) {
 function RouteMap({
   points = [],
   idealPoints = [],
+  landmarkPoints = [],
   editPoints = [],
   shapeName = "GPS art",
   roadRouted = false,
@@ -48,6 +49,13 @@ function RouteMap({
         .filter(isCoordinate)
         .map(([latitude, longitude]) => [latitude, longitude]),
     [editPoints],
+  );
+  const landmarkCoordinates = useMemo(
+    () =>
+      (Array.isArray(landmarkPoints) ? landmarkPoints : [])
+        .filter(isCoordinate)
+        .map(([latitude, longitude]) => [latitude, longitude]),
+    [landmarkPoints],
   );
 
   useEffect(() => {
@@ -118,6 +126,19 @@ function RouteMap({
       dashArray: roadRouted ? undefined : "10 10",
       interactive: false,
     }).addTo(routeLayer);
+
+    landmarkCoordinates.forEach((coordinate, index) => {
+      L.circleMarker(coordinate, {
+        radius: 5,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: "#10b981",
+        fillOpacity: 1,
+        className: "route-landmark-marker",
+      })
+        .bindTooltip(`Salient shape landmark ${index + 1}`)
+        .addTo(routeLayer);
+    });
 
     let editLine = null;
     if (editing && editableCoordinates.length > 1) {
@@ -192,6 +213,7 @@ function RouteMap({
     editableCoordinates,
     editing,
     idealCoordinates,
+    landmarkCoordinates,
     onEditPoint,
     roadRouted,
   ]);

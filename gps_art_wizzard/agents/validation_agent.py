@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from ..config import get_settings
+from ..quality import quality_gate_report
 from ..state import EvaluatedCandidate, Validation, WorkflowState
 from ..tools import geo, shape_similarity
 from .base import BaseAgent
@@ -98,6 +99,11 @@ class ValidationAgent(BaseAgent):
             issues.append(f"distance {actual_km:.1f} km off target/bounds")
         if fidelity < minimum_fidelity:
             issues.append(f"low shape fidelity ({fidelity:.2f})")
+        if on_roads and diagnostics.spatial_similarity < minimum_fidelity:
+            issues.append(
+                "the ordered street curve departs too far from the selected shape "
+                f"({diagnostics.spatial_similarity:.2f})"
+            )
         if on_roads and diagnostics.coverage_similarity < minimum_fidelity:
             issues.append(
                 "the street route leaves too much of the intended outline uncovered "
@@ -107,6 +113,11 @@ class ValidationAgent(BaseAgent):
             issues.append(
                 "characteristic direction changes were not preserved "
                 f"({diagnostics.turning_similarity:.2f})"
+            )
+        if on_roads and diagnostics.landmark_similarity < minimum_fidelity:
+            issues.append(
+                "salient corners, notches, or tips were not preserved "
+                f"({diagnostics.landmark_similarity:.2f})"
             )
         if on_roads and diagnostics.length_similarity < minimum_fidelity:
             issues.append(
@@ -133,6 +144,12 @@ class ValidationAgent(BaseAgent):
             extent_similarity=diagnostics.extent_similarity,
             route_length_ratio=diagnostics.route_length_ratio,
             mean_deviation_ratio=diagnostics.mean_deviation_ratio,
+            landmark_similarity=diagnostics.landmark_similarity,
+            closure_gap_m=gap_m,
+            actual_distance_km=actual_km,
+            target_distance_km=target,
+            route_point_count=len(snapped.points),
+            guide_point_count=len(state.route_draft.waypoints),
         )
         state.candidates.append(
             EvaluatedCandidate(
@@ -143,7 +160,7 @@ class ValidationAgent(BaseAgent):
                 total_distance_m=snapped.total_distance_m,
                 snapped=snapped.snapped,
                 closed=shape.closed,
-                target_distance_km=state.route_draft.target_distance_km,
+                target_distance_km=target,
                 validation=state.validation,
                 rotation_deg=state.route_draft.rotation_deg,
                 scale_m=state.route_draft.scale_m,
@@ -152,5 +169,55 @@ class ValidationAgent(BaseAgent):
                 preflight_score=state.route_draft.preflight_score,
             )
         )
-        self._record(state, f"score={score:.3f} fidelity={fidelity:.3f} dist_fit={distance_fit:.3f}")
+        report = quality_gate_report(
+            state.validation,
+            closed=shape.closed,
+            candidate_shape=shape.name,
+            selected_shape=shape.name,
+        )
+        failed = report["failed_gates"]
+        decision = "scientifically verified" if report["passed"] else "available for user review"
+        target_text = f"{target:.2f} km" if target is not None else "activity range"
+        failed_text = ", ".join(failed) if failed else "none"
+        self._record(
+            state,
+            (
+                f"Route validation: {shape.name} is {decision}; "
+                f"street matched={'yes' if on_roads else 'no'}, "
+                f"overall={score:.1%}, likeness={fidelity:.1%}, "
+                f"distance={actual_km:.2f} km against {target_text}, "
+                f"failed checks={failed_text}."
+            ),
+            event="route.validation.completed",
+            shape=shape.name,
+            city=intent.city,
+            sport=intent.sport,
+            decision="verified" if report["passed"] else "review",
+            verified=report["passed"],
+            failed_gates=failed,
+            score=score,
+            fidelity=fidelity,
+            snapped=on_roads,
+            distance_km=actual_km,
+            target_distance_km=target,
+            distance_delta_km=(actual_km - target) if target is not None else None,
+            distance_fit=distance_fit,
+            closure=closure_score,
+            closure_gap_m=gap_m,
+            spatial_similarity=diagnostics.spatial_similarity,
+            coverage_similarity=diagnostics.coverage_similarity,
+            turning_similarity=diagnostics.turning_similarity,
+            landmark_similarity=diagnostics.landmark_similarity,
+            length_similarity=diagnostics.length_similarity,
+            extent_similarity=diagnostics.extent_similarity,
+            route_length_ratio=diagnostics.route_length_ratio,
+            mean_deviation_ratio=diagnostics.mean_deviation_ratio,
+            route_point_count=len(snapped.points),
+            guide_point_count=len(state.route_draft.waypoints),
+            rotation_deg=state.route_draft.rotation_deg,
+            scale_m=state.route_draft.scale_m,
+            lat_offset_m=state.route_draft.lat_offset_m,
+            lon_offset_m=state.route_draft.lon_offset_m,
+            preflight_score=state.route_draft.preflight_score,
+        )
         return state

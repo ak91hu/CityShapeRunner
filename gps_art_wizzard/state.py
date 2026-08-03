@@ -90,6 +90,12 @@ class Validation:
     extent_similarity: float = 0.0
     route_length_ratio: float = 0.0
     mean_deviation_ratio: float = 0.0
+    landmark_similarity: float = 0.0
+    closure_gap_m: float = 0.0
+    actual_distance_km: float = 0.0
+    target_distance_km: float | None = None
+    route_point_count: int = 0
+    guide_point_count: int = 0
 
 
 @dataclass
