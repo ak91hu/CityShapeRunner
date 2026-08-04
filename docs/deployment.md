@@ -59,6 +59,7 @@ LOG_LEVEL=INFO
 LOG_FORMAT=json
 LOG_FILE=
 EXPORT_DIR=
+CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode
 NOMINATIM_EMAIL=operations@example.com
@@ -69,7 +70,9 @@ ORS_PREFERENCE=shortest
 Replace `NOMINATIM_EMAIL` with a monitored contact address. `LOG_FILE` and
 `EXPORT_DIR` must remain empty because the Sandbox container filesystem is not
 the source of truth. GPX/TCX documents are generated in memory and downloaded
-by the browser.
+by the browser. `CLOUDINARY_URL` is optional; set it as a masked runtime secret
+to enable the anonymous map-screenshot gallery. Never expose it to Vite or any
+`VITE_*` variable.
 
 Create a Northflank secret group or enter masked runtime secrets for:
 
@@ -172,10 +175,13 @@ container; `localhost` refers to the container itself, not its host.
 - Listen address: `0.0.0.0:8000` by default; override with `API_PORT`.
 - Liveness/readiness endpoint: `GET /health`.
 - Route generation endpoint: `POST /generate`.
+- Anonymous gallery endpoints: `GET /gallery`, `POST /gallery`, and
+  `POST /gallery/delete` when `CLOUDINARY_URL` is configured.
 - Static web client: `GET /` when the frontend build is present.
-- Persistent storage: not required. Eligible GPX/TCX documents are returned in
-  the API response and remain in memory by default. Configure `EXPORT_DIR` only
-  when server-side copies are required.
+- Persistent filesystem storage: not required. Eligible GPX/TCX documents are
+  returned in the API response and remain in memory by default. Configure
+  `EXPORT_DIR` only when server-side copies are required. Gallery PNGs are
+  stored directly in Cloudinary and indexed through its asset-search API.
 - Logging: structured JSON is emitted to stderr. On Northflank, leave
   `LOG_FILE` empty and use a project-restricted Loki log sink for retention.
 - Network: outbound HTTPS is required for the configured geocoder, road router,
@@ -190,9 +196,9 @@ shapes, distances, and concurrent requests. NumPy and Shapely trade a modest
 baseline memory cost for substantially faster geometry operations. Platform
 request timeouts should accommodate the configured external services and
 refinement count.
-The default budget is six refinement passes after the initial ORS candidate. Reduce
-`MAX_REFINEMENT_ITERATIONS` only when API quota or latency is more important
-than difficult-city shape fidelity.
+The default budget is eight refinement passes after the initial ORS candidate.
+Reduce `MAX_REFINEMENT_ITERATIONS` only when API quota or latency is more
+important than difficult-city shape fidelity.
 Smart suggestions can measure up to three distinct city-specific shapes before
 refinement. The search stops as soon as a road-routed candidate passes both the
 recognisability and overall-quality gates, while explicit shape, letter, and
@@ -219,6 +225,8 @@ LOG_FORMAT=json
 LOG_FILE=
 # Optional persistent server-side copies:
 # EXPORT_DIR=/data/exports
+# Optional anonymous public map gallery (server secret only):
+# CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 ```
 
 Without `ORS_API_KEY`, the application deliberately returns a straight-line
@@ -247,7 +255,7 @@ same endpoint:
 
 ```text
 GET /health
-200 {"status":"ok","service":"GPS Art Wizard","version":"0.1.0"}
+200 {"status":"ok","service":"GPS Art Wizard","version":"0.1.0","gallery":{"configured":false}}
 ```
 
 The endpoint verifies that the process can answer HTTP requests. It intentionally

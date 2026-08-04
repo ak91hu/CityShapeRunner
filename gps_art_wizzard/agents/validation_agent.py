@@ -176,7 +176,7 @@ class ValidationAgent(BaseAgent):
             selected_shape=shape.name,
         )
         failed = report["failed_gates"]
-        decision = "scientifically verified" if report["passed"] else "available for user review"
+        decision = "passed every automatic check" if report["passed"] else "available for user review"
         target_text = f"{target:.2f} km" if target is not None else "activity range"
         failed_text = ", ".join(failed) if failed else "none"
         self._record(

@@ -6,13 +6,51 @@ const transparentTile = Buffer.from(
 );
 
 test.beforeEach(async ({ page }) => {
-  await page.route("https://*.tile.openstreetmap.org/**", (route) =>
+  await page.route("https://tile.openstreetmap.org/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: transparentTile,
+    }),
+  );
+  await page.route("https://res.cloudinary.com/**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "image/png",
       body: transparentTile,
     }),
   );
+  await page.route("**/gallery*", (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ configured: true, assets: [], next_cursor: null }),
+      });
+    }
+    if (requestUrl.pathname.endsWith("/gallery/delete")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ removed: true }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        asset: {
+          id: `gps-art-gallery/${"a".repeat(32)}`,
+          image_url: "https://res.cloudinary.com/demo/image/upload/gallery-map.png",
+          width: 900,
+          height: 600,
+        },
+        removal_token: "b".repeat(64),
+      }),
+    });
+  });
   await page.route("**/route-acceptance", (route) =>
     route.fulfill({
       status: 200,
@@ -157,6 +195,7 @@ const successfulRoute = {
   gpx: "<?xml version=\"1.0\"?><gpx version=\"1.1\"></gpx>",
   tcx: "<?xml version=\"1.0\"?><TrainingCenterDatabase></TrainingCenterDatabase>",
   file_paths: {},
+  gallery_publish_token: "top-level-gallery-token",
   points_preview: [
     [47.5316, 21.6273],
     [47.538, 21.642],
@@ -207,6 +246,7 @@ successfulRoute.candidates = [
     details: successfulRoute.route_details,
     gpx: successfulRoute.gpx,
     tcx: successfulRoute.tcx,
+    gallery_publish_token: `candidate-1-gallery-token`,
   },
   {
     id: "candidate-2",
@@ -236,6 +276,7 @@ successfulRoute.candidates = [
     details: buildRouteDetails(successfulRoute.validation, 20.31),
     gpx: successfulRoute.gpx,
     tcx: successfulRoute.tcx,
+    gallery_publish_token: `candidate-2-gallery-token`,
   },
 ];
 successfulRoute.candidate_audit = successfulRoute.candidates.map((candidate) => ({
@@ -327,7 +368,7 @@ test("quick idea generation sends the prompt and renders a usable routed result"
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   expect(requestPayload).toEqual({ prompt: successfulRoute.prompt });
-  await expect(page.locator(".route-state")).toContainText("Scientifically verified");
+  await expect(page.locator(".route-state")).toContainText("Automatic checks passed");
   await expect(
     page.locator(".metric").filter({ hasText: "Route quality" }).locator("dd:not(.metric-detail)"),
   ).toHaveText("91%");
@@ -340,7 +381,7 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   ).toHaveText("19.82 km");
   await expect(
     page.locator(".metric").filter({ hasText: "Routes shown" }).locator(".metric-detail"),
-  ).toHaveText("2 verified, 0 for review; 2 evaluated; 164 placements screened");
+  ).toHaveText("2 passed checks, 0 for review; 2 evaluated; 164 placements screened");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
   await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
   await expect(page.getByLabel("Selected-shape route")).toHaveValue("candidate-1");
@@ -361,13 +402,21 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   await expect(page.locator(".route-facts")).toContainText("19.82 km / 20.00 km");
   await expect(page.getByText("Route-attempt audit")).toContainText("2");
   await page.getByText("Route-attempt audit").click();
-  await expect(page.locator(".detail-card table").last()).toContainText("Verified");
+  await expect(page.locator(".detail-card table").last()).toContainText("Checks passed");
   await expect(page.getByRole("button", { name: "Download candidate GPX" })).toBeEnabled();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download candidate GPX" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  const metricsBox = await page.locator(".result-sidebar .metrics").boundingBox();
+  const exportBox = await page.locator(".result-sidebar .export-card").boundingBox();
+  expect(metricsBox).not.toBeNull();
+  expect(exportBox).not.toBeNull();
+  expect(Math.abs(metricsBox.x - exportBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(metricsBox.width - exportBox.width)).toBeLessThanOrEqual(1);
 });
 
 test("smart suggestion validates inputs and submits the selected city, activity, and distance", async ({
@@ -547,7 +596,7 @@ test("a measured fallback explains why it replaced the requested drawing", async
   await expect(page.getByText("Cat did not fit — using Diamond")).toBeVisible();
   await expect(page.getByText(/preserved 41%/)).toBeVisible();
   await expect(page.getByText("Alternatives measured: Triangle, Diamond.")).toBeVisible();
-  await expect(page.locator(".route-state")).toContainText("Scientifically verified");
+  await expect(page.locator(".route-state")).toContainText("Automatic checks passed");
 });
 
 test("the online editor reroutes control points and downloads the edited GPX", async ({
@@ -592,8 +641,96 @@ test("the online editor reroutes control points and downloads the edited GPX", a
   await expect.poll(() => editPayload?.control_points?.length).toBe(4);
   expect(editPayload.shape_name).toBe("star");
   await expect(page.getByText(/Edited route ready: 19.90 km/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close editor" })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download edited GPX" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
+});
+
+test("a verified route map can be published anonymously with streets and attribution", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException("Storage is unavailable.", "QuotaExceededError");
+    };
+  });
+  await mockHealth(page);
+  await mockGenerate(page, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(successfulRoute),
+    }),
+  );
+  await page.unroute("**/gallery*");
+  let publishedPayload = null;
+  let published = false;
+  await page.route("**/gallery*", (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          configured: true,
+          assets: published
+            ? [
+                {
+                  id: `gps-art-gallery/${"d".repeat(32)}`,
+                  image_url: "https://res.cloudinary.com/demo/image/upload/published-map.png",
+                  width: 900,
+                  height: 600,
+                },
+              ]
+            : [],
+          next_cursor: null,
+        }),
+      });
+    }
+    if (requestUrl.pathname.endsWith("/gallery/delete")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ removed: true }),
+      });
+    }
+    publishedPayload = route.request().postDataJSON();
+    published = true;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        asset: {
+          id: `gps-art-gallery/${"d".repeat(32)}`,
+          image_url: "https://res.cloudinary.com/demo/image/upload/published-map.png",
+          width: 900,
+          height: 600,
+        },
+        removal_token: "e".repeat(64),
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await expect(page.getByText("Publish this street map anonymously")).toBeVisible();
+  await page
+    .getByLabel("I understand that this location and its street names will be public.")
+    .check();
+  await page.getByRole("button", { name: "Publish map screenshot" }).click();
+
+  await expect(page.getByText("Published anonymously.")).toBeVisible();
+  expect(publishedPayload.confirm_public_location).toBe(true);
+  expect(publishedPayload.publish_token).toBe("candidate-1-gallery-token");
+  expect(publishedPayload.image_data_url).toMatch(/^data:image\/png;base64,/);
+  expect(publishedPayload).not.toHaveProperty("prompt");
+  expect(publishedPayload).not.toHaveProperty("city");
+  await expect(
+    page.getByRole("img", {
+      name: "Anonymous GPS art route on an OpenStreetMap street map",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Map data © OpenStreetMap contributors").first()).toBeVisible();
 });

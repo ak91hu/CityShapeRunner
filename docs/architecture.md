@@ -41,7 +41,7 @@ runs:
 | `candidates` | ValidationAgent | API acceptance filter, audit, selector/editor |
 | `snapped` | SnapAgent | ValidationAgent, ExportAgent |
 | `validation` | ValidationAgent | Orchestrator (loop control), RefinementAgent |
-| `export` | ExportAgent | API (optional; absent for unsafe candidates) |
+| `export` | ExportAgent | API (in-memory geometry for the selected drawable route; persistence remains gated) |
 | `iterations`, `history` | Orchestrator | RefinementAgent |
 | `errors` | any | Orchestrator |
 
@@ -95,12 +95,15 @@ explicit without coupling the current runtime to one.
   identity, connected routing, aggregate score, ordered curve, coverage,
   turns, landmarks, detour, extent, distance, and closure for automatic
   verification. The API selector contains every fully routed candidate for the
-  final selected shape, labelled `verified` or `review`; other-shape attempts
-  retain metrics and failed-gate IDs in `candidate_audit`.
-- Candidate selection: each export gate is normalised to its minimum, and the
-  weakest gate is the primary ranking key. This prevents excellent distance
-  accuracy from hiding an unrecognisable outline while still moving the search
-  toward a candidate that can actually be exported.
+  final selected shape. Internal compatibility fields still use `verified` and
+  `review`, while the UI presents the non-scientific labels “Checks passed” and
+  “Review”. Other-shape attempts retain metrics and failed-gate IDs in
+  `candidate_audit`.
+- Candidate selection: selected-shape candidates that pass every export gate
+  form the first partition. Within each partition, every numeric gate is
+  normalised to its minimum and the weakest gate is the primary ranking key;
+  aggregate score is only a late tie-breaker. This prevents a high average from
+  placing a failed recognition gate ahead of a route that passes every check.
 - Refinement search: the road-fit-ranked shortlist is consumed before a full
   measured scale correction and damped square-root bracket are tried. Tested
   scale/rotation/offset/tolerance signatures are remembered, so an already measured
@@ -133,13 +136,18 @@ explicit without coupling the current runtime to one.
   refinement direction, practical omitted-distance defaults, routable
   templates, export quality gates, preview limits, provider caching, and
   invalid prompt handling.
+- `tests/test_pipeline.py` and API tests verify that a gate-passing candidate
+  ranks ahead of a higher-average failed candidate, while all final-shape
+  routes remain selectable and reviewable.
 - Unit tests for shape templates, geo maths, routing helpers, validation, and
-  API serialisation run without paid services.
+  API serialisation run without paid services. Gallery tests cover token
+  tampering/expiry, PNG sanitisation, Cloudinary response filtering, and
+  deletion authorization without contacting Cloudinary.
 - Playwright functional tests exercise the built user interface with explicit
-  desktop/mobile assertions, including the 32-item quick-idea catalog,
-  generator focus, responsive containment, result wording, and safe download
-  gates. Their API responses are deterministic and do not consume external
-  service quotas.
+  desktop/mobile/tablet assertions, including the 32-item quick-idea catalog,
+  generator focus, responsive containment, result wording, editor dirty state,
+  safe download gates, gallery storage failures, and gallery layout. Their API
+  responses are deterministic and do not consume external service quotas.
 
 The Python suite defaults to strict configuration and marker validation. Set
 `GEOCODE_OFFLINE=1` for deterministic local and CI runs.

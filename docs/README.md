@@ -5,10 +5,11 @@ run in Budapest, about 8 km”, choose one of the 32 quick starts, or ask for a
 city suggestion. The nine-agent pipeline interprets the request, creates and
 places the outline, routes it over streets, measures shape likeness, tests
 nearby alternatives, and retains every fully routed candidate. Quality gates
-rank every attempt, but only candidates for the final selected shape that pass
-all independent shape, street, distance, and closure gates enter the route
-selector or receive GPX/TCX exports. Rejected attempts remain available as an
-audit summary and the best failed attempt can still be edited diagnostically.
+rank every attempt. Every fully routed candidate for the final selected shape
+enters the selector with GPX/TCX geometry; candidates that pass all independent
+shape, street, distance, and closure checks rank first and download
+immediately, while the others require explicit review and acceptance. Attempts
+for a different suggested shape remain available in the audit summary.
 
 Not sure what to draw? Ask the planner to suggest a suitable shape for a city:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
@@ -72,9 +73,10 @@ reduced to curvature-preserving 18-point guides for one batched snap request;
 a quality-and-diversity rule selects seven full Directions candidates; every
 returned route is then evaluated using coverage, characteristic turns,
 salient curvature landmarks, proportions, distance, closure, and road-routing
-evidence. A failed component cannot be hidden by the aggregate score. Weak and
-different-shape attempts are removed from the selectable route list but remain
-counted—with their failed gates—in the candidate audit.
+evidence. A failed component cannot be hidden by the aggregate score. Weak
+final-shape attempts remain selectable for comparison and correction;
+different-shape attempts remain counted—with their failed gates—in the
+candidate audit instead of being mixed into the selector.
 
 The literature supports these design choices, not the current numeric
 thresholds. Those are explicit engineering heuristics and should be calibrated
@@ -93,7 +95,7 @@ funnel, and the distinction between snapping and routing are documented in
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
 | **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
 | **RefinementAgent** | Consume the road-fit-ranked shortlist first, then bracket non-linear distance corrections and use local measured transforms only after the shortlist is exhausted. |
-| **ExportAgent** | Serialise the full selected-shape geometry. Verified routes download immediately; below-target routes require explicit user acceptance after reviewing the scientific diagnostics. |
+| **ExportAgent** | Serialise the full selected-shape geometry. Routes that pass every automatic check download immediately; below-target routes require explicit user acceptance after reviewing the measurements. |
 
 The graph engine (`orchestrator.py`) wires these into a state machine with:
 - a **planning step** (one strategy commit, read by shape + placement),
@@ -112,13 +114,30 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
   as a fallback star and an error is recorded.
 
 The result screen includes a candidate selector and a Leaflet route editor.
+The selector ranks routes that pass every automatic check ahead of review
+routes, even when a failed route has a higher aggregate score. “Checks passed”
+is an engineering result, not a scientific, legal, accessibility, or safety
+guarantee. The compact screen explains the 0–100 indices and shows every gate,
+measured value, threshold, route/guide point count, distance error, detour ratio,
+closure gap, mean outline deviation, and placement transform. Below-target and
+non-road-routed guides remain exportable only after explicit acceptance.
+
 Numbered control points can be dragged and submitted to `POST /edit-route`;
 the backend re-routes them with the selected activity profile, revalidates the
-result, and returns full GPX/TCX geometry with a verification report. The
-compact screen explains the 0–100 indices and shows every gate, measured value,
-threshold, route/guide point count, distance error, detour ratio, closure gap,
-mean outline deviation, and placement transform. Below-target routes require
-an explicit user acceptance before download.
+result, and returns full GPX/TCX geometry with an automatic-check report. A
+point move creates pending editor state, so downloads are disabled until the
+user updates the street route or discards the move. The editor button says
+“Close editor” when nothing changed and “Discard point changes” only when a
+move would actually be lost. Each rebuilt route receives a stable ID so its
+acceptance state applies only to that exact geometry.
+
+When Cloudinary is configured, a road-routed candidate that has passed the
+checks or been accepted can be published to the anonymous image gallery after
+separate location-disclosure consent. The upload contains the visible map,
+street labels, route, markers, and OpenStreetMap attribution—not the prompt,
+request ID, GPX/TCX, or user identity. Removal tokens are stored only in the
+publishing browser; local-storage failure does not misreport a completed
+server-side upload or deletion as failed.
 
 HTTP middleware assigns or validates an `X-Request-ID` and emits structured
 start/completion/failure events. Agent, ORS, validation, editing, and export
@@ -163,8 +182,9 @@ python -m uvicorn gps_art_wizzard.main:app --reload
 The pipeline runs **even without any API key**: LLM calls fall back to
 deterministic rules, and the snap step uses a straight-line fallback when no
 ORS key is set. A straight-line fallback is marked `snapped=false`, remains
-editable as a diagnostic guide, carries an explicit warning, and is not
-exported as a generated route.
+editable as a diagnostic guide, carries an explicit warning, and can be
+downloaded only after the user explicitly accepts the shown geometry. It is
+not represented as a road-following route.
 
 ## OpenCode Zen as the LLM
 
@@ -188,7 +208,8 @@ with the OpenAI provider).
 
 A Vite + React SPA lives in `frontend/`. It calls `/generate` and renders the
 route on a Leaflet map, shows the validation score / refinement history, and
-offers GPX/TCX downloads for eligible road-matched results.
+offers immediate GPX/TCX downloads for routes that pass every automatic check.
+Review routes and non-road-routed guides use the explicit acceptance flow.
 
 Dev (hot-reload frontend on :5173, API on :8000):
 
@@ -218,13 +239,18 @@ Backend tests run offline when geocoding is disabled:
 GEOCODE_OFFLINE=1 python -m pytest
 python -m ruff check .
 python -m mypy --ignore-missing-imports gps_art_wizzard
+
+cd frontend
+npm ci
+npm run build
+npm run test:e2e
 ```
 
 On PowerShell, set the variable with
-`$env:GEOCODE_OFFLINE = "1"` before running pytest. Frontend build and browser
-test commands are defined in `frontend/package.json`. The root CI workflow runs
-the backend suite on Python 3.12 and 3.14, then builds the frontend and executes
-its Playwright suite on Node.js 24.
+`$env:GEOCODE_OFFLINE = "1"` before running pytest. Install the Playwright
+browser once with `npx playwright install chromium` if it is not already
+present. The root CI workflow runs the backend suite on Python 3.12 and 3.14,
+then builds the frontend and executes its Playwright suite on Node.js 24.
 
 ## Safety and limitations
 

@@ -39,11 +39,15 @@ The overall `score` is a weighted blend. Closed shapes: `0.5·fidelity + 0.3·di
   ≥ 0.70. Distance fit must be ≥ 0.60; closure must be ≥ 0.60 for a
   closed shape. The loop continues while any applicable gate fails.
 - **Candidate ordering:** normalise every numeric gate by its minimum, then
-  rank the weakest gate first. This prevents an aggregate score or
-  near-perfect distance from hiding a lost tip, turn, or silhouette.
+  rank the weakest gate first after partitioning gate-passing candidates ahead
+  of failed candidates. This prevents an aggregate score or near-perfect
+  distance from hiding a lost tip, turn, or silhouette, and prevents a higher
+  average failure from outranking a route that passes every check.
 - **Export rule:** passing every applicable gate enables an immediate
-  scientifically verified download. A below-target selected-shape attempt
-  remains visible and receives full GPX/TCX geometry, but the UI requires the
-  user to inspect the evidence and explicitly accept that exact route first.
+  automatic-check download. These thresholds are engineering heuristics, not
+  scientific validation or a safety/access guarantee. A below-target
+  selected-shape attempt remains visible and receives full GPX/TCX geometry,
+  but the UI requires the user to inspect the evidence and explicitly accept
+  that exact route first.
 
 When diagnosing, fix the **lowest** metric first — the overall score tracks it.

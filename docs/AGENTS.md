@@ -137,9 +137,10 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Input:** best `SnappedRoute`.
 - **Output:** `Export` — in-memory GPX (+ TCX) for the selected candidate.
   Every drawable selected-shape result gets an in-memory export. Passing all
-  gates enables an immediate verified download; below-target routes require an
-  explicit user acceptance in the UI. Persistent server-side files are written
-  only for verified routes and only when `EXPORT_DIR` is configured.
+  gates enables an immediate automatic-check download; below-target routes
+  require explicit user acceptance in the UI. Persistent server-side files are
+  written only for routes that pass every gate and only when `EXPORT_DIR` is
+  configured.
 
 ## Loops
 

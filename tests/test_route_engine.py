@@ -1684,6 +1684,67 @@ def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     assert review_response["candidate_summary"]["review_count"] == 1
 
 
+def test_response_ranks_a_gate_passing_route_before_a_higher_average_failure():
+    points = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
+
+    def validation(*, score: float, landmark_similarity: float) -> Validation:
+        return Validation(
+            score=score,
+            closure=0.95,
+            distance_fit=0.9,
+            shape_fidelity=0.86,
+            on_roads=True,
+            spatial_similarity=0.84,
+            coverage_similarity=0.82,
+            turning_similarity=0.8,
+            landmark_similarity=landmark_similarity,
+            length_similarity=0.85,
+            extent_similarity=0.88,
+            route_length_ratio=1.05,
+        )
+
+    def candidate(candidate_validation: Validation) -> EvaluatedCandidate:
+        return EvaluatedCandidate(
+            shape_name="heart",
+            shape_source="template",
+            points=points,
+            ideal_points=points,
+            total_distance_m=8_000.0,
+            snapped=True,
+            closed=True,
+            target_distance_km=8.0,
+            validation=candidate_validation,
+            rotation_deg=0.0,
+            scale_m=1_000.0,
+            lat_offset_m=0.0,
+            lon_offset_m=0.0,
+        )
+
+    high_average_failure = candidate(
+        validation(score=0.95, landmark_similarity=0.4)
+    )
+    gate_passing_route = candidate(
+        validation(score=0.82, landmark_similarity=0.8)
+    )
+    state = WorkflowState(
+        prompt="heart route",
+        intent=Intent("heart", None, "Budapest", "run", 8.0, None),
+        shape=Shape("heart", [[(0.0, 0.0), (1.0, 1.0)]], True),
+        snapped=SnappedRoute(points, 8_000.0, snapped=True),
+        validation=gate_passing_route.validation,
+        candidates=[high_average_failure, gate_passing_route],
+    )
+
+    response = _state_to_response(state)
+
+    assert response["candidates"][0]["id"] == "candidate-2"
+    assert response["candidates"][0]["verification"]["passed"] is True
+    assert response["candidates"][1]["id"] == "candidate-1"
+    assert response["candidates"][1]["verification"]["failed_gates"] == [
+        "landmark_similarity"
+    ]
+
+
 def test_edit_route_reroutes_control_points_and_builds_verified_shape_gpx(monkeypatch):
     routed = [
         (47.0, 19.0),

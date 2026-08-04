@@ -2,10 +2,14 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   editRoute,
   generate as generateRoute,
+  listGallery,
+  publishGalleryImage,
   recordRouteAcceptance,
+  removeGalleryImage,
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
+const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
 
 const QUICK_IDEAS = [
   { glyph: "♥", label: "Heart", category: "Simple shapes", featured: true, prompt: "a heart run in Budapest, about 8 km" },
@@ -149,6 +153,60 @@ function saveFile(filename, content, type) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+function readGalleryRemovalTokens() {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(GALLERY_REMOVAL_STORAGE_KEY) ?? "{}",
+    );
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    return Object.fromEntries(
+      Object.entries(stored).filter(
+        ([publicId, token]) => publicId && typeof token === "string" && token,
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function rememberGalleryRemovalToken(publicId, token) {
+  const next = { ...readGalleryRemovalTokens(), [publicId]: token };
+  try {
+    window.localStorage.setItem(GALLERY_REMOVAL_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // A private-browsing/storage failure must not turn a successful upload
+    // into a false publication error or encourage a duplicate retry.
+  }
+  return next;
+}
+
+function forgetGalleryRemovalToken(publicId) {
+  const next = { ...readGalleryRemovalTokens() };
+  delete next[publicId];
+  try {
+    window.localStorage.setItem(GALLERY_REMOVAL_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // The server deletion still succeeded; keep the UI truthful for this session.
+  }
+  return next;
+}
+
+function mergeGalleryAssets(current, received, { replace, publishedAsset, removedIds }) {
+  const visibleReceived = (Array.isArray(received) ? received : []).filter(
+    (asset) => asset?.id && !removedIds.has(asset.id),
+  );
+  let next = replace ? visibleReceived : [...current, ...visibleReceived];
+  if (publishedAsset?.id && !removedIds.has(publishedAsset.id)) {
+    next = [publishedAsset, ...next.filter((asset) => asset.id !== publishedAsset.id)];
+  }
+  const seen = new Set();
+  return next.filter((asset) => {
+    if (!asset?.id || seen.has(asset.id) || removedIds.has(asset.id)) return false;
+    seen.add(asset.id);
+    return true;
+  });
+}
+
 function sampleControlPoints(points, maximum = 18) {
   const valid = (Array.isArray(points) ? points : []).filter(
     (point) =>
@@ -198,7 +256,143 @@ function LoadingState({ onCancel }) {
   );
 }
 
-function ResultPanel({ result, onDownload, focusRef }) {
+function GallerySection({ refreshKey = 0, publishedAsset = null }) {
+  const [assets, setAssets] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [configured, setConfigured] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState("");
+  const [removalTokens, setRemovalTokens] = useState(readGalleryRemovalTokens);
+  const removedAssetIdsRef = useRef(new Set());
+
+  const loadGalleryPage = useCallback(async (cursor = null, replace = false) => {
+    if (replace) setLoading(true);
+    else setLoadingMore(true);
+    setError("");
+    try {
+      const response = await listGallery({ cursor, limit: 24 });
+      setConfigured(response.configured !== false);
+      setAssets((current) =>
+        mergeGalleryAssets(current, response.assets, {
+          replace,
+          publishedAsset,
+          removedIds: removedAssetIdsRef.current,
+        }),
+      );
+      setNextCursor(response.next_cursor ?? null);
+    } catch (galleryError) {
+      setError(galleryError.message || "The anonymous map gallery could not be loaded.");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [publishedAsset]);
+
+  useEffect(() => {
+    setRemovalTokens(readGalleryRemovalTokens());
+    loadGalleryPage(null, true);
+  }, [loadGalleryPage, refreshKey]);
+
+  const removeAsset = useCallback(async (asset) => {
+    const token = removalTokens[asset.id];
+    if (!token || !window.confirm("Remove this map screenshot from the public gallery?")) return;
+    setError("");
+    try {
+      await removeGalleryImage({ public_id: asset.id, removal_token: token });
+      removedAssetIdsRef.current.add(asset.id);
+      setAssets((current) => current.filter((item) => item.id !== asset.id));
+      setRemovalTokens(forgetGalleryRemovalToken(asset.id));
+    } catch (removalError) {
+      setError(removalError.message || "The gallery image could not be removed.");
+    }
+  }, [removalTokens]);
+
+  return (
+    <section className="gallery" id="gallery" aria-labelledby="gallery-title">
+      <div className="section-heading gallery-heading">
+        <div>
+          <p className="eyebrow">Anonymous community maps</p>
+          <h2 id="gallery-title">GPS art gallery</h2>
+          <p>
+            Public route screenshots preserve the map, street names, and OpenStreetMap
+            attribution—without prompts, profiles, or activity histories.
+          </p>
+        </div>
+        <a className="button button--quiet" href="#route-designer">
+          Create an artwork
+        </a>
+      </div>
+
+      {loading && (
+        <div className="gallery-state" role="status">
+          Loading public map screenshots…
+        </div>
+      )}
+      {!loading && !configured && (
+        <div className="gallery-state">
+          <strong>The gallery is ready for Cloudinary credentials.</strong>
+          <span>Route generation and downloads remain available.</span>
+        </div>
+      )}
+      {error && (
+        <p className="gallery-error" role="alert">
+          {error}
+        </p>
+      )}
+      {!loading && configured && assets.length === 0 && !error && (
+        <div className="gallery-state">
+          <strong>No public map artwork yet.</strong>
+          <span>Generate a route and publish its map screenshot to start the gallery.</span>
+        </div>
+      )}
+      {assets.length > 0 && (
+        <div className="gallery-grid">
+          {assets.map((asset) => (
+            <article className="gallery-card" key={asset.id}>
+              <a href={asset.image_url} target="_blank" rel="noreferrer">
+                <img
+                  src={asset.image_url}
+                  alt="Anonymous GPS art route on an OpenStreetMap street map"
+                  loading="lazy"
+                  width={asset.width || undefined}
+                  height={asset.height || undefined}
+                />
+              </a>
+              <div>
+                <span>Map data © OpenStreetMap contributors</span>
+                {removalTokens[asset.id] && (
+                  <button type="button" onClick={() => removeAsset(asset)}>
+                    Remove mine
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+      {nextCursor && (
+        <button
+          type="button"
+          className="button button--secondary gallery-more"
+          onClick={() => loadGalleryPage(nextCursor, false)}
+          disabled={loadingMore}
+        >
+          {loadingMore ? "Loading…" : "Load more map artwork"}
+        </button>
+      )}
+      <p className="gallery-attribution">
+        Map data ©{" "}
+        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+          OpenStreetMap contributors
+        </a>
+        .
+      </p>
+    </section>
+  );
+}
+
+function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const candidates = result.candidates ?? [];
   const [selectedCandidateId, setSelectedCandidateId] = useState(
     candidates[0]?.id ?? "best",
@@ -208,7 +402,13 @@ function ResultPanel({ result, onDownload, focusRef }) {
   const [editedRoute, setEditedRoute] = useState(null);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState("");
+  const [editDirty, setEditDirty] = useState(false);
   const [acceptedRouteIds, setAcceptedRouteIds] = useState(() => new Set());
+  const [galleryConsent, setGalleryConsent] = useState(false);
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const [galleryError, setGalleryError] = useState("");
+  const [publishedAsset, setPublishedAsset] = useState(null);
+  const mapCaptureRef = useRef(null);
 
   useEffect(() => {
     setSelectedCandidateId(candidates[0]?.id ?? "best");
@@ -216,7 +416,12 @@ function ResultPanel({ result, onDownload, focusRef }) {
     setControlPoints([]);
     setEditedRoute(null);
     setEditError("");
+    setEditDirty(false);
     setAcceptedRouteIds(new Set());
+    setGalleryConsent(false);
+    setGalleryBusy(false);
+    setGalleryError("");
+    setPublishedAsset(null);
   }, [result.request_id, result.prompt]);
 
   const selectedCandidate =
@@ -240,6 +445,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
       details: result.route_details,
       gpx: result.gpx,
       tcx: result.tcx,
+      gallery_publish_token: result.gallery_publish_token,
     };
   const validation = activeRoute.validation ?? result.validation;
   const verification = activeRoute.verification ?? result.route_verification;
@@ -249,13 +455,14 @@ function ResultPanel({ result, onDownload, focusRef }) {
   const placementDetails = routeDetails?.placement ?? {};
   const deviationDetails = routeDetails?.deviation ?? {};
   const score = validation?.score;
-  const scientificallyVerified = verification
+  const automaticChecksPassed = verification
     ? Boolean(verification.passed)
     : Boolean(activeRoute.snapped) && !Boolean(activeRoute.below_recommended);
   const activeRouteId = String(activeRoute.id ?? "best");
   const userAccepted = acceptedRouteIds.has(activeRouteId);
-  const exportReady = scientificallyVerified || userAccepted;
-  const qualityTone = score == null ? "neutral" : scientificallyVerified ? "good" : "warn";
+  const exportReady = automaticChecksPassed || userAccepted;
+  const exportBlockedByPendingEdits = editing && editDirty;
+  const qualityTone = score == null ? "neutral" : automaticChecksPassed ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
   const fitDecision = result.fit_decision;
   const requestedShape = normaliseLabel(
@@ -283,21 +490,36 @@ function ResultPanel({ result, onDownload, focusRef }) {
       ...(result.errors ?? []),
     ]),
   ];
-  const stateLabel = scientificallyVerified
-    ? "Scientifically verified"
+  const stateLabel = automaticChecksPassed
+    ? "Automatic checks passed"
     : userAccepted
       ? "Accepted by you"
       : activeRoute.snapped
         ? "Ready for your review"
         : "Guide — review required";
+  const canPublishGallery = Boolean(
+    activeRoute.gallery_publish_token &&
+    activeRoute.snapped &&
+    exportReady &&
+    !editedRoute &&
+    !editing,
+  );
+
+  useEffect(() => {
+    setGalleryConsent(false);
+    setGalleryError("");
+    setPublishedAsset(null);
+  }, [activeRouteId]);
 
   const resetEditor = useCallback(() => {
     setControlPoints(sampleControlPoints(activeRoute.points_preview));
     setEditError("");
+    setEditDirty(false);
   }, [activeRoute.points_preview]);
 
   const handleEditPoint = useCallback(
     (index, point) => {
+      setEditDirty(true);
       setControlPoints((current) => {
         const next = current.map((item) => [...item]);
         next[index] = point;
@@ -329,7 +551,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
         name: `${shapeName} in ${city}`,
         shape_name: activeRoute.shape_name ?? result.shape?.name ?? "edited",
       });
-      const editedRouteId = `${activeRoute.id}-edited`;
+      const editedRouteId = `${selectedCandidate?.id ?? "best"}-edited`;
       setAcceptedRouteIds((current) => {
         const next = new Set(current);
         next.delete(editedRouteId);
@@ -358,6 +580,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
         warnings: response.warnings,
       });
       setControlPoints(sampleControlPoints(response.points_preview));
+      setEditDirty(false);
     } catch (error) {
       setEditError(error.message || "The edited guide could not be re-routed.");
     } finally {
@@ -369,7 +592,38 @@ function ResultPanel({ result, onDownload, focusRef }) {
     controlPoints,
     editBusy,
     result.intent,
+    selectedCandidate?.id,
     shapeName,
+  ]);
+
+  const publishMapScreenshot = useCallback(async () => {
+    if (!canPublishGallery || !galleryConsent || galleryBusy) return;
+    setGalleryBusy(true);
+    setGalleryError("");
+    try {
+      const imageDataUrl = await mapCaptureRef.current?.capturePng();
+      if (!imageDataUrl) throw new Error("The route map is not ready to capture yet.");
+      const response = await publishGalleryImage({
+        image_data_url: imageDataUrl,
+        publish_token: activeRoute.gallery_publish_token,
+        confirm_public_location: true,
+      });
+      rememberGalleryRemovalToken(response.asset.id, response.removal_token);
+      setPublishedAsset(response.asset);
+      onGalleryPublished?.(response.asset);
+    } catch (publishError) {
+      setGalleryError(
+        publishError.message || "The map screenshot could not be published.",
+      );
+    } finally {
+      setGalleryBusy(false);
+    }
+  }, [
+    activeRoute.gallery_publish_token,
+    canPublishGallery,
+    galleryBusy,
+    galleryConsent,
+    onGalleryPublished,
   ]);
 
   return (
@@ -382,8 +636,8 @@ function ResultPanel({ result, onDownload, focusRef }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">
-            {scientificallyVerified
-              ? "Verified GPS art"
+            {automaticChecksPassed
+              ? "Route checks passed"
               : "Selected-shape route for review"}
           </p>
           <h2 id="result-title">
@@ -396,9 +650,9 @@ function ResultPanel({ result, onDownload, focusRef }) {
           )}
         </div>
         <span
-          className={`route-state route-state--${scientificallyVerified ? "good" : "warn"}`}
+          className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
         >
-          <span aria-hidden="true">{scientificallyVerified || userAccepted ? "✓" : "!"}</span>
+          <span aria-hidden="true">{automaticChecksPassed || userAccepted ? "✓" : "!"}</span>
           {stateLabel}
         </span>
       </div>
@@ -416,6 +670,10 @@ function ResultPanel({ result, onDownload, focusRef }) {
                 setEditedRoute(null);
                 setControlPoints([]);
                 setEditError("");
+                setEditDirty(false);
+                setGalleryConsent(false);
+                setGalleryError("");
+                setPublishedAsset(null);
               }}
             >
               {candidates.length > 0 ? (
@@ -424,7 +682,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                     {index + 1}. {normaliseLabel(candidate.shape_name)} ·{" "}
                     {formatPercent(candidate.validation?.score)} ·{" "}
                     {formatMetric(candidate.distance_km)} km ·{" "}
-                    {candidate.verification?.passed ? "Verified" : "Review"}
+                    {candidate.verification?.passed ? "Checks passed" : "Review"}
                   </option>
                 ))
               ) : (
@@ -433,7 +691,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
             </select>
             <span>
               {candidates.length > 0
-                ? `${candidates.length} selected-shape route${candidates.length === 1 ? "" : "s"} shown; ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} verified, ${reviewCount} for review`
+                ? `${candidates.length} selected-shape route${candidates.length === 1 ? "" : "s"} shown; ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} passed checks, ${reviewCount} for review`
                 : `${auditedCount} evaluated; the best route remains available for review`}
             </span>
           </div>
@@ -448,6 +706,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
               }
             >
               <RouteMap
+                ref={mapCaptureRef}
                 points={activeRoute.points_preview}
                 idealPoints={activeRoute.ideal_preview ?? result.ideal_preview}
                 landmarkPoints={
@@ -472,8 +731,8 @@ function ResultPanel({ result, onDownload, focusRef }) {
               <strong>Manual route editor</strong>
               <p>
                 Drag the numbered control points, then rebuild the line on the
-                street network. Export becomes available only after every
-                shape, street, distance, and closure check passes.
+                street network. The updated measurements replace the current
+                result; routes below a target still require your explicit review.
               </p>
             </div>
             <div className="editor-actions">
@@ -481,11 +740,15 @@ function ResultPanel({ result, onDownload, focusRef }) {
                 type="button"
                 className="button button--secondary"
                 onClick={() => {
-                  if (!editing) resetEditor();
+                  resetEditor();
                   setEditing((value) => !value);
                 }}
               >
-                {editing ? "Finish moving points" : "Edit this route"}
+                {editing
+                  ? editDirty
+                    ? "Discard point changes"
+                    : "Close editor"
+                  : "Edit this route"}
               </button>
               {editing && (
                 <>
@@ -517,7 +780,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
               <p className="editor-success" role="status">
                 Edited route ready: {formatMetric(editedRoute.distance_km)} km,
                 {editedRoute.verification?.passed
-                  ? " matched to streets and scientifically verified."
+                  ? " matched to streets and passed every automatic check."
                   : " with updated measurements; review the highlighted checks before accepting it."}
               </p>
             )}
@@ -600,7 +863,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                   : candidates.length
               }
               detail={
-                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} verified, ${reviewCount} for review; ${auditedCount} evaluated${
+                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} passed checks, ${reviewCount} for review; ${auditedCount} evaluated${
                   Number.isFinite(result.preflight_count) && result.preflight_count > 0
                     ? `; ${result.preflight_count} placements screened`
                     : ""
@@ -638,7 +901,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
             </div>
           )}
 
-          {!scientificallyVerified && (
+          {!automaticChecksPassed && (
             <div className="notice notice--warning" role="status">
               <strong>Automatic verification recommends a closer look</strong>
               <p>
@@ -651,13 +914,13 @@ function ResultPanel({ result, onDownload, focusRef }) {
 
           {verification?.gates?.length > 0 && (
             <details
-              className={`verification-card verification-card--${scientificallyVerified ? "pass" : "fail"}`}
+              className={`verification-card verification-card--${automaticChecksPassed ? "pass" : "fail"}`}
             >
               <summary className="verification-heading">
                 <span>
                   <span className="eyebrow">Shape-following verification</span>
                   <span className="verification-title">
-                    {scientificallyVerified
+                    {automaticChecksPassed
                       ? "All automatic targets reached"
                       : `${verification.failed_gates?.length ?? 0} metric target${verification.failed_gates?.length === 1 ? "" : "s"} need review`}
                   </span>
@@ -790,21 +1053,21 @@ function ResultPanel({ result, onDownload, focusRef }) {
             <div>
               <p className="eyebrow">Your route, your decision</p>
               <h3>
-                {scientificallyVerified
-                  ? "Scientifically verified GPX ready"
+                {automaticChecksPassed
+                  ? "Checked GPX ready"
                   : userAccepted
                     ? "Your accepted route is ready"
                     : "Review the evidence, then accept or edit"}
               </h3>
             </div>
-            {!scientificallyVerified && !userAccepted && (
+            {!automaticChecksPassed && !userAccepted && (
               <p className="acceptance-copy">
                 Accepting means you choose this exact shown geometry despite the highlighted
                 automatic checks. Inspect the map and local accessibility before using it.
               </p>
             )}
             <div className="download-actions">
-              {!scientificallyVerified && !userAccepted && activeRoute.gpx && (
+              {!automaticChecksPassed && !userAccepted && activeRoute.gpx && (
                 <button
                   type="button"
                   className="button button--primary accept-route-button"
@@ -814,7 +1077,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                       generation_request_id: result.request_id ?? null,
                       route_id: activeRouteId,
                       shape_name: activeRoute.shape_name ?? result.shape?.name ?? "route",
-                      scientifically_verified: scientificallyVerified,
+                      automatic_checks_passed: automaticChecksPassed,
                       snapped: Boolean(activeRoute.snapped),
                       failed_gates: verification?.failed_gates ?? [],
                       score: validation?.score ?? null,
@@ -825,6 +1088,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                     });
                     onDownload("gpx", activeRoute.gpx);
                   }}
+                  disabled={exportBlockedByPendingEdits}
                 >
                   Accept shown route &amp; download GPX
                 </button>
@@ -834,6 +1098,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                   type="button"
                   className="button button--primary"
                   onClick={() => onDownload("gpx", activeRoute.gpx)}
+                  disabled={exportBlockedByPendingEdits}
                 >
                   {editedRoute?.gpx ? "Download edited GPX" : "Download candidate GPX"}
                 </button>
@@ -843,11 +1108,63 @@ function ResultPanel({ result, onDownload, focusRef }) {
                   type="button"
                   className="button button--secondary"
                   onClick={() => onDownload("tcx", activeRoute.tcx)}
+                  disabled={exportBlockedByPendingEdits}
                 >
                   Download TCX
                 </button>
               )}
             </div>
+            {exportBlockedByPendingEdits && (
+              <p className="pending-edit-note" role="status">
+                Apply the moved points with “Update street route,” or discard them, before
+                downloading this route.
+              </p>
+            )}
+            {activeRoute.gallery_publish_token && !editedRoute && (
+              <div className="gallery-publish">
+                <div>
+                  <strong>Publish this street map anonymously</strong>
+                  <p>
+                    The PNG will show this exact mapped area, street names, route line, and
+                    OpenStreetMap attribution. No prompt, profile, or route file is attached.
+                  </p>
+                </div>
+                {!publishedAsset ? (
+                  <>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={galleryConsent}
+                        onChange={(event) => setGalleryConsent(event.target.checked)}
+                        disabled={galleryBusy}
+                      />
+                      I understand that this location and its street names will be public.
+                    </label>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={publishMapScreenshot}
+                      disabled={!canPublishGallery || !galleryConsent || galleryBusy}
+                    >
+                      {galleryBusy ? "Capturing and publishing…" : "Publish map screenshot"}
+                    </button>
+                  </>
+                ) : (
+                  <p className="gallery-publish-success" role="status">
+                    Published anonymously. <a href="#gallery">View it in the gallery</a>.
+                  </p>
+                )}
+                {galleryError && (
+                  <p className="gallery-publish-error" role="alert">
+                    {galleryError}
+                  </p>
+                )}
+                {!exportReady && (
+                  <small>Accept or verify this street-routed candidate before publishing.</small>
+                )}
+                {editing && <small>Finish the current map edit before publishing.</small>}
+              </div>
+            )}
             {!activeRoute.gpx && (
               <p className="export-unavailable">
                 The route service did not return enough geometry to build a GPX. Edit or
@@ -944,7 +1261,7 @@ function ResultPanel({ result, onDownload, focusRef }) {
                         <td data-label="Shape">{normaliseLabel(entry.shape_name)}</td>
                         <td data-label="Decision">
                           {entry.decision === "verified"
-                            ? "Verified"
+                            ? "Checks passed"
                             : entry.decision === "review"
                               ? "Review"
                               : "Other shape"}
@@ -979,6 +1296,8 @@ export default function App() {
   const [suggestSport, setSuggestSport] = useState("run");
   const [suggestDistance, setSuggestDistance] = useState("10");
   const [downloadNotice, setDownloadNotice] = useState("");
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+  const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
@@ -1073,6 +1392,10 @@ export default function App() {
             GPS Art <strong>Wizard</strong>
           </span>
         </a>
+        <nav aria-label="Primary navigation">
+          <a href="#route-designer">Create</a>
+          <a href="#gallery">Gallery</a>
+        </nav>
       </header>
 
       <main>
@@ -1278,8 +1601,20 @@ export default function App() {
         )}
 
         {result && (
-          <ResultPanel result={result} onDownload={handleDownload} focusRef={resultRef} />
+          <ResultPanel
+            result={result}
+            onDownload={handleDownload}
+            onGalleryPublished={(asset) => {
+              setLastPublishedGalleryAsset(asset);
+              setGalleryRefreshKey((current) => current + 1);
+            }}
+            focusRef={resultRef}
+          />
         )}
+        <GallerySection
+          refreshKey={galleryRefreshKey}
+          publishedAsset={lastPublishedGalleryAsset}
+        />
       </main>
 
       <footer>

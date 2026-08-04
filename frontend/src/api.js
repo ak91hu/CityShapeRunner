@@ -96,3 +96,29 @@ export function recordRouteAcceptance(payload, options = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+export function listGallery({ cursor = null, limit = 24, ...options } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return request(`/gallery?${params}`, { ...options, timeoutMs: 15_000 });
+}
+
+export function publishGalleryImage(payload, options = {}) {
+  return request("/gallery", {
+    ...options,
+    timeoutMs: 45_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function removeGalleryImage(payload, options = {}) {
+  return request("/gallery/delete", {
+    ...options,
+    timeoutMs: 15_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

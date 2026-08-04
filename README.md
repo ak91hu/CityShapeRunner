@@ -12,7 +12,7 @@
 Turn a run or ride into a drawing. Describe an idea—or choose one of 32 quick
 starts—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
-route is before enabling a download.
+route is before offering an immediate download or asking for explicit review.
 
 The project combines 33 deterministic shape templates, a complete A–Z/0–9
 vector font, curated Hungarian city profiles, optional LLM planning,
@@ -58,16 +58,44 @@ labelled human-recognition tests. See the
 [research notes](docs/gps-art-research.md) for the full evidence-to-algorithm
 mapping and production funnel.
 
+## Understanding and editing results
+
+The candidate selector keeps every fully routed result for the final chosen
+shape. Routes that pass every automatic check appear first; a larger average
+score cannot outrank a route that passes all of the independent recognition,
+road, distance, and closure checks. Attempts for a different suggested shape
+remain in the audit summary instead of being mixed into that selector.
+
+“Automatic checks passed” means only that the route met the application's
+documented engineering thresholds. It is not scientific proof of
+recognisability, legality, accessibility, or safety. A route that misses a
+target remains selectable and exportable after the user reviews and explicitly
+accepts that exact geometry. A straight-line guide returned without road
+routing follows the same review path and is clearly marked as not road-routed.
+
 The built-in Leaflet editor exposes numbered draggable control points for every
 candidate. After a correction, `/edit-route` routes the guide through the
 activity-specific street graph again, recalculates quality and distance, and
 returns a new GPX/TCX. If road routing is unavailable, the edited guide is
-still exportable with a prominent manual-review warning.
+still exportable with a prominent manual-review warning. Moving a point marks
+the editor as having pending changes and disables downloads until the user
+updates the street route or discards those changes; closing an unchanged editor
+does not imply that anything was discarded.
 
 Structured JSON logs are written to the console and, by default, to the
 rotating `logs/gps-art-wizard.log`. Every HTTP request receives an
 `X-Request-ID`, allowing UI reports, API failures, candidate measurements, and
 provider errors to be correlated without logging API keys or the prompt text.
+
+An optional anonymous gallery captures the already-rendered Leaflet map as a
+PNG, retaining street names, the route overlay, and visible OpenStreetMap
+attribution. Signed server-side Cloudinary uploads and Cloudinary asset search
+provide storage and listing without a gallery database. Publishing is opt-in
+because the exact mapped location becomes public; gallery uploads never include
+the prompt, request ID, GPX/TCX document, or user profile. Configure the
+server-only `CLOUDINARY_URL` to enable it. The browser stores only the matching
+removal capability for images published from that browser; failure to retain
+that local token does not turn a successful upload into a failed publication.
 On Northflank, the production image writes only to the captured console stream.
 The platform's native Loki log sink forwards that stream to Grafana Cloud,
 where entries can be searched by request ID, event, severity, environment, or

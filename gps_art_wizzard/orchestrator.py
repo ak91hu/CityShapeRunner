@@ -260,7 +260,7 @@ class Orchestrator:
             return
 
         # Keep an explicitly selected drawing even when one automatic
-        # benchmark misses. The scientific report still identifies the weak
+        # benchmark misses. The automatic report still identifies the weak
         # components, but the user—not a simpler fallback template—decides
         # whether the measured route is recognisable enough to accept.
         if not source_substitution:

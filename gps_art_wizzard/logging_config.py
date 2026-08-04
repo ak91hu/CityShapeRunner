@@ -86,6 +86,7 @@ class _JsonFormatter(logging.Formatter):
         "preflight_score",
         "export_mode",
         "generation_request_id",
+        "gallery_id",
     )
 
     def format(self, record: logging.LogRecord) -> str:

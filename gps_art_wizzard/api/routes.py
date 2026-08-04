@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field, field_validator
 from ..agents.validation_agent import ValidationAgent
 from ..logging_config import current_request_id
 from ..orchestrator import generate
-from ..quality import quality_gate_report
-from ..state import Intent, RouteDraft, Shape, SnappedRoute, WorkflowState
-from ..tools import geo, gpx_writer, ors_client, shape_similarity
+from ..quality import quality_bottleneck, quality_gate_report
+from ..state import EvaluatedCandidate, Intent, RouteDraft, Shape, SnappedRoute, WorkflowState
+from ..tools import cloudinary_gallery, geo, gpx_writer, ors_client, shape_similarity
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ class GenerateResponse(BaseModel):
     preflight_candidates: list[dict] = Field(default_factory=list)
     route_verification: dict | None = None
     route_details: dict | None = None
+    gallery_publish_token: str | None = None
 
 
 class EditedRouteRequest(BaseModel):
@@ -124,7 +125,11 @@ class RouteAcceptanceRequest(BaseModel):
     generation_request_id: str | None = Field(default=None, max_length=80)
     route_id: str = Field(..., min_length=1, max_length=80)
     shape_name: str = Field(..., min_length=1, max_length=80)
-    scientifically_verified: bool = False
+    automatic_checks_passed: bool = False
+    scientifically_verified: bool | None = Field(
+        default=None,
+        description="Deprecated compatibility field; use automatic_checks_passed.",
+    )
     snapped: bool = False
     failed_gates: list[str] = Field(default_factory=list, max_length=20)
     score: float | None = Field(default=None, ge=0, le=1)
@@ -144,6 +149,12 @@ class RouteAcceptanceRequest(BaseModel):
     def normalise_failed_gates(cls, value: list[str]) -> list[str]:
         return [" ".join(item.split())[:80] for item in value if item.strip()]
 
+    @property
+    def checks_passed(self) -> bool:
+        """Return the current flag while accepting older UI payloads."""
+
+        return self.automatic_checks_passed or bool(self.scientifically_verified)
+
 
 _MAX_PREVIEW_POINTS = 500
 
@@ -158,6 +169,37 @@ def _even_sample(points: list, n: int) -> list:
         return [points[0]]
     indices = [round(index * (len(points) - 1) / (n - 1)) for index in range(n)]
     return [points[i] for i in indices]
+
+
+def _candidate_response_rank(
+    candidate: EvaluatedCandidate,
+    selected_shape: str | None,
+) -> tuple[bool, bool, bool, float, float, float]:
+    """Rank routes by the same independent gates shown to the user.
+
+    Aggregate score is intentionally only a late tie-breaker. Otherwise a
+    high average can put a route with one failed recognition gate ahead of a
+    route that satisfies every required check.
+    """
+
+    selected_shape_match = bool(
+        selected_shape
+        and candidate.shape_name.casefold() == selected_shape.casefold()
+    )
+    report = quality_gate_report(
+        candidate.validation,
+        closed=candidate.closed,
+        candidate_shape=candidate.shape_name,
+        selected_shape=selected_shape,
+    )
+    return (
+        selected_shape_match,
+        bool(report["passed"]),
+        bool(candidate.validation.on_roads),
+        quality_bottleneck(candidate.validation, closed=candidate.closed),
+        candidate.validation.score,
+        candidate.validation.shape_fidelity,
+    )
 
 
 def _route_details(
@@ -230,12 +272,7 @@ def _state_to_response(state) -> dict:
     sport = state.intent.sport if state.intent else "run"
     ranked_candidates = sorted(
         enumerate(state.candidates, start=1),
-        key=lambda item: (
-            item[1].validation.on_roads,
-            item[1].validation.score,
-            item[1].validation.shape_fidelity,
-            item[1].validation.distance_fit,
-        ),
+        key=lambda item: _candidate_response_rank(item[1], selected_shape),
         reverse=True,
     )
     candidates = []
@@ -396,6 +433,11 @@ def _state_to_response(state) -> dict:
                 "transform": transform,
                 "gpx": candidate_gpx,
                 "tcx": candidate_tcx,
+                "gallery_publish_token": (
+                    cloudinary_gallery.maybe_issue_publish_token()
+                    if candidate.snapped
+                    else None
+                ),
             }
         )
 
@@ -451,7 +493,7 @@ def _state_to_response(state) -> dict:
     log.info(
         (
             "Route response prepared for selected shape %s: showing %d route(s), "
-            "%d scientifically verified, %d available for user review, "
+            "%d passed automatic checks, %d available for user review, "
             "%d other-shape attempt(s) kept only in the audit."
         ),
         selected_shape or "unknown",
@@ -505,12 +547,22 @@ def _state_to_response(state) -> dict:
         preflight_candidates=state.preflight_candidates,
         route_verification=route_verification,
         route_details=route_details,
+        gallery_publish_token=(
+            cloudinary_gallery.maybe_issue_publish_token()
+            if snapped and snapped.snapped
+            else None
+        ),
     )
 
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "GPS Art Wizard", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "service": "GPS Art Wizard",
+        "version": "0.1.0",
+        "gallery": {"configured": cloudinary_gallery.is_configured()},
+    }
 
 
 @router.post("/route-acceptance")
@@ -537,7 +589,7 @@ def record_route_acceptance(req: RouteAcceptanceRequest) -> dict:
         ),
         req.route_id,
         req.shape_name,
-        "yes" if req.scientifically_verified else "no",
+        "yes" if req.checks_passed else "no",
         "yes" if req.snapped else "no",
         score_text,
         fidelity_text,
@@ -549,7 +601,7 @@ def record_route_acceptance(req: RouteAcceptanceRequest) -> dict:
             "candidate_id": req.route_id,
             "shape": req.shape_name,
             "decision": "user_accepted",
-            "verified": req.scientifically_verified,
+            "verified": req.checks_passed,
             "snapped": req.snapped,
             "failed_gates": req.failed_gates,
             "score": req.score,
