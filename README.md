@@ -9,13 +9,13 @@
 [![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
 [![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
-Turn a run or ride into a drawing. Describe an idea—or choose one of 32 quick
-starts—and GPS Art Wizard tests the outline against real streets, compares
+Turn a run or ride into a drawing. Describe an idea—or choose from 86 catalog
+options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
-The project combines 33 deterministic shape templates, a complete A–Z/0–9
-vector font, curated Hungarian city profiles, optional LLM planning,
+The project combines 73 deterministic shape templates, a complete A–Z/0–9
+vector font, local profiles for 50 Hungarian and 30 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
 GPX/TCX export. Every fully routed result is retained as a selectable candidate.
 Quality thresholds rank and warn instead of deleting a route, so lower-scoring
@@ -29,8 +29,9 @@ preflight score remains in the diagnostics. Eighteen curvature-preserving
 guide points per placement improve the proxy without adding Directions calls.
 
 Recognition is evaluated from outline coverage, characteristic turns,
-street-detour stretch, and preserved proportions—not only average point
-distance. The map overlays the intended dashed contour on the routed line. If
+salient tips and notches, unintended U-turns, street-detour stretch, and
+preserved proportions—not only average point distance. The map overlays the
+intended dashed contour on the routed line. If
 an explicitly requested drawing misses a recommended target, the planner
 measures simpler city-aware templates and recommends the strongest result
 without removing the original.
@@ -44,10 +45,12 @@ to operations available through the hosted OpenRouteService API.
 
 | Research finding | Consequence in GPS Art Wizard |
 |---|---|
-| Ordinary waypoint routers can turn off-network drawing points into large detours or visually destructive turns; GPS art benefits from a shape-aware graph cost ([Waschk & Krüger, 2019](https://doi.org/10.1007/s41095-019-0146-z)). | Placements are screened before Directions routing, curvature-bearing guide points are preserved, and the complete returned street polyline is measured against the intended outline. |
+| Ordinary waypoint routers can turn off-network drawing points into large detours or visually destructive U-turns; GPS art benefits from a shape-aware graph cost ([Waschk & Krüger, 2019](https://doi.org/10.1007/s41095-019-0146-z)). | Placements are screened before Directions routing, curvature-bearing guide points are preserved, and a separate gate rejects doubled-back strokes absent from the drawing. |
 | Template placement, graph search, candidate comparison, and interactive adjustment are complementary stages rather than one routing call ([Powałka, 2023](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad)). | A city-wide transform search produces several routed alternatives, while the browser editor lets the user correct control points and request a fresh route. |
 | Turning functions compare polygonal shape in a way that can be normalised for translation, rotation, and scale ([Arkin et al., 1991](https://doi.org/10.1109/34.75509)). | Characteristic turns and their order contribute to recognition; mean point distance is never the sole likeness measure. |
 | Turning angles, approximate road polylines, and internal length ratios help retrieve recognisable graphics and reject stretched lookalikes in road networks ([Li & Fu, 2026](https://doi.org/10.3390/ijgi15030098)). | Preflight and final validation score angular relations, extent, segment proportions, coverage, and collapse instead of accepting nearest-road distance alone. |
+| European street networks vary substantially in orientation order, connectivity, segment length, and circuity ([Boeing, 2019](https://doi.org/10.1007/s41109-019-0189-1)). | Every catalogued city has a bounded local search area and obstacle-aware context; the transform search measures several positions and bearings rather than labelling an entire city “grid-like”. |
+| Walkable and drivable networks can differ materially in circuity even within one city ([Boeing, 2017](https://arxiv.org/abs/1708.00836)). | Shape detail capacity is calculated separately for running and cycling and is combined with requested distance rather than treating activity as a display label. |
 | Useful alternative sets must control overlap, or a top-*k* list can contain near-duplicates ([Nassir et al., 2014](https://doi.org/10.3141/2430-18)). | The seven expensive routing slots balance proxy quality with separation in position, rotation, and scale. |
 | Map matching requires plausible transitions and sequence continuity, not only independent nearest points ([Newson & Krumm, 2009](https://doi.org/10.1145/1653771.1653818); [Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Batched snapping is treated only as a cheap proxy. Guides are submitted to activity-specific Directions routing and whole-curve validation before they are labelled road-routed; a failed routing attempt remains an explicit manual-review fallback. |
 
@@ -109,21 +112,48 @@ queries, and the operational troubleshooting checklist.
 
 ## Quick ideas
 
-The web app keeps 12 simple, street-friendly starters beside the prompt and
-places the full 32-idea catalog in a collapsible browser:
+The web app keeps six common starters beside the prompt and places a searchable
+86-option catalog behind “More shapes, letters, and numbers”. It contains 73
+deterministic route templates plus 13 letter, number, and short-text presets:
 
-- **Simple shapes:** heart, star, circle, diamond, triangle, square, infinity,
-  arrow, cross, lightning, wave, and moon
-- **Nature:** flower, tree, mountain, and butterfly
-- **Animals:** cat and dog
-- **Symbols:** crown
+- **Simple shapes (19):** heart, star, circle, diamond, triangle, square,
+  infinity, arrow, cross, lightning, wave, moon, hexagon, octagon, teardrop,
+  shield, clover, spiral, and hourglass
+- **Nature (16):** flower, tree, mountain, butterfly, sun, leaf, pine tree,
+  mushroom, cloud, snowflake, cactus, apple, pear, tulip, flame, and maple leaf
+- **Animals (19):** cat, dog, fish, bird, rabbit, horse, dolphin, dragon,
+  turtle, whale, shark, fox, owl, duck, snail, elephant, bat, bear, and penguin
+- **Objects (14):** anchor, key, mug, musical note, sailboat, house, rocket,
+  airplane, car, umbrella, bell, guitar, castle, and trophy
+- **Symbols (5):** crown, skull, DNA helix, speech bubble, and location pin
 - **Letters, numbers, and text:** A, C, L, M, N, S, U, V, Z, 2, 7, 42,
   and GPS
 
-These presets favour continuous outlines, clear silhouettes, compact distances,
-and cities whose curated route profiles are likely to offer a useful street
-grid. They are starting points rather than guarantees: the result still depends
-on the local street network, access rules, and route-provider coverage.
+The new complex templates are single continuous silhouettes wherever possible,
+preserve recognisable high-curvature landmarks, and use longer cycling starts
+when their detail needs more road-network resolution. They are starting points,
+not guarantees: the result still depends on local connectivity, access rules,
+and route-provider coverage.
+
+The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
+settlements](https://www.ksh.hu/stadat_files/fol/en/fol0014.html). Each resolves locally without a public-geocoder call and has a
+bounded urban search area; obstacle descriptions guide the first placement,
+while measured preflight and Directions routing remain authoritative.
+
+An additional Europe group contains 30 regionally balanced cities covered by
+the [Eurostat city-statistics framework](https://ec.europa.eu/eurostat/web/cities/methodology):
+London, Paris, Berlin, Madrid, Rome, Barcelona, Vienna, Amsterdam, Prague,
+Brussels, Copenhagen, Stockholm, Oslo, Helsinki, Warsaw, Kraków, Bratislava,
+Ljubljana, Zagreb, Bucharest, Sofia, Athens, Dublin, Munich, Milan, Lisbon,
+Porto, Zurich, Tallinn, and Riga. These are locally resolved profiles, not a
+claim that every neighbourhood is suitable for every drawing.
+
+Smart suggestions no longer use a fixed city mascot. The planner measures all
+73 route templates, combines their continuity, turning complexity, directional
+order, aspect ratio, and routeability with the selected city's street context,
+activity, and distance, then sends three diverse continuous shapes through the
+real placement and routing checks. The result explains why the winning shape
+was shortlisted. See the [city–shape recommendation audit](docs/city-shape-recommendations.md).
 
 ```bash
 python -m venv .venv

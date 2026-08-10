@@ -55,8 +55,9 @@ test("route-check details reveal every automatic gate and explanation", async ({
   await openGeneratedRoute(page);
   await page.locator(".verification-heading").click();
 
-  await expect(page.locator(".gate-list > li")).toHaveCount(12);
+  await expect(page.locator(".gate-list > li")).toHaveCount(13);
   await expect(page.getByText("Line order", { exact: true })).toBeVisible();
+  await expect(page.getByText("No doubled-back lines", { exact: true })).toBeVisible();
   await expect(page.getByText("Returns to the start", { exact: true })).toBeVisible();
   await expect(page.getByText(/Higher scores mean a closer match/)).toBeVisible();
 });
@@ -111,9 +112,17 @@ test("route issues are deduplicated in the route issues disclosure", async ({ pa
 });
 
 test("suggested generations explain which shape the planner selected", async ({ page }) => {
-  await openGeneratedRoute(page, buildRouteResult({ suggested_shape: "diamond" }));
+  await openGeneratedRoute(
+    page,
+    buildRouteResult({
+      suggested_shape: "diamond",
+      suggestion_reason:
+        "For running, it aligns with the ordered street bearings and stays on one continuous stroke.",
+    }),
+  );
 
   const notice = page.locator(".notice--info");
   await expect(notice).toContainText("Suggested shape");
   await expect(notice).toContainText("Diamond");
+  await expect(notice).toContainText("aligns with the ordered street bearings");
 });

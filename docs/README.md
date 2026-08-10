@@ -1,7 +1,7 @@
 # GPS Art Wizard
 
-Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 32 preset
-shapes, or enter a city, activity, and distance. The planner creates and places
+Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 86 catalog
+options, or enter a city, activity, and distance. The planner creates and places
 the outline, routes it over streets, measures the match, and retains every fully
 routed candidate. Candidates that pass all independent shape, street, distance,
 and closure checks rank first and download immediately. Other candidates require
@@ -13,31 +13,53 @@ For a city-based suggestion, enter:
 context to choose a template, placement, and orientation likely to fit the
 street network.
 
+The choice is computed from the full 73-template registry rather than a fixed
+city-to-symbol table. Shape continuity, turns, directional order, proportions,
+and detail are scored against city grid/connectivity, barriers, terrain,
+activity, and requested distance. Up to three diverse continuous templates are
+then measured on the actual route graph. The result includes a concise reason;
+the full method and coverage groups are in
+[City-aware shape recommendations](city-shape-recommendations.md).
+
 ## Quick-idea catalog
 
-The planner shows 12 common shapes first and keeps the full 32-option catalog
-behind “More shapes, letters, and numbers” so the prompt remains the primary
-control.
-Every preset uses a deterministic template or the built-in vector font:
+The planner shows six common shapes first and keeps the full searchable
+86-option catalog behind “More shapes, letters, and numbers” so the prompt
+remains the primary control. The catalog combines 73 deterministic route
+templates with 13 built-in vector-font presets:
 
 | Group | Ideas |
 |---|---|
-| Simple shapes | Heart, star, circle, diamond, triangle, square, infinity, arrow, cross, lightning, wave, moon |
-| Nature | Flower, tree, mountain, butterfly |
-| Animals | Cat, dog |
-| Symbols | Crown |
+| Simple shapes | Heart, star, circle, diamond, triangle, square, infinity, arrow, cross, lightning, wave, moon, hexagon, octagon, teardrop, shield, clover, spiral, hourglass |
+| Nature | Flower, tree, mountain, butterfly, sun, leaf, pine tree, mushroom, cloud, snowflake, cactus, apple, pear, tulip, flame, maple leaf |
+| Animals | Cat, dog, fish, bird, rabbit, horse, dolphin, dragon, turtle, whale, shark, fox, owl, duck, snail, elephant, bat, bear, penguin |
+| Objects | Anchor, key, mug, musical note, sailboat, house, rocket, airplane, car, umbrella, bell, guitar, castle, trophy |
+| Symbols | Crown, skull, DNA helix, speech bubble, location pin |
 | Letters, numbers & text | A, C, L, M, N, S, U, V, Z, 2, 7, 42, GPS |
 
 The selected city and distance in each preset are conservative starting points.
-The catalog deliberately favours one-stroke or closed outlines; fragile
-multi-part icons are omitted because routing the gaps can overwhelm their
-silhouette. Multi-character text is reserved for a longer cycling preset.
+Complex templates use one continuous silhouette wherever possible, retain
+their most informative corners and notches, and start at longer distances when
+their detail needs more streets. Multi-character text uses a longer cycling
+preset.
 
-The local Hungarian route catalogue includes Budapest, Debrecen, Szeged,
-Miskolc, Pécs, Győr, Nyíregyháza, Kecskemét, Székesfehérvár, Szombathely,
-Veszprém, Zalaegerszeg, Eger, Sopron, Tatabánya, Kaposvár, Szekszárd,
-Békéscsaba, Cegléd, Siófok, and Keszthely. Each has an activity-specific,
-city-tailored suggestion instead of a global circle/star fallback.
+The structured city picker covers the 50 largest Hungarian settlements in the
+[KSH 2025 population table](https://www.ksh.hu/stadat_files/fol/en/fol0014.html).
+All 50 resolve from the local route catalogue without a public Nominatim call.
+The 12 newly completed profiles are Érd, Szolnok, Szigetszentmiklós, Ózd,
+Hajdúböszörmény, Budaörs, Kiskunfélegyháza, Ajka, Szentes, Gyál, Dunaharaszti,
+and Tata. Each profile constrains the city-wide search and describes major
+water, terrain, or infrastructure barriers; measured road-network checks still
+decide which placement is usable.
+
+The separate Europe group adds 30 regionally balanced cities from the
+[Eurostat city-statistics coverage](https://ec.europa.eu/eurostat/web/cities/methodology):
+London, Paris, Berlin, Madrid, Rome, Barcelona, Vienna, Amsterdam, Prague,
+Brussels, Copenhagen, Stockholm, Oslo, Helsinki, Warsaw, Kraków, Bratislava,
+Ljubljana, Zagreb, Bucharest, Sofia, Athens, Dublin, Munich, Milan, Lisbon,
+Porto, Zurich, Tallinn, and Riga. Every city resolves locally and has an
+obstacle-aware placement context. The list is a reproducible product-coverage
+sample, not a population ranking or a guarantee of route suitability.
 
 The interaction model was informed by [drawmyloop.com](https://drawmyloop.com/en).
 GPS Art Wizard automates initial placement and keeps manual route-point editing
@@ -60,10 +82,11 @@ uses the following evidence-to-design mapping:
 
 | Evidence | Result used by the application | Implementation boundary |
 |---|---|---|
-| [Waschk and Krüger's automatic GPS-art planner](https://doi.org/10.1007/s41095-019-0146-z) shows that off-the-shelf routing can create large detours when drawing points lie off-grid, and proposes a graph cost that balances endpoint progress, path length, and distance from the intended segment. | Prefer a road-compatible placement before spending full route calls; then penalise detour stretch and deviation over the returned curve. | Hosted ORS does not expose the paper's custom edge cost. Preflight snapping plus post-route scoring is an approximation, not the same optimiser. |
+| [Waschk and Krüger's automatic GPS-art planner](https://doi.org/10.1007/s41095-019-0146-z) shows that off-the-shelf routing can create large detours and repeated U-turns when drawing points lie off-grid, and proposes a graph cost that balances endpoint progress, path length, and distance from the intended segment. | Prefer a road-compatible placement before spending full route calls; then independently reject unintended doubled-back strokes as well as detour stretch and deviation. | Hosted ORS does not expose the paper's custom edge cost. Preflight snapping plus post-route scoring is an approximation, not the same optimiser. |
 | [Powałka's shape-guided route-finding thesis](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad) separates template placement from graph routing, generates and ranks alternatives, and demonstrates move/rotate/scale interaction with route feedback. | Search a broad transform space, preserve multiple candidates, and keep a human correction loop in the product. | Automatic search uses a bounded discrete sample—up to 180 transforms and seven full routes—rather than an exhaustive city graph search. |
 | [Arkin et al.](https://doi.org/10.1109/34.75509) compare polygonal shapes through turning functions that can be normalised across translation, rotation, and scale; [Feldman and Singh](https://doi.org/10.1037/0033-295X.112.1.243) show why high-curvature and concave contour regions carry disproportionate information. | Measure characteristic turns and multiscale salient corners/notches/tips in addition to shared-frame point similarity. | These are components, not substitutes for geographic displacement, access, distance, or safety checks. |
 | [Li and Fu](https://doi.org/10.3390/ijgi15030098) model road graphics with invariant turning angles and length ratios. Their experiments show that approximate line segments improve retrieval and that removing length-ratio constraints admits visibly deformed matches. | Preserve corners during guide-point reduction and score angular relations, extent, relative lengths, coverage, and collapse. | The app searches transformed templates and consumes ORS routes; it does not run the paper's road-network subgraph-retrieval algorithm. |
+| [Boeing](https://doi.org/10.1007/s41109-019-0189-1) measures substantial differences in street orientation, connectivity, circuity, and segment structure across cities. | Give every supported European city its own search bounds and barrier context, then test multiple rotations and placements. | City-level morphology does not prove neighbourhood- or activity-specific routability; preflight and Directions remain authoritative. |
 | [Nassir et al.](https://doi.org/10.3141/2430-18) treat overlap explicitly when constructing useful alternative-route choice sets. | Diversify the shortlist in transform space so scarce Directions calls cover distinct positions, orientations, and scales instead of near-duplicates. | Transform diversity is a proxy for route diversity; final candidates can still share streets where the network has few alternatives. |
 | [Newson and Krumm](https://doi.org/10.1145/1653771.1653818) show that map matching must combine observation distance with plausible network transitions; pedestrian Fréchet work likewise emphasises ordered curve continuity ([Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Treat nearest-edge snapping as non-authoritative and submit every edited guide to the activity profile before recomputing quality; only a successful Directions result is labelled road-routed. | ORS Directions establishes a connected routable result for its graph snapshot, but does not guarantee current legal access, surface quality, or personal safety. |
 
@@ -71,7 +94,7 @@ The resulting funnel is deliberately coarse-to-fine: up to 180 transforms are
 reduced to curvature-preserving 18-point guides for one batched snap request;
 a quality-and-diversity rule selects seven full Directions candidates; every
 returned route is then evaluated using coverage, characteristic turns,
-salient curvature landmarks, proportions, distance, closure, and road-routing
+salient curvature landmarks, extra reversal events, proportions, distance, closure, and road-routing
 evidence. A failed component cannot be hidden by the aggregate score. Weak
 final-shape attempts remain selectable for comparison and correction;
 different-shape attempts remain counted—with their failed gates—in the
@@ -88,11 +111,11 @@ funnel, and the distinction between snapping and routing are documented in
 |-------|----------------|
 | **IntentAgent** | Parse the natural-language prompt into a structured intent (shape, city, sport, distance, text, suggest). Known template/text requests take a deterministic no-network fast path. |
 | **PlanningAgent** | Resolve supported cities from the local route database, study curated geography, and commit street-grid rotation, safe offsets, and a distinct city/activity suggestion. |
-| **ShapeAgent** | Turn the intent into a 2D polyline — 33 templates, a complete A–Z/0–9 vector font, short text outlines, or bounded LLM-drawn geometry. |
+| **ShapeAgent** | Turn the intent into a 2D polyline — 73 templates, a complete A–Z/0–9 vector font, short text outlines, or bounded LLM-drawn geometry. |
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
 | **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
-| **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
+| **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks and unintended reversal events—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
 | **RefinementAgent** | Consume the road-fit-ranked shortlist first, then bracket non-linear distance corrections and use local measured transforms only after the shortlist is exhausted. |
 | **ExportAgent** | Serialise the full selected-shape geometry. Routes that pass every automatic check download immediately; below-target routes require explicit user acceptance after reviewing the measurements. |
 
@@ -287,7 +310,9 @@ docs/          project, architecture, deployment, and agent-skill documentation
 ```
 
 See [AGENTS.md](AGENTS.md), [architecture.md](architecture.md),
-[gps-art-research.md](gps-art-research.md), [ui-ux-rationale.md](ui-ux-rationale.md),
+[gps-art-research.md](gps-art-research.md),
+[city-shape-recommendations.md](city-shape-recommendations.md),
+[ui-ux-rationale.md](ui-ux-rationale.md),
 [deployment.md](deployment.md), and
 the [2026-07-30 lessons learned](2026-07-30-lessons-learned.md) for the full
 design, research basis, operating model, measured production incidents, and

@@ -64,6 +64,7 @@ class GenerateResponse(BaseModel):
     intent: dict | None
     shape: dict | None
     suggested_shape: str | None = None
+    suggestion_reason: str | None = None
     requested_shape: str | None = None
     fit_decision: dict | None = None
     validation: dict | None
@@ -543,6 +544,11 @@ def _state_to_response(state) -> dict:
             if state.shape else None
         ),
         suggested_shape=state.plan.suggested_shape if state.plan else None,
+        suggestion_reason=(
+            state.plan.notes
+            if state.plan and state.plan.suggested_shape
+            else None
+        ),
         requested_shape=state.requested_shape,
         fit_decision=state.fit_decision.__dict__ if state.fit_decision else None,
         validation=state.validation.__dict__ if state.validation else None,

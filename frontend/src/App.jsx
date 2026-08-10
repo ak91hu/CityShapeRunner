@@ -24,13 +24,67 @@ const QUICK_IDEAS = [
   { glyph: "ϟ", label: "Lightning", category: "Simple shapes", featured: true, prompt: "a lightning run in Cegléd, about 8 km" },
   { glyph: "∿", label: "Wave", category: "Simple shapes", featured: true, prompt: "a wave run in Siófok, about 8 km" },
   { glyph: "☾", label: "Moon", category: "Simple shapes", featured: true, prompt: "a moon run in Kecskemét, about 8 km" },
+  { glyph: "⬡", label: "Hexagon", category: "Simple shapes", prompt: "a hexagon run in Győr, about 8 km" },
+  { glyph: "8", label: "Octagon", category: "Simple shapes", prompt: "an octagon run in Kecskemét, about 10 km" },
+  { glyph: "◒", label: "Teardrop", category: "Simple shapes", prompt: "a teardrop run in Szeged, about 10 km" },
+  { glyph: "◈", label: "Shield", category: "Simple shapes", prompt: "a shield run in Debrecen, about 12 km" },
+  { glyph: "♧", label: "Clover", category: "Simple shapes", prompt: "a clover run in Szombathely, about 12 km" },
+  { glyph: "◎", label: "Spiral", category: "Simple shapes", prompt: "a spiral bike route in Budapest, about 20 km" },
+  { glyph: "⧖", label: "Hourglass", category: "Simple shapes", prompt: "an hourglass run in Nyíregyháza, about 12 km" },
   { glyph: "✿", label: "Flower", category: "Nature", prompt: "a flower run in Debrecen, about 12 km" },
   { glyph: "♣", label: "Tree", category: "Nature", prompt: "a tree run in Tatabánya, about 10 km" },
   { glyph: "⌃", label: "Mountain", category: "Nature", prompt: "a mountain run in Miskolc, about 10 km" },
   { glyph: "Ƹ", label: "Butterfly", category: "Nature", prompt: "a butterfly run in Kecskemét, about 10 km" },
+  { glyph: "☀", label: "Sun", category: "Nature", prompt: "a sun bike route in Debrecen, about 20 km" },
+  { glyph: "◜", label: "Leaf", category: "Nature", prompt: "a leaf run in Eger, about 10 km" },
+  { glyph: "♠", label: "Pine tree", category: "Nature", prompt: "a pine tree run in Sopron, about 12 km" },
+  { glyph: "◠", label: "Mushroom", category: "Nature", prompt: "a mushroom run in Tatabánya, about 12 km" },
+  { glyph: "☁", label: "Cloud", category: "Nature", prompt: "a cloud run in Győr, about 10 km" },
+  { glyph: "❄", label: "Snowflake", category: "Nature", prompt: "a snowflake bike route in Debrecen, about 24 km" },
+  { glyph: "Ψ", label: "Cactus", category: "Nature", prompt: "a cactus run in Szeged, about 12 km" },
+  { glyph: "●", label: "Apple", category: "Nature", prompt: "an apple run in Kecskemét, about 10 km" },
+  { glyph: "◐", label: "Pear", category: "Nature", prompt: "a pear run in Eger, about 10 km" },
+  { glyph: "♤", label: "Tulip", category: "Nature", prompt: "a tulip run in Debrecen, about 12 km" },
+  { glyph: "♨", label: "Flame", category: "Nature", prompt: "a flame run in Cegléd, about 12 km" },
+  { glyph: "✣", label: "Maple leaf", category: "Nature", prompt: "a maple leaf bike route in Budapest, about 24 km" },
   { glyph: "⌃", label: "Cat", category: "Animals", prompt: "a cat run in Tatabánya, about 10 km" },
   { glyph: "⌁", label: "Dog", category: "Animals", prompt: "a dog run in Tatabánya, about 10 km" },
+  { glyph: "≈", label: "Fish", category: "Animals", prompt: "a fish run in Siófok, about 12 km" },
+  { glyph: "⌁", label: "Bird", category: "Animals", prompt: "a bird run in Szeged, about 12 km" },
+  { glyph: "◠", label: "Rabbit", category: "Animals", prompt: "a rabbit bike route in Kecskemét, about 20 km" },
+  { glyph: "♞", label: "Horse", category: "Animals", prompt: "a horse bike route in Debrecen, about 22 km" },
+  { glyph: "∽", label: "Dolphin", category: "Animals", prompt: "a dolphin bike route in Siófok, about 20 km" },
+  { glyph: "ϟ", label: "Dragon", category: "Animals", prompt: "a dragon bike route in Budapest, about 28 km" },
+  { glyph: "◉", label: "Turtle", category: "Animals", prompt: "a turtle run in Keszthely, about 14 km" },
+  { glyph: "≋", label: "Whale", category: "Animals", prompt: "a whale bike route in Siófok, about 22 km" },
+  { glyph: "▶", label: "Shark", category: "Animals", prompt: "a shark bike route in Szeged, about 22 km" },
+  { glyph: "⋏", label: "Fox", category: "Animals", prompt: "a fox run in Sopron, about 14 km" },
+  { glyph: "◉", label: "Owl", category: "Animals", prompt: "an owl run in Eger, about 14 km" },
+  { glyph: "≈", label: "Duck", category: "Animals", prompt: "a duck run in Keszthely, about 12 km" },
+  { glyph: "@", label: "Snail", category: "Animals", prompt: "a snail run in Győr, about 12 km" },
+  { glyph: "Ɛ", label: "Elephant", category: "Animals", prompt: "an elephant bike route in Budapest, about 26 km" },
+  { glyph: "⌁", label: "Bat", category: "Animals", prompt: "a bat run in Miskolc, about 14 km" },
+  { glyph: "◉", label: "Bear", category: "Animals", prompt: "a bear run in Tatabánya, about 14 km" },
+  { glyph: "◒", label: "Penguin", category: "Animals", prompt: "a penguin run in Szombathely, about 14 km" },
+  { glyph: "⚓", label: "Anchor", category: "Objects", prompt: "an anchor bike route in Siófok, about 22 km" },
+  { glyph: "⚿", label: "Key", category: "Objects", prompt: "a key bike route in Győr, about 18 km" },
+  { glyph: "▣", label: "Mug", category: "Objects", prompt: "a mug bike route in Budapest, about 20 km" },
+  { glyph: "♪", label: "Musical note", category: "Objects", prompt: "a musical note bike route in Szeged, about 18 km" },
+  { glyph: "⛵", label: "Sailboat", category: "Objects", prompt: "a sailboat bike route in Siófok, about 24 km" },
+  { glyph: "⌂", label: "House", category: "Objects", prompt: "a house run in Kecskemét, about 12 km" },
+  { glyph: "↑", label: "Rocket", category: "Objects", prompt: "a rocket bike route in Debrecen, about 22 km" },
+  { glyph: "✈", label: "Airplane", category: "Objects", prompt: "an airplane bike route in Budapest, about 24 km" },
+  { glyph: "▰", label: "Car", category: "Objects", prompt: "a car run in Győr, about 14 km" },
+  { glyph: "☂", label: "Umbrella", category: "Objects", prompt: "an umbrella run in Szeged, about 14 km" },
+  { glyph: "◇", label: "Bell", category: "Objects", prompt: "a bell run in Eger, about 12 km" },
+  { glyph: "♫", label: "Guitar", category: "Objects", prompt: "a guitar bike route in Budapest, about 24 km" },
+  { glyph: "♜", label: "Castle", category: "Objects", prompt: "a castle bike route in Székesfehérvár, about 24 km" },
+  { glyph: "♕", label: "Trophy", category: "Objects", prompt: "a trophy bike route in Debrecen, about 22 km" },
   { glyph: "♛", label: "Crown", category: "Symbols", prompt: "a crown run in Székesfehérvár, about 10 km" },
+  { glyph: "☠", label: "Skull", category: "Symbols", prompt: "a skull bike route in Miskolc, about 22 km" },
+  { glyph: "≋", label: "DNA helix", category: "Symbols", prompt: "a DNA helix bike route in Budapest, about 25 km" },
+  { glyph: "◰", label: "Speech bubble", category: "Symbols", prompt: "a speech bubble run in Debrecen, about 12 km" },
+  { glyph: "⌖", label: "Location pin", category: "Symbols", prompt: "a location pin run in Győr, about 12 km" },
   { glyph: "A", label: "Letter A", category: "Letters, numbers & text", prompt: "draw the letter A while running in Miskolc, about 10 km" },
   { glyph: "C", label: "Letter C", category: "Letters, numbers & text", prompt: "draw the letter C while running in Szeged, about 8 km" },
   { glyph: "L", label: "Letter L", category: "Letters, numbers & text", prompt: "draw the letter L while running in Kecskemét, about 8 km" },
@@ -46,34 +100,100 @@ const QUICK_IDEAS = [
   { glyph: "GPS", label: "Text GPS", category: "Letters, numbers & text", prompt: "write GPS while cycling in Budapest, about 25 km" },
 ];
 
-const IDEA_CATEGORIES = ["Simple shapes", "Nature", "Animals", "Symbols", "Letters, numbers & text"];
+const IDEA_CATEGORIES = ["Simple shapes", "Nature", "Animals", "Objects", "Symbols", "Letters, numbers & text"];
 const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
 
-const SUGGEST_CITIES = [
+const HUNGARIAN_CITIES = [
   "Budapest",
   "Debrecen",
   "Szeged",
   "Miskolc",
   "Pécs",
   "Győr",
-  "Kecskemét",
   "Nyíregyháza",
-  "Eger",
-  "Sopron",
-  "Szombathely",
-  "Zalaegerszeg",
-  "Kaposvár",
-  "Szekszárd",
-  "Békéscsaba",
-  "Cegléd",
+  "Kecskemét",
   "Székesfehérvár",
-  "Siófok",
-  "Veszprém",
-  "Keszthely",
-  "Tapolca",
+  "Szombathely",
+  "Érd",
+  "Szolnok",
   "Tatabánya",
-  "Vonyarcvashegy",
+  "Sopron",
+  "Kaposvár",
+  "Veszprém",
+  "Zalaegerszeg",
+  "Békéscsaba",
+  "Eger",
+  "Dunakeszi",
+  "Nagykanizsa",
+  "Hódmezővásárhely",
+  "Dunaújváros",
+  "Szigetszentmiklós",
+  "Cegléd",
+  "Vác",
+  "Mosonmagyaróvár",
+  "Gödöllő",
+  "Baja",
+  "Salgótarján",
+  "Ózd",
+  "Szekszárd",
+  "Hajdúböszörmény",
+  "Budaörs",
+  "Esztergom",
+  "Szentendre",
+  "Kiskunfélegyháza",
+  "Pápa",
+  "Gyula",
+  "Gyöngyös",
+  "Ajka",
+  "Kiskunhalas",
+  "Jászberény",
+  "Orosháza",
+  "Szentes",
+  "Gyál",
+  "Hajdúszoboszló",
+  "Siófok",
+  "Dunaharaszti",
+  "Tata",
 ];
+
+const EUROPEAN_CITIES = [
+  "London",
+  "Paris",
+  "Berlin",
+  "Madrid",
+  "Rome",
+  "Barcelona",
+  "Vienna",
+  "Amsterdam",
+  "Prague",
+  "Brussels",
+  "Copenhagen",
+  "Stockholm",
+  "Oslo",
+  "Helsinki",
+  "Warsaw",
+  "Kraków",
+  "Bratislava",
+  "Ljubljana",
+  "Zagreb",
+  "Bucharest",
+  "Sofia",
+  "Athens",
+  "Dublin",
+  "Munich",
+  "Milan",
+  "Lisbon",
+  "Porto",
+  "Zurich",
+  "Tallinn",
+  "Riga",
+];
+
+const SUGGEST_CITY_GROUPS = [
+  { label: "Hungary", cities: HUNGARIAN_CITIES },
+  { label: "Europe", cities: EUROPEAN_CITIES },
+];
+const SUGGEST_CITIES = [...HUNGARIAN_CITIES, ...EUROPEAN_CITIES];
 
 const PROMPT_LIMIT = 320;
 const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
@@ -176,6 +296,10 @@ const GATE_COPY = {
   landmark_similarity: {
     label: "Key points",
     description: "Important tips, corners, and notches are in the right places.",
+  },
+  reversal_similarity: {
+    label: "No doubled-back lines",
+    description: "The street route does not add U-turns that muddle the drawing.",
   },
   length_similarity: {
     label: "Extra detours",
@@ -469,14 +593,13 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
                   height={asset.height || undefined}
                 />
               </a>
-              <div>
-                <span>Map data © OpenStreetMap contributors</span>
-                {removalTokens[asset.id] && (
+              {removalTokens[asset.id] && (
+                <div>
                   <button type="button" onClick={() => removeAsset(asset)}>
                     Remove my post
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -982,6 +1105,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             <div className="notice notice--info">
               <strong>Suggested shape</strong>
               <p>{normaliseLabel(result.suggested_shape)}</p>
+              {result.suggestion_reason && <p>{result.suggestion_reason}</p>}
             </div>
           )}
 
@@ -1362,6 +1486,7 @@ export default function App() {
   const [prompt, setPrompt] = useState(QUICK_IDEAS[0].prompt);
   const [promptError, setPromptError] = useState("");
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
+  const [ideaQuery, setIdeaQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
@@ -1399,6 +1524,13 @@ export default function App() {
     () => QUICK_IDEAS.find((idea) => idea.prompt === prompt)?.label,
     [prompt],
   );
+  const filteredIdeas = useMemo(() => {
+    const query = ideaQuery.trim().toLocaleLowerCase("en");
+    if (!query) return QUICK_IDEAS;
+    return QUICK_IDEAS.filter((idea) =>
+      `${idea.label} ${idea.category}`.toLocaleLowerCase("en").includes(query),
+    );
+  }, [ideaQuery]);
 
   const generate = useCallback(async (nextPrompt) => {
     const cleanPrompt = normaliseRoutePrompt(nextPrompt);
@@ -1615,34 +1747,56 @@ export default function App() {
                 <summary>
                   <span>
                     <strong>More shapes, letters, and numbers</strong>
-                    <small>{QUICK_IDEAS.length} options. Simple outlines work best.</small>
+                    <small>{QUICK_IDEAS.length} options. Detailed shapes work best on longer routes.</small>
                   </span>
                   <b aria-hidden="true">+</b>
                 </summary>
                 <div className="idea-groups">
-                  {IDEA_CATEGORIES.map((category) => (
-                    <section className="idea-group" key={category} aria-label={`${category} ideas`}>
-                      <h3>{category}</h3>
-                      <div className="idea-list">
-                        {QUICK_IDEAS.filter((idea) => idea.category === category).map((idea) => (
-                          <button
-                            type="button"
-                            key={idea.label}
-                            className="idea-chip"
-                            aria-pressed={activeIdea === idea.label}
-                            onClick={() => {
-                              setPrompt(idea.prompt);
-                              setPromptError("");
-                            }}
-                            disabled={loading}
-                          >
-                            <span aria-hidden="true">{idea.glyph}</span>
-                            {idea.label}
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
+                  <div className="idea-filter">
+                    <label htmlFor="idea-filter">Filter options</label>
+                    <input
+                      id="idea-filter"
+                      type="search"
+                      value={ideaQuery}
+                      onChange={(event) => setIdeaQuery(event.target.value)}
+                      placeholder="Search by name or category"
+                    />
+                    <span aria-live="polite">
+                      {filteredIdeas.length} option{filteredIdeas.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  {IDEA_CATEGORIES.map((category) => {
+                    const categoryIdeas = filteredIdeas.filter((idea) => idea.category === category);
+                    if (categoryIdeas.length === 0) return null;
+                    return (
+                      <section className="idea-group" key={category} aria-label={`${category} ideas`}>
+                        <h3>{category}</h3>
+                        <div className="idea-list">
+                          {categoryIdeas.map((idea) => (
+                            <button
+                              type="button"
+                              key={idea.label}
+                              className="idea-chip"
+                              aria-pressed={activeIdea === idea.label}
+                              onClick={() => {
+                                setPrompt(idea.prompt);
+                                setPromptError("");
+                              }}
+                              disabled={loading}
+                            >
+                              <span aria-hidden="true">{idea.glyph}</span>
+                              {idea.label}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                  {filteredIdeas.length === 0 && (
+                    <p className="idea-empty" role="status">
+                      No matching options. Try a broader name or category.
+                    </p>
+                  )}
                 </div>
               </details>
 
@@ -1682,15 +1836,23 @@ export default function App() {
                       }}
                       aria-invalid={Boolean(suggestErrors.city)}
                       aria-errormessage={suggestErrors.city ? "suggest-city-error" : undefined}
+                      aria-describedby="suggest-city-help"
                       disabled={loading}
                       required
                     >
-                      {SUGGEST_CITIES.map((cityName) => (
-                        <option key={cityName} value={cityName}>
-                          {cityName}
-                        </option>
+                      {SUGGEST_CITY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.cities.map((cityName) => (
+                            <option key={cityName} value={cityName}>
+                              {cityName}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
+                    <p id="suggest-city-help" className="field-help">
+                      50 Hungarian and 30 European cities.
+                    </p>
                     {suggestErrors.city && (
                       <p id="suggest-city-error" className="field-error" role="alert">
                         <span aria-hidden="true">!</span>
@@ -1806,12 +1968,21 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                <button type="submit" className="button button--secondary" disabled={loading}>
-                  Find a route
-                </button>
-                <p className="suggest-notice" aria-live="polite">
-                  {suggestNotice}
+                <p className="suggest-method">
+                  We compare up to three shapes suited to these streets and this distance.
                 </p>
+                <div className="suggest-actions">
+                  <p className="suggest-notice" aria-live="polite">
+                    {suggestNotice}
+                  </p>
+                  <button
+                    type="submit"
+                    className="button button--secondary suggest-submit"
+                    disabled={loading}
+                  >
+                    Find a route
+                  </button>
+                </div>
               </form>
             </details>
           </div>
@@ -1857,7 +2028,6 @@ export default function App() {
 
       <footer>
         <p>GPS Art Wizard</p>
-        <p>Map data © OpenStreetMap contributors.</p>
       </footer>
       <div className="sr-only" aria-live="polite">
         {downloadNotice}

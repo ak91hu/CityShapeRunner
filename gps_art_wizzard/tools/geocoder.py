@@ -61,6 +61,29 @@ _DEFAULTS = {
     "Szekszárd": GeoResult("Szekszárd", 46.3480, 18.7066, (46.32, 46.38, 18.66, 18.75)),
     "Békéscsaba": GeoResult("Békéscsaba", 46.6825, 21.0890, (46.65, 46.71, 21.03, 21.14)),
     "Cegléd": GeoResult("Cegléd", 47.1541, 19.8145, (47.13, 47.18, 19.77, 19.85)),
+    # Remaining settlements in the KSH 2025 top 50 that were not already in
+    # the local catalogue. Centres follow OpenStreetMap/Nominatim; the tighter
+    # boxes deliberately focus placement search on the continuous urban grid.
+    "Érd": GeoResult("Érd", 47.3772, 18.9214, (47.33, 47.42, 18.85, 18.97)),
+    "Szolnok": GeoResult("Szolnok", 47.1754, 20.1946, (47.13, 47.22, 20.11, 20.25)),
+    "Szigetszentmiklós": GeoResult(
+        "Szigetszentmiklós", 47.3487, 19.0452, (47.31, 47.40, 18.99, 19.11)
+    ),
+    "Ózd": GeoResult("Ózd", 48.2192, 20.2811, (48.17, 48.27, 20.20, 20.39)),
+    "Hajdúböszörmény": GeoResult(
+        "Hajdúböszörmény", 47.6717, 21.5079, (47.61, 47.73, 21.39, 21.59)
+    ),
+    "Budaörs": GeoResult("Budaörs", 47.4611, 18.9612, (47.42, 47.49, 18.88, 18.99)),
+    "Kiskunfélegyháza": GeoResult(
+        "Kiskunfélegyháza", 46.7114, 19.8502, (46.65, 46.77, 19.77, 19.94)
+    ),
+    "Ajka": GeoResult("Ajka", 47.1057, 17.5587, (47.04, 47.15, 17.49, 17.65)),
+    "Szentes": GeoResult("Szentes", 46.6524, 20.2566, (46.60, 46.72, 20.17, 20.36)),
+    "Gyál": GeoResult("Gyál", 47.3845, 19.2173, (47.34, 47.41, 19.17, 19.27)),
+    "Dunaharaszti": GeoResult(
+        "Dunaharaszti", 47.3542, 19.0912, (47.30, 47.39, 19.05, 19.16)
+    ),
+    "Tata": GeoResult("Tata", 47.6516, 18.3282, (47.59, 47.69, 18.23, 18.43)),
     "Vac": GeoResult("Vác", 47.8900, 19.1361, (47.87, 47.91, 19.11, 19.16)),
     "Szentendre": GeoResult("Szentendre", 47.7833, 19.0744, (47.76, 47.80, 19.05, 19.10)),
     "Esztergom": GeoResult("Esztergom", 47.7939, 18.7416, (47.77, 47.82, 18.70, 18.78)),
@@ -122,7 +145,57 @@ _DEFAULTS = {
     "Barcelona": GeoResult("Barcelona", 41.3851, 2.1734, (41.32, 41.46, 2.08, 2.23)),
     "Amsterdam": GeoResult("Amsterdam", 52.3676, 4.9041, (52.27, 52.43, 4.73, 5.07)),
     "Prague": GeoResult("Prague", 50.0755, 14.4378, (49.94, 50.18, 14.22, 14.71)),
+    "Madrid": GeoResult("Madrid", 40.4168, -3.7035, (40.31, 40.55, -3.82, -3.55)),
+    "Rome": GeoResult("Rome", 41.8933, 12.4829, (41.80, 42.00, 12.35, 12.65)),
+    "Lisbon": GeoResult("Lisbon", 38.7078, -9.1366, (38.69, 38.80, -9.23, -9.08)),
+    "Brussels": GeoResult("Brussels", 50.8467, 4.3525, (50.79, 50.92, 4.30, 4.45)),
+    "Copenhagen": GeoResult("Copenhagen", 55.6867, 12.5701, (55.53, 55.85, 12.41, 12.73)),
+    "Stockholm": GeoResult("Stockholm", 59.3251, 18.0711, (59.17, 59.49, 17.91, 18.23)),
+    "Oslo": GeoResult("Oslo", 59.9133, 10.7390, (59.81, 60.05, 10.49, 10.95)),
+    "Helsinki": GeoResult("Helsinki", 60.1666, 24.9435, (59.92, 60.30, 24.78, 25.25)),
+    "Warsaw": GeoResult("Warsaw", 52.2334, 21.0711, (52.10, 52.37, 20.85, 21.28)),
+    "Kraków": GeoResult("Kraków", 50.0469, 19.9972, (49.96, 50.13, 19.79, 20.22)),
+    "Bratislava": GeoResult("Bratislava", 48.1517, 17.1093, (48.01, 48.27, 16.94, 17.29)),
+    "Ljubljana": GeoResult("Ljubljana", 46.0500, 14.5069, (45.89, 46.21, 14.34, 14.67)),
+    "Zagreb": GeoResult("Zagreb", 45.8131, 15.9773, (45.61, 45.97, 15.77, 16.24)),
+    "Bucharest": GeoResult("Bucharest", 44.4361, 26.1027, (44.33, 44.55, 25.96, 26.23)),
+    "Sofia": GeoResult("Sofia", 42.6977, 23.3217, (42.56, 42.87, 23.16, 23.63)),
+    "Athens": GeoResult("Athens", 37.9756, 23.7348, (37.82, 38.14, 23.57, 23.90)),
+    "Dublin": GeoResult("Dublin", 53.3494, -6.2606, (53.29, 53.42, -6.39, -6.11)),
+    "Munich": GeoResult("Munich", 48.1371, 11.5754, (48.06, 48.25, 11.36, 11.73)),
+    "Milan": GeoResult("Milan", 45.4642, 9.1896, (45.38, 45.54, 9.04, 9.28)),
+    "Porto": GeoResult("Porto", 41.1502, -8.6103, (41.13, 41.19, -8.70, -8.55)),
+    "Zurich": GeoResult("Zurich", 47.3744, 8.5410, (47.32, 47.44, 8.44, 8.63)),
+    "Tallinn": GeoResult("Tallinn", 59.4372, 24.7573, (59.35, 59.60, 24.55, 24.93)),
+    "Riga": GeoResult("Riga", 56.9494, 24.1052, (56.85, 57.09, 23.93, 24.33)),
 }
+
+# The 50 largest Hungarian settlements by KSH resident population on
+# 2025-01-01.  Keeping this public, ordered tuple lets deterministic intent
+# parsing and the UI share a clearly defined coverage target.
+MAJOR_HUNGARIAN_CITIES = (
+    "Budapest", "Debrecen", "Szeged", "Miskolc", "Pécs", "Győr",
+    "Nyíregyháza", "Kecskemét", "Székesfehérvár", "Szombathely", "Érd",
+    "Szolnok", "Tatabánya", "Sopron", "Kaposvár", "Veszprém",
+    "Zalaegerszeg", "Békéscsaba", "Eger", "Dunakeszi", "Nagykanizsa",
+    "Hódmezővásárhely", "Dunaújváros", "Szigetszentmiklós", "Cegléd", "Vác",
+    "Mosonmagyaróvár", "Gödöllő", "Baja", "Salgótarján", "Ózd", "Szekszárd",
+    "Hajdúböszörmény", "Budaörs", "Esztergom", "Szentendre",
+    "Kiskunfélegyháza", "Pápa", "Gyula", "Gyöngyös", "Ajka", "Kiskunhalas",
+    "Jászberény", "Orosháza", "Szentes", "Gyál", "Hajdúszoboszló", "Siófok",
+    "Dunaharaszti", "Tata",
+)
+
+# A regionally balanced European set based on cities covered by Eurostat's
+# city-statistics framework. This is a product coverage list, not a population
+# ranking or a claim that every neighbourhood is equally suitable for GPS art.
+MAJOR_EUROPEAN_CITIES = (
+    "London", "Paris", "Berlin", "Madrid", "Rome", "Barcelona", "Vienna",
+    "Amsterdam", "Prague", "Brussels", "Copenhagen", "Stockholm", "Oslo",
+    "Helsinki", "Warsaw", "Kraków", "Bratislava", "Ljubljana", "Zagreb",
+    "Bucharest", "Sofia", "Athens", "Dublin", "Munich", "Milan", "Lisbon",
+    "Porto", "Zurich", "Tallinn", "Riga",
+)
 
 # Natural-language geography per city — fed to the PlanningAgent so it can
 # reason about where to place the shape and what to avoid. Keys are matched
@@ -246,6 +319,66 @@ _CITY_GEOGRAPHY: dict[str, str] = {
         "No major rivers or obstacles. Place shapes around the centre (lat 47.15, lon 19.81). "
         "Grid runs N-S/E-W, rotation ~0 or ~90. Excellent for GPS art — clean grid, no obstacles."
     ),
+    "érd": (
+        "Érd has a fragmented suburban street network with hillier western and northern districts. "
+        "Place shapes southeast of the centre on the denser, flatter grid and keep them compact. "
+        "Avoid the Danube floodplain at the eastern edge. Irregular streets favour simple outlines."
+    ),
+    "szolnok": (
+        "Szolnok is flat, but the Tisza and Zagyva split the road network. Place shapes west of the "
+        "Tisza on the connected central and western grid. Avoid forced river crossings. Rotation ~0 "
+        "or ~90 suits the mostly rectilinear districts; medium shapes work well."
+    ),
+    "szigetszentmiklós": (
+        "Szigetszentmiklós lies on Csepel Island between Danube branches. Its suburban grid is "
+        "elongated north-south. Place compact shapes around the central urban area and avoid both "
+        "riverbanks, industrial parcels, and placements that require leaving the island."
+    ),
+    "ózd": (
+        "Ózd occupies a narrow, hilly valley with an irregular street network. Place small shapes "
+        "along the connected central valley and avoid the surrounding slopes and sparse outer roads. "
+        "Use simple outlines and expect more refinement."
+    ),
+    "hajdúböszörmény": (
+        "Hajdúböszörmény is flat and has a distinctive ring-and-radial centre with rectilinear outer "
+        "districts. There are no major river barriers. Place medium shapes just outside the inner "
+        "ring; rotations ~0, ~45, or ~90 can align well with its street structure."
+    ),
+    "budaörs": (
+        "Budaörs is constrained by the Buda Hills to the north and major transport corridors to the "
+        "south. Place compact shapes on the connected central and eastern street grid, away from the "
+        "steep northern slopes and motorway. Irregular terrain favours simpler outlines."
+    ),
+    "kiskunfélegyháza": (
+        "Kiskunfélegyháza is flat with a dense radial centre and regular outer grid. It has no major "
+        "water barrier through the urban core. Place medium shapes around the centre; rotation ~0 or "
+        "~90 is a strong starting point. Good for more detailed GPS art."
+    ),
+    "ajka": (
+        "Ajka has rolling terrain, separated neighbourhoods, and industrial areas. Place compact "
+        "shapes on the connected central grid, avoiding the industrial west and sparse hills. "
+        "Simple silhouettes are more reliable than fine detail."
+    ),
+    "szentes": (
+        "Szentes is flat with a regular urban grid, but the Kurca watercourse crosses the city. "
+        "Place shapes within one connected side of the Kurca where possible and avoid unnecessary "
+        "bridge crossings. Rotation ~0 or ~90 and medium outlines are good starting choices."
+    ),
+    "gyál": (
+        "Gyál is flat and suburban with a mostly rectilinear street grid. Place compact or medium "
+        "shapes around the centre, away from the motorway and airport-side industrial edges. "
+        "Rotation ~0 or ~90 generally follows the street pattern."
+    ),
+    "dunaharaszti": (
+        "Dunaharaszti is a flat suburban town beside the Danube and Ráckeve branch. Place compact "
+        "shapes on the continuous eastern urban grid and avoid the riverbanks, islands, and railway "
+        "barriers. The north-south street pattern favours rotation ~0."
+    ),
+    "tata": (
+        "Tata has a usable urban grid around several large lakes. Place compact shapes north or east "
+        "of Öreg-tó, keeping the whole outline on one connected street area. Avoid Öreg-tó, Cseke-tó, "
+        "and the hillier, sparser edges; expect water-aware placement to matter."
+    ),
     "siófok": (
         "Siófok is on the southern shore of Lake Balaton. The Sió river exits the lake here. "
         "Place shapes SOUTH of the lake (lat 46.88-46.92, lon 18.03-18.08). Avoid the lake to "
@@ -351,6 +484,121 @@ _CITY_GEOGRAPHY: dict[str, str] = {
     "komló": (
         "Komló is in the Mecsek hills — hilly, irregular streets. Place shapes in the central valley "
         "(lat 46.18-46.21, lon 18.26-18.31). Avoid the surrounding hills. Keep shapes compact (3-8 km)."
+    ),
+    "madrid": (
+        "Madrid has a dense radial core and more regular grids in Salamanca and the eastern districts. "
+        "Place medium shapes east or northeast of the historic centre. Avoid Retiro and Casa de Campo "
+        "parks and unnecessary crossings of the Manzanares. Several grid bearings make rotation search important."
+    ),
+    "rome": (
+        "Rome combines a very irregular historic centre with the Tiber and large archaeological areas. "
+        "Use compact shapes in a single connected district such as Prati or the flatter southern/eastern grid. "
+        "Avoid crossing the Tiber, Villa Borghese, and archaeological parks unless the route is explicitly verified."
+    ),
+    "lisbon": (
+        "Lisbon is hilly and bordered by the Tagus to the south. The Baixa grid is small; Avenidas Novas "
+        "and northern districts offer longer connected streets. Place compact shapes north of the river, "
+        "avoid the waterfront and steep Alfama streets, and expect rotation and scale to matter."
+    ),
+    "brussels": (
+        "Brussels has a radial inner pentagon and mixed but dense outer grids. The canal lies west of the "
+        "centre and large parks interrupt the east. Place shapes within one connected eastern or southern "
+        "district and search several rotations rather than assuming a single grid bearing."
+    ),
+    "copenhagen": (
+        "Copenhagen is flat with dense walking and cycling connections, but the harbour and canals split "
+        "the centre. Place shapes west of the inner harbour around Frederiksberg, Nørrebro, or Vesterbro. "
+        "Avoid water crossings and large parks; compact and medium outlines have several route alternatives."
+    ),
+    "stockholm": (
+        "Stockholm is built across islands, so water connectivity dominates placement. Keep the entire shape "
+        "inside one mainland or large-island street area such as Vasastan or Södermalm. Avoid narrow bridge "
+        "dependencies and use compact outlines; a visually close point across water may require a long detour."
+    ),
+    "oslo": (
+        "Oslo opens onto the fjord in the south and becomes hillier to the north. Place compact shapes on the "
+        "connected inner east or west grid, away from the waterfront and forested slopes. Irregular bearings "
+        "make measured placement more useful than a fixed orientation."
+    ),
+    "helsinki": (
+        "Helsinki has a clear central grid but a highly indented coastline and many islands. Keep shapes on the "
+        "main peninsula or within one inland district, avoiding harbour inlets and shoreline parks. The central "
+        "grid supports compact geometry; larger art needs careful water-aware placement."
+    ),
+    "warsaw": (
+        "Warsaw is mostly flat with broad, connected grids west of the Vistula. Place medium or detailed shapes "
+        "in central and western districts, avoiding river crossings and very large parks. Multiple planning-era "
+        "grids use different bearings, so rotation search is valuable."
+    ),
+    "kraków": (
+        "Kraków has an irregular historic core enclosed by Planty and the Vistula to the south. Place compact "
+        "shapes north or east of the old town on denser grids, keeping them on one side of the river. Avoid "
+        "Planty, Błonia, and the medieval centre for detailed outlines."
+    ),
+    "bratislava": (
+        "Bratislava is bounded by the Danube to the south and the Little Carpathians to the north. Place compact "
+        "or medium shapes east or northeast of the old town on flatter streets. Avoid river crossings, castle "
+        "slopes, and the sparse northern hills."
+    ),
+    "ljubljana": (
+        "Ljubljana is compact and mostly flat, with the Ljubljanica winding through the centre. Place shapes north "
+        "or east of the historic core within one connected grid, avoiding the river bends, Tivoli Park, and the "
+        "castle hill. Compact outlines suit the available urban scale."
+    ),
+    "zagreb": (
+        "Zagreb has a strong east-west lower-city grid between Medvednica and the Sava. Place medium shapes on the "
+        "flat central or eastern grid. Avoid the steep northern districts, railway yards, and forced crossings "
+        "toward the Sava; rotation ~0 or ~90 is a useful starting point."
+    ),
+    "bucharest": (
+        "Bucharest is flat with a dense mixture of radial boulevards and rectilinear neighbourhoods. Place medium "
+        "or detailed shapes north or east of the centre, avoiding the largest parks and repeated Dâmbovița "
+        "crossings. Several orientations should be screened because adjacent districts use different grids."
+    ),
+    "sofia": (
+        "Sofia has a dense central grid but rises toward Vitosha in the south. Place compact or medium shapes in "
+        "central, northern, or eastern districts. Avoid the mountain-facing southern edge and large parks; the "
+        "flatter grid supports simple and moderately detailed silhouettes."
+    ),
+    "athens": (
+        "Athens has a dense but irregular street network interrupted by hills and archaeological sites. Place "
+        "compact shapes in a single flatter northern or eastern neighbourhood. Avoid Lycabettus, the Acropolis "
+        "area, and large parks; expect more placement and rotation refinement than in a regular grid city."
+    ),
+    "dublin": (
+        "The Liffey divides Dublin east-west. Georgian districts provide local grids, while Phoenix Park and the "
+        "docklands create large gaps. Place compact shapes on one side of the river, preferably south or north "
+        "of the centre, and avoid unnecessary bridge dependence."
+    ),
+    "munich": (
+        "Munich is mostly flat with dense connected streets, but the Isar and Englischer Garten interrupt the "
+        "eastern side. Place medium shapes west or south of the centre within one grid area. Multiple radial and "
+        "rectilinear patterns make several tested orientations preferable to one fixed bearing."
+    ),
+    "milan": (
+        "Milan is flat and dense, with ring-and-radial streets overlaid by several regular grids. Place medium or "
+        "detailed shapes outside the tight historic core, avoiding rail yards and the largest parks. The connected "
+        "street fabric supports multiple orientations and comparatively complex outlines."
+    ),
+    "porto": (
+        "Porto is hilly and bounded by the Douro to the south. Place compact shapes north or east of the historic "
+        "centre on one connected street area. Avoid the river, steep Ribeira lanes, and bridge-dependent routes; "
+        "simple outlines are more reliable than fine detail."
+    ),
+    "zurich": (
+        "Lake Zurich lies south of the centre and the Limmat divides the inner city. Place compact shapes north or "
+        "west of the lake within one connected district. Avoid water, steep outer hills, and large rail areas; "
+        "the available grids are local rather than city-wide."
+    ),
+    "tallinn": (
+        "Tallinn is mostly flat, but the medieval old town and Baltic shoreline interrupt the grid. Place compact "
+        "or medium shapes east or south of the old town on planned streets. Avoid the harbour, Ülemiste lake, and "
+        "the walled centre for complex silhouettes."
+    ),
+    "riga": (
+        "Riga is flat with a strong rectilinear grid on the east bank of the Daugava. Place medium shapes east of "
+        "the river, avoiding bridge crossings, the old town, and large rail yards. Rotation ~0 or ~90 is a good "
+        "starting point and the connected grid can support detailed outlines."
     ),
     "paris": (
         "The Seine river curves through the centre from east to west. The central arrondissements "

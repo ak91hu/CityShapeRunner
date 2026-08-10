@@ -44,7 +44,19 @@ from gps_art_wizzard.tools import (
     gpx_writer,
     ors_client,
     shape_library,
+    shape_recommender,
     shape_similarity,
+)
+
+EXTENDED_SHAPE_NAMES = frozenset(
+    {
+        "airplane", "apple", "bat", "bear", "bell", "cactus", "car", "castle",
+        "clover", "cloud", "duck", "elephant", "flame", "fox", "guitar", "hexagon",
+        "hourglass", "house", "leaf", "location_pin", "maple_leaf", "mushroom",
+        "octagon", "owl", "pear", "penguin", "pine_tree", "rocket", "shark", "shield",
+        "snail", "snowflake", "speech_bubble", "spiral", "teardrop", "trophy", "tulip",
+        "turtle", "umbrella", "whale",
+    }
 )
 
 
@@ -165,6 +177,115 @@ def test_butterfly_is_a_short_closed_routable_silhouette():
     assert any(point[1] < -0.9 for point in path)  # lower-wing/body tip
 
 
+def _segments_cross(
+    first_start: tuple[float, float],
+    first_end: tuple[float, float],
+    second_start: tuple[float, float],
+    second_end: tuple[float, float],
+) -> bool:
+    def orientation(
+        start: tuple[float, float],
+        end: tuple[float, float],
+        point: tuple[float, float],
+    ) -> float:
+        return ((end[0] - start[0]) * (point[1] - start[1])) - (
+            (end[1] - start[1]) * (point[0] - start[0])
+        )
+
+    first_a = orientation(first_start, first_end, second_start)
+    first_b = orientation(first_start, first_end, second_end)
+    second_a = orientation(second_start, second_end, first_start)
+    second_b = orientation(second_start, second_end, first_end)
+    return first_a * first_b < -1e-10 and second_a * second_b < -1e-10
+
+
+def test_extended_shape_catalog_adds_forty_named_templates():
+    assert len(EXTENDED_SHAPE_NAMES) == 40
+    assert EXTENDED_SHAPE_NAMES <= shape_library.SHAPES.keys()
+    assert len(shape_library.SHAPES) == 73
+
+
+@pytest.mark.parametrize("shape_name", sorted(EXTENDED_SHAPE_NAMES))
+def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_name):
+    generated = shape_library.get_shape(shape_name)
+    assert generated is not None
+    returned_name, paths, closed = generated
+
+    assert returned_name == shape_name
+    assert len(paths) == 1
+    path = paths[0]
+    assert len({(round(x, 8), round(y, 8)) for x, y in path}) >= 8
+    assert closed is (shape_name != "spiral")
+    assert (path[0] == path[-1]) is closed
+
+    normalized = geo.normalize_shape(paths)[0]
+    normalized_length = geo.unit_path_length(normalized)
+    assert 2.2 < normalized_length < 6.0
+
+    for first_index in range(len(path) - 1):
+        for second_index in range(first_index + 2, len(path) - 1):
+            if closed and first_index == 0 and second_index == len(path) - 2:
+                continue
+            assert not _segments_cross(
+                path[first_index],
+                path[first_index + 1],
+                path[second_index],
+                path[second_index + 1],
+            ), f"{shape_name} crosses itself at segments {first_index} and {second_index}"
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("draw a maple leaf in Budapest", "maple_leaf"),
+        ("make a speech bubble in Debrecen", "speech_bubble"),
+        ("cycle a location pin in Győr", "location_pin"),
+        ("run a pine tree in Sopron", "pine_tree"),
+        ("draw an airplane in Szeged", "airplane"),
+    ],
+)
+def test_extended_shape_keywords_resolve_to_canonical_templates(prompt, expected):
+    generated = shape_library.find_by_keyword(prompt)
+    assert generated is not None
+    assert generated[0] == expected
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("draw a turtle in Budapest, 14 km", "turtle"),
+        ("cycle a maple leaf in Debrecen, 24 km", "maple_leaf"),
+        ("draw a castle in Székesfehérvár, 20 km", "castle"),
+    ],
+)
+def test_extended_templates_use_the_local_intent_to_shape_pipeline(
+    prompt,
+    expected,
+    monkeypatch,
+):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("known extended templates must not call an LLM")
+
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.intent_agent.try_complete",
+        fail_if_called,
+    )
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.shape_agent.try_complete",
+        fail_if_called,
+    )
+    state = WorkflowState(prompt=prompt)
+
+    IntentAgent().run(state)
+    ShapeAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == expected
+    assert state.shape is not None
+    assert state.shape.name == expected
+    assert state.shape.source == "template"
+
+
 def test_all_empty_shape_paths_normalise_safely():
     assert geo.normalize_shape([[], []]) == [[(0.0, 0.0)]]
 
@@ -196,7 +317,14 @@ def test_known_city_geocoding_uses_local_route_database(monkeypatch):
     assert result.lat == pytest.approx(47.5853)
 
 
-@pytest.mark.parametrize("city", ["Miskolc", "Eger"])
+@pytest.mark.parametrize(
+    "city",
+    [
+        "Miskolc", "Eger", "Érd", "Szolnok", "Szigetszentmiklós", "Ózd",
+        "Hajdúböszörmény", "Budaörs", "Kiskunfélegyháza", "Ajka", "Szentes",
+        "Gyál", "Dunaharaszti", "Tata",
+    ],
+)
 def test_requested_additional_cities_have_local_route_profiles(city, monkeypatch):
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("supported Hungarian cities must resolve locally")
@@ -207,6 +335,56 @@ def test_requested_additional_cities_have_local_route_profiles(city, monkeypatch
     assert result.name == city
     assert result.substituted is False
     assert geocoder.city_context(city, result)
+
+
+def test_major_hungarian_city_catalog_covers_the_ksh_top_fifty():
+    assert len(geocoder.MAJOR_HUNGARIAN_CITIES) == 50
+    assert len(set(geocoder.MAJOR_HUNGARIAN_CITIES)) == 50
+    assert geocoder.MAJOR_HUNGARIAN_CITIES[:3] == (
+        "Budapest",
+        "Debrecen",
+        "Szeged",
+    )
+    assert all(geocoder._known_default(city) is not None for city in geocoder.MAJOR_HUNGARIAN_CITIES)
+
+
+def test_major_european_city_catalog_has_thirty_local_profiled_cities(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("catalogued European cities must resolve locally")
+
+    monkeypatch.setattr(geocoder.httpx, "get", fail_if_called)
+    cities = geocoder.MAJOR_EUROPEAN_CITIES
+
+    assert len(cities) == 30
+    assert len(set(cities)) == 30
+    assert set(cities).isdisjoint(geocoder.MAJOR_HUNGARIAN_CITIES)
+    for city in cities:
+        result = geocoder.geocode(city)
+        assert result.name == city
+        assert result.substituted is False
+        assert city.casefold() in geocoder._CITY_GEOGRAPHY
+        assert geocoder.city_context(city, result)
+
+
+@pytest.mark.parametrize(
+    "city",
+    ["Érd", "Szolnok", "Szigetszentmiklós", "Stockholm", "Athens", "Kraków"],
+)
+def test_new_major_city_intents_are_parsed_without_a_network_call(city, monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a known city and shape must not call an LLM")
+
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.intent_agent.try_complete",
+        fail_if_called,
+    )
+    state = WorkflowState(prompt=f"draw a heart in {city}, 8 km")
+
+    IntentAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.city == city
+    assert state.intent.shape == "heart"
 
 
 def test_resample_expands_two_point_line_by_arc_length():
@@ -298,8 +476,15 @@ def test_similarity_rejects_backtracking_scribble_inside_the_right_outline():
 
     assert diagnostics.coverage_similarity > 0.9
     assert diagnostics.turning_similarity < 0.5
+    assert diagnostics.reversal_similarity < 0.7
     assert diagnostics.route_length_ratio > 1.8
     assert diagnostics.fidelity < 0.7
+
+    identical = shape_similarity.similarity_diagnostics_between_routes(
+        reference,
+        reference,
+    )
+    assert identical.reversal_similarity > 0.99
 
 
 def test_landmark_similarity_detects_a_lost_arrow_tip_and_notches():
@@ -1078,44 +1263,76 @@ def test_refinement_brackets_then_escapes_a_rejected_scale_candidate():
     assert "grid" in str(grid["rationale"])
 
 
-def test_shape_suggestion_avoids_complex_outline_on_hilly_sparse_streets():
-    agent = PlanningAgent()
-    assert (
-        agent._heuristic_suggest(
-            "Hilly city with sparse, irregular and winding streets", "run"
-        )
-        == "circle"
+def test_shape_recommender_profiles_every_registered_template():
+    profiles = shape_recommender.shape_catalog_profiles()
+
+    assert profiles.keys() == shape_library.SHAPES.keys()
+    assert len(profiles) == 73
+    assert all(profile.path_count >= 1 for profile in profiles.values())
+    assert all(0.0 <= profile.complexity <= 1.0 for profile in profiles.values())
+    assert all(0.0 <= profile.routeability <= 1.0 for profile in profiles.values())
+    assert all(
+        math.isfinite(profile.unit_length)
+        and math.isfinite(profile.turn_energy)
+        and math.isfinite(profile.axis_order)
+        for profile in profiles.values()
     )
-    assert agent._heuristic_suggest("An excellent near-perfect grid", "bike") == "butterfly"
 
 
-def test_city_suggestions_are_varied_across_hungarian_route_profiles():
-    agent = PlanningAgent()
-    cities = [
-        "Budapest",
-        "Debrecen",
-        "Szeged",
-        "Miskolc",
-        "Pécs",
-        "Győr",
-        "Nyíregyháza",
-        "Kecskemét",
-        "Eger",
-        "Sopron",
-        "Székesfehérvár",
-        "Siófok",
-        "Veszprém",
-        "Tatabánya",
-    ]
-    suggestions = {
-        agent._heuristic_suggest("", "run", city=city)
-        for city in cities
-    }
+def test_shape_suggestion_reduces_detail_for_hilly_sparse_streets():
+    sparse = shape_recommender.recommend_shapes(
+        "Hilltown",
+        "Hilly city with sparse, irregular and winding streets",
+        "run",
+        18,
+    )
+    dense = shape_recommender.recommend_shapes(
+        "Gridtown",
+        "Flat city with an excellent near-perfect dense grid",
+        "run",
+        18,
+    )
 
-    assert len(suggestions) >= 10
-    assert agent._heuristic_suggest("", "run", city="Miskolc") == "mountain"
-    assert agent._heuristic_suggest("", "run", city="Eger") == "crown"
-    assert agent._heuristic_suggest("", "run", city="Siófok") == "wave"
+    assert sparse[0].shape.complexity <= dense[0].shape.complexity
+    assert all(item.shape.path_count == 1 for item in sparse)
+    assert all(item.shape.path_count == 1 for item in dense)
+
+
+def test_every_catalogued_city_gets_three_measurable_recommendations():
+    cities = (*geocoder.MAJOR_HUNGARIAN_CITIES, *geocoder.MAJOR_EUROPEAN_CITIES)
+    primary_shapes: set[str] = set()
+
+    for city in cities:
+        geo_result = geocoder.geocode(city)
+        context = geocoder.city_context(city, geo_result)
+        for sport, distance_km in (("run", 10.0), ("bike", 25.0)):
+            recommendations = shape_recommender.recommend_shapes(
+                city,
+                context,
+                sport,
+                distance_km,
+            )
+            names = [item.name for item in recommendations]
+            primary_shapes.add(names[0])
+            assert len(names) == 3
+            assert len(set(names)) == 3
+            assert all(item.shape.path_count == 1 for item in recommendations)
+            assert all(item.reason.startswith("For ") for item in recommendations)
+
+    assert len(primary_shapes) >= 4
+    assert primary_shapes & EXTENDED_SHAPE_NAMES
+
+
+def test_distance_and_activity_change_supported_shape_detail():
+    city = "Debrecen"
+    context = geocoder.city_context(city, geocoder.geocode(city))
+    short_run = shape_recommender.recommend_shapes(city, context, "run", 6.0)[0]
+    long_run = shape_recommender.recommend_shapes(city, context, "run", 24.0)[0]
+    same_distance_bike = shape_recommender.recommend_shapes(city, context, "bike", 24.0)[0]
+
+    assert long_run.shape.complexity > short_run.shape.complexity
+    assert same_distance_bike.name != long_run.name
+    assert same_distance_bike.shape.complexity < long_run.shape.complexity
 
 
 def test_city_suggestion_builds_three_distinct_measurable_candidates():
@@ -1126,10 +1343,34 @@ def test_city_suggestion_builds_three_distinct_measurable_candidates():
         city="Eger",
     )
 
-    assert result[0] == "crown"
     assert len(result) == 3
     assert len(set(result)) == 3
     assert all(shape_library.get_shape(name) for name in result)
+    assert all(shape_recommender.analyse_shape(name).path_count == 1 for name in result)
+
+
+def test_planning_records_a_plain_language_suggestion_reason():
+    state = WorkflowState(prompt="suggest a 12 km run in Debrecen")
+    state.intent = Intent(
+        shape=None,
+        text=None,
+        city="Debrecen",
+        sport="run",
+        distance_km=12.0,
+        style=None,
+        suggest=True,
+    )
+
+    PlanningAgent().run(state)
+
+    assert state.plan is not None
+    assert state.plan.suggested_shape in shape_library.SHAPES
+    assert len(state.plan.suggestion_candidates) == 3
+    assert state.plan.suggestion_reasons.keys() == set(
+        state.plan.suggestion_candidates
+    )
+    assert state.plan.notes is not None
+    assert state.plan.notes.startswith("For running,")
 
 
 def test_candidate_selection_prefers_visible_shape_over_distance_only_score():
@@ -1225,6 +1466,12 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
             shape_strategy="template",
             suggested_shape="crown",
             suggestion_candidates=["crown", "triangle", "diamond"],
+            suggestion_reasons={
+                "crown": "Crown reason.",
+                "triangle": "Triangle reason.",
+                "diamond": "Diamond reason.",
+            },
+            notes="Crown reason.",
         ),
         shape=Shape("crown", shape_library.crown()[1], True),
         route_draft=RouteDraft(
@@ -1279,6 +1526,7 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
     assert state.shape.name == "diamond"
     assert state.intent.shape == "diamond"
     assert state.plan.suggested_shape == "diamond"
+    assert state.plan.notes == "Diamond reason."
     assert state.validation.shape_fidelity == pytest.approx(0.76)
     assert state.errors == []
     assert {
@@ -1623,6 +1871,33 @@ def test_one_failed_shape_component_rejects_an_otherwise_high_scoring_route():
     assert report["failed_gates"] == ["landmark_similarity"]
 
 
+def test_unintended_route_reversals_are_an_independent_quality_gate():
+    validation = Validation(
+        score=0.92,
+        closure=1.0,
+        distance_fit=0.95,
+        shape_fidelity=0.86,
+        on_roads=True,
+        spatial_similarity=0.9,
+        coverage_similarity=0.9,
+        turning_similarity=0.88,
+        landmark_similarity=0.9,
+        reversal_similarity=0.45,
+        length_similarity=0.9,
+        extent_similarity=0.91,
+    )
+
+    report = quality_gate_report(
+        validation,
+        closed=True,
+        candidate_shape="heart",
+        selected_shape="heart",
+    )
+
+    assert report["passed"] is False
+    assert report["failed_gates"] == ["reversal_similarity"]
+
+
 def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     ideal = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
     target_km = geo.path_distance_m(ideal) / 1000.0
@@ -1655,7 +1930,14 @@ def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     # Attempts generated while evaluating fallbacks/suggestions stay in the
     # audit, but must not leak into the selected shape's route selector.
     state.candidates[1].shape_name = "diamond"
+    state.plan = Plan(
+        shape_strategy="template",
+        suggested_shape="heart",
+        notes="For running, it matches the available street-network detail and stays on one continuous stroke.",
+    )
     response = _state_to_response(state)
+    assert response["suggested_shape"] == "heart"
+    assert response["suggestion_reason"].startswith("For running,")
     assert len(response["candidates"]) == 1
     assert response["candidates"][0]["shape_name"] == "heart"
     assert response["candidates"][0]["verification"]["passed"] is True

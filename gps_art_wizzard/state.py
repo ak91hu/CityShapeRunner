@@ -37,6 +37,7 @@ class Plan:
     lon_offset_m: float = 0.0   # initial placement offset (metres) from city centre
     suggested_shape: str | None = None  # AI-suggested shape name (when intent.suggest=True)
     suggestion_candidates: list[str] = field(default_factory=list)
+    suggestion_reasons: dict[str, str] = field(default_factory=dict)
     fallback_candidates: list[str] = field(default_factory=list)
     center_lat: float | None = None
     center_lon: float | None = None
@@ -91,6 +92,7 @@ class Validation:
     route_length_ratio: float = 0.0
     mean_deviation_ratio: float = 0.0
     landmark_similarity: float = 0.0
+    reversal_similarity: float = 1.0
     closure_gap_m: float = 0.0
     actual_distance_km: float = 0.0
     target_distance_km: float | None = None

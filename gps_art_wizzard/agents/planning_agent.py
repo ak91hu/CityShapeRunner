@@ -16,35 +16,8 @@ import re
 from ..llm import LLMResponse, extract_json, try_complete
 from ..prompts import render
 from ..state import Plan, WorkflowState
-from ..tools import geo, geocoder, shape_library
+from ..tools import geo, geocoder, shape_library, shape_recommender
 from .base import BaseAgent
-
-_CITY_SUGGESTIONS: dict[str, dict[str, str]] = {
-    # Distinctive but predominantly single-path designs. Suggestions are
-    # intentionally city-specific so identical distances do not collapse to
-    # the same generic star/circle recommendation everywhere.
-    "budapest": {"run": "heart", "bike": "infinity"},
-    "debrecen": {"run": "butterfly", "bike": "flower"},
-    "szeged": {"run": "infinity", "bike": "diamond"},
-    "miskolc": {"run": "mountain", "bike": "lightning"},
-    "pécs": {"run": "moon", "bike": "crown"},
-    "győr": {"run": "diamond", "bike": "cross"},
-    "nyíregyháza": {"run": "cross", "bike": "star"},
-    "kecskemét": {"run": "flower", "bike": "butterfly"},
-    "székesfehérvár": {"run": "crown", "bike": "diamond"},
-    "szombathely": {"run": "square", "bike": "cross"},
-    "veszprém": {"run": "lightning", "bike": "mountain"},
-    "zalaegerszeg": {"run": "moon", "bike": "lightning"},
-    "eger": {"run": "crown", "bike": "moon"},
-    "sopron": {"run": "square", "bike": "moon"},
-    "tatabánya": {"run": "triangle", "bike": "cross"},
-    "kaposvár": {"run": "diamond", "bike": "wave"},
-    "szekszárd": {"run": "moon", "bike": "mountain"},
-    "békéscsaba": {"run": "star", "bike": "butterfly"},
-    "cegléd": {"run": "star", "bike": "flower"},
-    "siófok": {"run": "wave", "bike": "arrow"},
-    "keszthely": {"run": "arrow", "bike": "wave"},
-}
 
 
 class PlanningAgent(BaseAgent):
@@ -116,13 +89,19 @@ class PlanningAgent(BaseAgent):
         # graph and tended to choose complex butterflies for sparse/hilly
         # cities. Geographic context selects a bounded, street-friendly shape.
         if state.intent.suggest:
-            candidates = self._suggestion_candidates(
+            recommendations = shape_recommender.recommend_shapes(
+                city,
                 map_context,
                 state.intent.sport,
-                city=city,
+                state.intent.distance_km,
             )
+            candidates = [item.name for item in recommendations]
             state.plan.suggested_shape = candidates[0]
             state.plan.suggestion_candidates = candidates
+            state.plan.suggestion_reasons = {
+                item.name: item.reason for item in recommendations
+            }
+            state.plan.notes = recommendations[0].reason
 
         # If a shape was suggested, override the intent so ShapeAgent uses it.
         if state.plan.suggested_shape:
@@ -204,6 +183,7 @@ class PlanningAgent(BaseAgent):
                 map_context,
                 intent.sport,
                 city=intent.city or "",
+                distance_km=intent.distance_km,
             )
             strategy = "template"
 
@@ -257,30 +237,17 @@ class PlanningAgent(BaseAgent):
         sport: str,
         *,
         city: str = "",
+        distance_km: float | None = None,
     ) -> str:
-        """Pick a varied shape that still suits the city's street topology."""
-        city_key = city.casefold().strip()
-        city_palette = _CITY_SUGGESTIONS.get(city_key)
-        if city_palette:
-            return city_palette.get(sport, city_palette["run"])
-
-        low = map_context.lower()
-        # Hilly/irregular → simple shapes.
-        if any(
-            word in low
-            for word in ("hilly", "irregular", "winding", "hills", "sparse", "limited")
-        ):
-            return "circle"
-        # Cities with rivers → compact shapes with few forced crossings.
-        if any(word in low for word in ("river", "lake", "water", "confluence")):
-            return "star"
-        # Reserve the complex butterfly for explicitly excellent grids.
-        if any(phrase in low for phrase in ("excellent", "near-perfect")):
-            return "butterfly" if sport == "bike" else "heart"
-        if any(phrase in low for phrase in ("regular grid", "rectilinear grid", "flat")):
-            return "star" if sport == "bike" else "heart"
-        # Default.
-        return "circle"
+        """Pick the highest-scoring shape after analysing the full registry."""
+        recommendations = shape_recommender.recommend_shapes(
+            city,
+            map_context,
+            sport,
+            distance_km,
+            limit=1,
+        )
+        return recommendations[0].name
 
     def _suggestion_candidates(
         self,
@@ -288,28 +255,18 @@ class PlanningAgent(BaseAgent):
         sport: str,
         *,
         city: str,
+        distance_km: float | None = None,
     ) -> list[str]:
-        """Return a small diverse set for measured street-graph evaluation."""
-        primary = self._heuristic_suggest(map_context, sport, city=city)
-        low = map_context.casefold()
-        fallbacks: tuple[str, ...]
-        if any(
-            word in low
-            for word in ("hilly", "irregular", "winding", "hills", "sparse", "limited")
-        ):
-            fallbacks = ("triangle", "diamond", "arrow")
-        elif any(word in low for word in ("river", "lake", "water", "confluence")):
-            fallbacks = ("diamond", "arrow", "triangle")
-        else:
-            fallbacks = ("heart", "diamond", "triangle", "star")
-
-        candidates: list[str] = []
-        for name in (primary, *fallbacks):
-            if name not in candidates and shape_library.get_shape(name):
-                candidates.append(name)
-            if len(candidates) == 3:
-                break
-        return candidates
+        """Return three ranked, diverse shapes for measured graph evaluation."""
+        return [
+            item.name
+            for item in shape_recommender.recommend_shapes(
+                city,
+                map_context,
+                sport,
+                distance_km,
+            )
+        ]
 
     def _fallback_candidates(
         self,

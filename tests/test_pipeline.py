@@ -46,7 +46,7 @@ def test_pipeline_text_shape():
 
 
 def test_unknown_shape_is_not_mislabelled_as_the_requested_drawing():
-    state = generate("an elephant in Budapest, 8 km")
+    state = generate("a platypus in Budapest, 8 km")
     assert state.shape is not None
     assert state.shape.name == "star"
     assert state.shape.source == "fallback"

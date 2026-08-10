@@ -759,6 +759,7 @@ class Orchestrator:
         state.errors = best_errors
         intent.shape = best_shape.name
         plan.suggested_shape = best_shape.name
+        plan.notes = plan.suggestion_reasons.get(best_shape.name, plan.notes)
         log.info(
             "suggestion search selected %s (fidelity=%.3f, score=%.3f)",
             best_shape.name,

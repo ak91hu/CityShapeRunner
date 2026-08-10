@@ -10,17 +10,13 @@ from ..config import get_settings
 from ..llm import LLMResponse, extract_json, try_complete
 from ..prompts import render
 from ..state import Intent, WorkflowState
+from ..tools.geocoder import MAJOR_EUROPEAN_CITIES, MAJOR_HUNGARIAN_CITIES
 from .base import BaseAgent
 
 _KNOWN_CITIES = [
-    "Budapest", "Debrecen", "Szeged", "Miskolc", "Pécs", "Győr",
-    "Nyíregyháza", "Kecskemét", "Székesfehérvár", "Szombathely",
-    "Veszprém", "Zalaegerszeg", "Keszthely", "Eger", "Sopron",
-    "Tatabánya", "Kaposvár", "Szekszárd", "Békéscsaba", "Cegléd",
-    "Vác", "Szentendre", "Esztergom", "Gyula", "Hajdúszoboszló",
-    "Siófok", "Balatonfüred", "Visegrád", "Makó", "Hódmezővásárhely",
-    "Paris", "Berlin", "London", "New York", "Barcelona",
-    "Rome", "Vienna", "Amsterdam", "Prague", "Madrid", "Lisbon",
+    *MAJOR_HUNGARIAN_CITIES,
+    *MAJOR_EUROPEAN_CITIES,
+    "Keszthely", "Balatonfüred", "Visegrád", "Makó", "New York",
 ]
 
 

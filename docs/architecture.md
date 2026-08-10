@@ -87,13 +87,14 @@ explicit without coupling the current runtime to one.
 - Shape fidelity: express the intended and routed lines in a shared metric
   frame, resample both by arc length, then combine discrete Fréchet,
   Hausdorff/coverage, tangent sequence, route-length and extent preservation,
-  plus multiscale salient-curvature landmark matching with NumPy
+  multiscale salient-curvature landmark matching, and excess near-U-turn event
+  detection with NumPy
   (`tools/shape_similarity.py`). Route direction and the start vertex of a
   closed loop do not affect the score.
 - Acceptance: `quality.py` is the single source of truth shared by the
   orchestrator, API, edit endpoint, and exporter. It independently gates shape
   identity, connected routing, aggregate score, ordered curve, coverage,
-  turns, landmarks, detour, extent, distance, and closure for automatic
+  turns, landmarks, unintended reversals, detour, extent, distance, and closure for automatic
   verification. The API selector contains every fully routed candidate for the
   final selected shape. Internal compatibility fields still use `verified` and
   `review`, while the UI presents the non-scientific labels “Checks passed” and
@@ -108,9 +109,12 @@ explicit without coupling the current runtime to one.
   measured scale correction and damped square-root bracket are tried. Tested
   scale/rotation/offset/tolerance signatures are remembered, so an already measured
   candidate cannot consume the remaining iteration budget repeatedly.
-- Smart suggestions measure up to three distinct, city-specific templates on
-  the real road network. A primary route that already passes both quality
-  gates is accepted immediately to avoid unnecessary router calls.
+- Smart suggestions score the complete 73-template registry against continuous
+  city traits, activity, and distance. Up to three high-scoring continuous
+  shapes from different geometry families are measured on the real road
+  network. A primary route that already passes both quality gates is accepted
+  immediately to avoid unnecessary router calls; otherwise the alternatives
+  compete on measured route quality.
 
 ## Failure modes & degradation
 
@@ -151,7 +155,8 @@ explicit without coupling the current runtime to one.
   tampering/expiry, PNG sanitisation, Cloudinary response filtering, and
   deletion authorization without contacting Cloudinary.
 - Playwright functional tests exercise the built user interface with explicit
-  desktop/mobile/tablet assertions, including the 32-item quick-idea catalog,
+  desktop/mobile/tablet assertions, including the searchable 86-option catalog,
+  grouped 50-city Hungary and 30-city Europe structured picker,
   generator focus, prompt limits and keyboard submission, cancellation,
   responsive containment, result wording, candidate switching, editor success
   and failure recovery, safe download gates, gallery storage failures,

@@ -1,6 +1,6 @@
 # GPS-art theory and scientific basis
 
-Research cutoff: **2026-08-03**.
+Research cutoff: **2026-08-10**.
 
 This is a structured synthesis of the directly relevant, publicly discoverable
 literature, not a claim that every page ever written about GPS art has been
@@ -1218,7 +1218,67 @@ Implemented approximations:
   distance measurements;
 - **multiscale salient curvature-landmark scoring** with travel-direction and
   closed-loop start invariance;
+- an explicit excess-reversal gate that compares near-U-turn events with the
+  intended drawing, so a route cannot hide doubled-back strokes inside a good
+  average curve score;
 - retention of all fully routed candidates and manual re-routing after edits.
+
+Geographic coverage uses the [KSH list of Hungary's 50 largest settlements on
+1 January 2025](https://www.ksh.hu/stadat_files/fol/en/fol0014.html) as a
+reproducible product boundary. All 50 have local centres and bounded urban
+search areas, and the 12 formerly missing entries now also have terrain,
+water, and infrastructure notes. Population is only a coverage criterion: it
+does not prove that a city or neighbourhood has enough connected, legal roads
+for a particular drawing. Preflight and full activity-specific routing still
+measure that question per request.
+
+The European extension adds 30 cities spanning western, northern, central,
+southern, and eastern Europe. Selection uses the harmonised city concept and
+territorial coverage documented by [Eurostat City Statistics](https://ec.europa.eu/eurostat/web/cities/methodology),
+then deliberately balances regions instead of presenting a misleading
+cross-country population ranking. [Boeing's street-network study](https://doi.org/10.1007/s41109-019-0189-1)
+shows why one generic “European city” heuristic would be unsound: orientation
+order, circuity, intersection structure, and segment lengths differ
+substantially between cities. Accordingly, every selected city has local
+search bounds and context for water, terrain, parks, historic cores, and major
+infrastructure. These descriptions seed the transform search; they do not
+replace activity-specific graph measurements.
+
+### 12.1 City–shape recommendation model
+
+The previous recommender attached one running and one cycling symbol to each
+city name. That produced variety but did not establish that the nominated
+geometry matched the route distance or street fabric. It could also recommend
+a culturally associated but fragile outline—for example a multi-stroke animal—
+without comparing it with the other 72 templates.
+
+The replacement performs a complete deterministic registry audit. For every
+template it measures stroke count, closure, normalized drawn length, sharp
+turns, accumulated turning, four-axis orientation concentration, aspect ratio,
+complexity, and an explicit routeability prior. Curated city descriptions are
+converted to continuous grid-order, connectivity, barrier, terrain, and radial
+traits. The supported detail level is the minimum of city capacity and an
+activity/distance capacity; cycling is modelled separately because walkable and
+drivable networks can differ in circuity and connectivity
+([Boeing, 2017](https://arxiv.org/abs/1708.00836)).
+
+All 73 templates receive a score. Automatic suggestions choose three
+high-scoring, continuous candidates from different geometry families. Templates
+with disconnected strokes remain available for explicit requests, but they do
+not enter the automatic shortlist because their transfer legs can create lines
+that are absent from the intended image. Powałka's candidate-ranking result
+supports using this score only as a shortlist prior: the existing transform
+search, activity-specific Directions route, and independent validation gates
+still determine the returned route. The implementation and the exhaustive
+city/template audit are documented in
+[City-aware shape recommendations](city-shape-recommendations.md).
+
+This is a quality-oriented engineering model, not a learned probability of
+recognition. Its city inputs are curated prose rather than frozen
+neighbourhood-scale graph measurements, and its shape weights have not yet been
+calibrated against human labels. The UI therefore says “suggested,” gives a
+plain-language reason, and preserves route checks rather than claiming an
+optimal drawing.
 
 Important gaps:
 
@@ -1232,7 +1292,7 @@ Important gaps:
 - GNSS execution noise is warned about but not simulated; and
 - safety/access remain dependent on third-party map data and manual review.
 
-### 12.1 Claim-to-evidence ledger
+### 12.2 Claim-to-evidence ledger
 
 | Product statement | What the implementation may currently support | What it must not imply |
 |---|---|---|
@@ -1337,6 +1397,7 @@ open manuscripts/repositories are linked where located.
 
 ### Route choice and empirical validation
 
+- Boeing, G. (2017). [The Morphology and Circuity of Walkable and Drivable Street Networks](https://arxiv.org/abs/1708.00836).
 - Broach, J., Dill, J., & Gliebe, J. (2012). [Where do cyclists ride? A route choice model developed with revealed preference GPS data](https://doi.org/10.1016/j.tra.2012.07.005).
 - Minetti, A. E., et al. (2002). [Energy cost of walking and running at extreme uphill and downhill slopes](https://doi.org/10.1152/japplphysiol.01177.2001).
 - Roberts, D. R., et al. (2017). [Cross-validation strategies for data with temporal, spatial, hierarchical, or phylogenetic structure](https://doi.org/10.1111/ecog.02881).

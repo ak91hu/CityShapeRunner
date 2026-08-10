@@ -714,9 +714,9 @@ input:disabled {
 
 .suggest-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
-  align-items: end;
+  align-items: stretch;
 }
 
 .suggest-heading {
@@ -734,6 +734,26 @@ input:disabled {
   grid-template-columns: minmax(8.5rem, 1.25fr) minmax(7rem, 0.8fr) minmax(6.5rem, 0.65fr);
   gap: 0.65rem;
   min-width: 0;
+}
+
+.suggest-method {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.suggest-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.suggest-submit {
+  min-width: 10.5rem;
 }
 
 .field {
@@ -2056,8 +2076,8 @@ footer p {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .suggest-form > .button {
-    width: 100%;
+  .suggest-submit {
+    width: auto;
   }
 
   .loading-card,
@@ -2396,7 +2416,7 @@ input[aria-invalid="true"]:focus {
 }
 
 .suggest-notice {
-  grid-column: 1 / -1;
+  flex: 1 1 auto;
   margin: 0;
   padding: 0.7rem 0.8rem;
   border-radius: var(--radius-sm);
@@ -3341,6 +3361,15 @@ footer {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .suggest-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .suggest-submit {
+    width: 100%;
+  }
+
   .field--distance {
     grid-column: auto;
   }
@@ -3531,6 +3560,57 @@ input,
 .idea-groups {
   border: 1px solid var(--line);
   border-top: 0;
+}
+
+.idea-filter {
+  position: sticky;
+  top: -0.9rem;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem 0.75rem;
+  align-items: end;
+  margin: -0.9rem -0.9rem 1rem;
+  padding: 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.idea-filter label {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.idea-filter input {
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+}
+
+.idea-filter span {
+  padding-bottom: 0.65rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.idea-group h3 {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-weight: 720;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.idea-empty {
+  margin: 0;
+  padding: 1rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  text-align: center;
 }
 
 .route-loader {

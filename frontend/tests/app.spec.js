@@ -323,7 +323,26 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByLabel("City")).toBeVisible();
   await expect(page.getByRole("group", { name: "Activity" })).toBeVisible();
   await expect(page.getByLabel("Distance")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Find a route" })).toBeVisible();
+  const suggestionButton = page.getByRole("button", { name: "Find a route" });
+  await expect(suggestionButton).toBeVisible();
+  await expect(
+    page.getByText("We compare up to three shapes suited to these streets and this distance."),
+  ).toBeVisible();
+  const fieldsBox = await page.locator(".suggest-fields").boundingBox();
+  const actionsBox = await page.locator(".suggest-actions").boundingBox();
+  const suggestionButtonBox = await suggestionButton.boundingBox();
+  expect(fieldsBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(suggestionButtonBox).not.toBeNull();
+  expect(actionsBox.y).toBeGreaterThanOrEqual(fieldsBox.y + fieldsBox.height);
+  expect(suggestionButtonBox.y).toBeGreaterThanOrEqual(actionsBox.y);
+  if ((await page.viewportSize()).width <= 608) {
+    expect(suggestionButtonBox.width).toBeGreaterThanOrEqual(actionsBox.width - 1);
+  } else {
+    expect(suggestionButtonBox.x + suggestionButtonBox.width).toBeGreaterThanOrEqual(
+      actionsBox.x + actionsBox.width - 1,
+    );
+  }
   for (const option of await page.locator(".activity-option").all()) {
     const box = await option.boundingBox();
     expect(box).not.toBeNull();
@@ -331,8 +350,20 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   }
   await expect(page.getByLabel("City").locator('option[value="Miskolc"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Eger"]')).toHaveCount(1);
+  await expect(page.getByLabel("City").locator("option")).toHaveCount(80);
+  await expect(page.getByLabel("City").locator("optgroup")).toHaveCount(2);
+  await expect(page.getByLabel("City").locator('optgroup[label="Hungary"] option')).toHaveCount(50);
+  await expect(page.getByLabel("City").locator('optgroup[label="Europe"] option')).toHaveCount(30);
+  await expect(page.getByLabel("City").locator('option[value="Érd"]')).toHaveCount(1);
+  await expect(page.getByLabel("City").locator('option[value="Szolnok"]')).toHaveCount(1);
+  await expect(
+    page.getByLabel("City").locator('option[value="Szigetszentmiklós"]'),
+  ).toHaveCount(1);
+  await expect(page.getByLabel("City").locator('option[value="Tata"]')).toHaveCount(1);
+  await expect(page.getByLabel("City").locator('option[value="Stockholm"]')).toHaveCount(1);
+  await expect(page.getByLabel("City").locator('option[value="Kraków"]')).toHaveCount(1);
   await page.getByText("More shapes, letters, and numbers").click();
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(32);
+  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(86);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Number 42" })).toBeVisible();
 

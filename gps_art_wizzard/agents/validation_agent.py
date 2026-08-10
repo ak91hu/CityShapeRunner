@@ -119,6 +119,11 @@ class ValidationAgent(BaseAgent):
                 "salient corners, notches, or tips were not preserved "
                 f"({diagnostics.landmark_similarity:.2f})"
             )
+        if on_roads and diagnostics.reversal_similarity < minimum_fidelity:
+            issues.append(
+                "the street route adds unintended U-turns or backtracking strokes "
+                f"({diagnostics.reversal_similarity:.2f})"
+            )
         if on_roads and diagnostics.length_similarity < minimum_fidelity:
             issues.append(
                 "street detours distort the drawing length "
@@ -145,6 +150,7 @@ class ValidationAgent(BaseAgent):
             route_length_ratio=diagnostics.route_length_ratio,
             mean_deviation_ratio=diagnostics.mean_deviation_ratio,
             landmark_similarity=diagnostics.landmark_similarity,
+            reversal_similarity=diagnostics.reversal_similarity,
             closure_gap_m=gap_m,
             actual_distance_km=actual_km,
             target_distance_km=target,
@@ -208,6 +214,7 @@ class ValidationAgent(BaseAgent):
             coverage_similarity=diagnostics.coverage_similarity,
             turning_similarity=diagnostics.turning_similarity,
             landmark_similarity=diagnostics.landmark_similarity,
+            reversal_similarity=diagnostics.reversal_similarity,
             length_similarity=diagnostics.length_similarity,
             extent_similarity=diagnostics.extent_similarity,
             route_length_ratio=diagnostics.route_length_ratio,

@@ -89,13 +89,26 @@ Sources: [WCAG 2.2 target-size guidance](https://www.w3.org/WAI/WCAG22/Understan
 
 ### Match the control to the question
 
-The GOV.UK Design System advises using selects sparingly. A long city list is a
-reasonable select, but a two-item running/cycling choice is faster to scan as
-visible radio options. The activity control was therefore changed to two large
-radio targets, while the city remains a select and distance remains a labelled
-number input.
+The GOV.UK Design System advises using selects sparingly. The 80-city list
+remains a native select, which stays compact and uses the platform's familiar
+mobile picker. Hungary's KSH top 50 and the 30-city European coverage set are
+separate labelled option groups, so users do not have to scan one undifferentiated
+list. A two-item running/cycling choice is faster to scan as visible radio
+options, so activity uses two large radio targets while distance remains a
+labelled number input.
 
 Source: [GOV.UK Design System — Select](https://design-system.service.gov.uk/components/select/).
+
+### Keep a large shape catalog findable
+
+Exposing 86 choices as one uninterrupted field of chips would make scanning
+slow and bury familiar options. Six common shapes stay beside the prompt. The
+full catalog is grouped by plain-language category and has a labelled search
+that filters both names and categories, reports the remaining count, and gives
+an explicit empty result. This follows the W3C preference for familiar,
+unambiguous symbols while retaining text labels instead of relying on glyphs.
+
+Source: [W3C COGA — Use Clear and Familiar Icons and Symbols](https://www.w3.org/WAI/WCAG2/supplemental/patterns/o1p07-icons-used/).
 
 ### Keep labels and instructions concise but explicit
 
@@ -169,7 +182,10 @@ Source: [WCAG 2.2, criterion 2.5.7](https://www.w3.org/TR/WCAG22/#dragging-movem
 - Tablet and mobile stack the explanation above the form without inserting an
   extra step list between the user and the first field.
 - Mobile uses two-column idea buttons, stacks all suggestion fields, and keeps
-  the planner and gallery links visible.
+  the planner and gallery links visible. The structured suggestion action sits
+  in a separate row below every field: right-aligned on wider screens and full
+  width on phones. Field help or validation text can no longer move it into an
+  ambiguous column beside the inputs.
 - Route results become a single column before the layout can squeeze the map or
   sidebar. Metrics become labelled rows on phones and every primary control
   keeps at least a 44-pixel target.

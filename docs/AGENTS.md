@@ -60,9 +60,13 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   and `city_bbox`.
 - **Fast path:** known templates, text, and suggestions use curated city
   context deterministically, including a documented street-grid rotation and
-  conservative obstacle-avoidance offset. Supported Hungarian cities have
-  distinct running and cycling suggestions; the bbox-derived city-extent
-  heading is only a coarse fallback.
+  conservative obstacle-avoidance offset. Hungary's KSH top 50 settlements and
+  30 regionally balanced European cities have local centres, bounded urban
+  search areas, and geography profiles. Suggestions score all 73 templates by
+  continuity, turns, directional order, aspect, complexity, city street traits,
+  activity, and distance; three diverse continuous candidates proceed to live
+  route measurement. The bbox-derived city-extent heading is only a coarse
+  fallback.
 - **LLM:** unsupported free-form shapes use JSON per `prompts/plan.txt`, with
   the same known geography in the prompt.
 - **Consumers:** ShapeAgent (strategy orders the tiers), PlacementAgent
@@ -73,7 +77,8 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Output:** `Shape` — sub-paths of (x, y) in unit space + `closed`.
 - **Strategy:** the plan's `shape_strategy` reorders the three tiers
   (template / text / llm). Default (no plan): template → text → llm. The shape
-  is normalised (centroid → origin, max side = 1.0). Text supports every A–Z
+  is selected from 73 deterministic templates or normalised (centroid → origin,
+  max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
 
 ### PlacementAgent
@@ -115,7 +120,8 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Input:** `SnappedRoute` + `RouteDraft` (the placed drawing as reference).
 - **Output:** `Validation` (score 0..1, per-metric, issues[]).
 - **Metrics:** `shape_fidelity` (shared-frame Fréchet/Hausdorff, coverage,
-  tangent sequence, multiscale salient-curvature landmarks, length, and extent;
+  tangent sequence, multiscale salient-curvature landmarks, unintended
+  reversal events, length, and extent;
   drawn vs snapped), `distance_fit`, `closure` (closed shapes). Threshold 0.72
   gates the loop. Below the 0.70 fidelity floor, the score cap remains
   monotonic to preserve candidate ordering. See `skill-validation-metrics.md`.

@@ -37,6 +37,7 @@ class SimilarityDiagnostics:
     route_length_ratio: float
     mean_deviation_ratio: float
     landmark_similarity: float = 0.0
+    reversal_similarity: float = 1.0
 
 
 _ZERO_DIAGNOSTICS = SimilarityDiagnostics(
@@ -49,6 +50,7 @@ _ZERO_DIAGNOSTICS = SimilarityDiagnostics(
     route_length_ratio=0.0,
     mean_deviation_ratio=float("inf"),
     landmark_similarity=0.0,
+    reversal_similarity=0.0,
 )
 
 
@@ -226,6 +228,38 @@ def _signed_turns(points: np.ndarray, span: int) -> np.ndarray:
     return turns
 
 
+def _reversal_event_count(points: np.ndarray) -> int:
+    """Count distinct near-U-turn events in an arc-length sampled curve.
+
+    A router can stay close to the intended outline while repeatedly doubling
+    back along the same street.  Those extra strokes are visually destructive
+    but can be diluted in an average tangent score.  Grouping adjacent extreme
+    signed turns counts each hairpin once instead of counting its samples.
+    """
+    if len(points) < 7:
+        return 0
+    span = max(2, len(points) // 64)
+    extreme = np.abs(_signed_turns(points, span)) >= math.radians(145.0)
+    if not np.any(extreme):
+        return 0
+    starts = extreme & ~np.concatenate(([False], extreme[:-1]))
+    count = int(np.count_nonzero(starts))
+    # A closed curve can split one event across the sampling seam.
+    closed = np.linalg.norm(points[0] - points[-1]) <= 0.05
+    if closed and extreme[0] and extreme[-2] and count > 1:
+        count -= 1
+    return count
+
+
+def _reversal_similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
+    """Penalise U-turn/backtracking events not present in the drawing."""
+    extra_events = max(
+        0,
+        _reversal_event_count(candidate) - _reversal_event_count(reference),
+    )
+    return math.exp(-extra_events / 1.25)
+
+
 def _salient_indices(
     turns: np.ndarray,
     *,
@@ -400,9 +434,10 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
     landmarks = _landmark_similarity(reference, candidate)
     length, length_ratio = _length_components(reference, candidate)
     extent = _extent_similarity(reference, candidate)
+    reversals = _reversal_similarity(reference, candidate)
 
-    components = (spatial, coverage, turning, landmarks, length, extent)
-    weights = (0.24, 0.19, 0.16, 0.20, 0.12, 0.09)
+    components = (spatial, coverage, turning, landmarks, length, extent, reversals)
+    weights = (0.22, 0.18, 0.15, 0.19, 0.11, 0.08, 0.07)
     # A weighted geometric mean prevents a good distance/outline average from
     # hiding one catastrophically lost recognition cue.
     fidelity = math.exp(
@@ -421,6 +456,7 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
         route_length_ratio=float(length_ratio),
         mean_deviation_ratio=float(mean_deviation),
         landmark_similarity=float(landmarks),
+        reversal_similarity=float(reversals),
     )
 
 

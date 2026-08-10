@@ -138,6 +138,14 @@ def quality_gate_report(
             "Dominant corners, tips, and notches remain at the expected contour phases.",
         ),
         _numeric_gate(
+            "reversal_similarity",
+            "No unintended backtracking",
+            "shape",
+            validation.reversal_similarity,
+            shape_threshold,
+            "The street route does not add U-turns or doubled-back strokes absent from the drawing.",
+        ),
+        _numeric_gate(
             "length_similarity",
             "Detour control",
             "shape",
