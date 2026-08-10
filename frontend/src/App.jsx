@@ -47,7 +47,7 @@ const QUICK_IDEAS = [
 ];
 
 const IDEA_CATEGORIES = ["Simple shapes", "Nature", "Animals", "Symbols", "Letters, numbers & text"];
-const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured);
+const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
 
 const SUGGEST_CITIES = [
   "Budapest",
@@ -76,6 +76,124 @@ const SUGGEST_CITIES = [
 ];
 
 const PROMPT_LIMIT = 320;
+const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
+const PROMPT_MEANINGFUL_CHARACTER = /[\p{L}\p{N}]/u;
+
+function normaliseRoutePrompt(value) {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function validateRoutePrompt(value) {
+  const normalised = value.normalize("NFKC");
+  if (PROMPT_CONTROL_CHARACTERS.test(normalised)) {
+    return {
+      value: normaliseRoutePrompt(normalised),
+      error: "Remove unsupported control characters from the route idea.",
+    };
+  }
+
+  const cleaned = normaliseRoutePrompt(normalised);
+  if (!cleaned) {
+    return {
+      value: cleaned,
+      error: "Enter a route idea. Try ‘a heart run in Budapest, about 8 km’.",
+    };
+  }
+  if (cleaned.length > PROMPT_LIMIT) {
+    return {
+      value: cleaned,
+      error: `Keep the route idea to ${PROMPT_LIMIT} characters or fewer.`,
+    };
+  }
+  if (!PROMPT_MEANINGFUL_CHARACTER.test(cleaned)) {
+    return {
+      value: cleaned,
+      error: "Include a shape, word, letter, or number to draw.",
+    };
+  }
+  return { value: cleaned, error: "" };
+}
+
+function distanceLimits(sport) {
+  return sport === "bike"
+    ? { minimum: 10, maximum: 200, activity: "cycling" }
+    : { minimum: 3, maximum: 60, activity: "running" };
+}
+
+function validateSuggestion({ city, sport, distance }) {
+  const errors = {};
+  if (!SUGGEST_CITIES.includes(city)) {
+    errors.city = "Choose a city from the list.";
+  }
+  if (!["run", "bike"].includes(sport)) {
+    errors.sport = "Choose running or cycling.";
+  }
+
+  const { minimum, maximum, activity } = distanceLimits(sport);
+  const numericDistance = Number(distance);
+  if (String(distance).trim() === "") {
+    errors.distance = "Enter a distance in kilometres.";
+  } else if (!Number.isFinite(numericDistance)) {
+    errors.distance = "Enter the distance as a number.";
+  } else if (!Number.isInteger(numericDistance)) {
+    errors.distance = "Enter the distance in whole kilometres.";
+  } else if (numericDistance < minimum || numericDistance > maximum) {
+    errors.distance = `Enter a ${activity} distance from ${minimum} to ${maximum} km.`;
+  }
+
+  return { errors, numericDistance };
+}
+
+const GATE_COPY = {
+  selected_shape: {
+    label: "Drawing",
+    description: "This route uses the drawing you chose.",
+  },
+  road_network: {
+    label: "Follows connected streets",
+    description: "The route uses connected roads or paths instead of straight guide lines.",
+  },
+  overall_score: {
+    label: "Overall match",
+    description: "A combined look at the drawing, distance, and start-to-finish gap.",
+  },
+  shape_fidelity: {
+    label: "Shape match",
+    description: "How closely the route still looks like your drawing.",
+  },
+  spatial_similarity: {
+    label: "Line order",
+    description: "The route traces the parts of the drawing in the right order.",
+  },
+  coverage_similarity: {
+    label: "Outline coverage",
+    description: "The route covers the full drawing without skipping large sections.",
+  },
+  turning_similarity: {
+    label: "Turns and curves",
+    description: "The drawing’s distinctive corners and curves are still visible.",
+  },
+  landmark_similarity: {
+    label: "Key points",
+    description: "Important tips, corners, and notches are in the right places.",
+  },
+  length_similarity: {
+    label: "Extra detours",
+    description: "Street detours do not add confusing extra lines to the drawing.",
+  },
+  extent_similarity: {
+    label: "Shape proportions",
+    description: "The drawing keeps roughly the same width and height.",
+  },
+  distance_fit: {
+    label: "Requested distance",
+    description: "The route is close to the distance you asked for.",
+  },
+  closure: {
+    label: "Returns to the start",
+    description: "For a loop, the finish is close to the starting point.",
+  },
+};
 
 function formatMetric(value, digits = 2) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
@@ -101,26 +219,26 @@ function formatGateValue(gate) {
 
 function formatGateMinimum(gate) {
   if (!gate?.applies || typeof gate.minimum === "boolean") return "";
-  if (typeof gate.minimum === "number") return `minimum ${formatPercent(gate.minimum)}`;
-  return gate.minimum ? `must be ${normaliseLabel(gate.minimum)}` : "";
+  if (typeof gate.minimum === "number") return `target ${formatPercent(gate.minimum)}`;
+  return gate.minimum ? `target: ${normaliseLabel(gate.minimum)}` : "";
 }
 
 function explainGateResult(gate) {
-  if (!gate?.applies) return "This check does not apply to this route.";
+  if (!gate?.applies) return "Not needed for this route.";
   if (typeof gate.value === "boolean") {
     return gate.passed
-      ? "The required condition was observed."
-      : "The required condition was not observed, so manual inspection matters.";
+      ? "Looks good."
+      : "We couldn’t confirm this. Check the map before using the route.";
   }
   if (typeof gate.value === "number" && typeof gate.minimum === "number") {
     const difference = Math.round(Math.abs(gate.value - gate.minimum) * 100);
     return gate.passed
-      ? `${difference} percentage point${difference === 1 ? "" : "s"} above the automatic target; higher is better.`
-      : `${difference} percentage point${difference === 1 ? "" : "s"} below the automatic target; this signals visible distortion, not a probability of failure.`;
+      ? `${difference} point${difference === 1 ? "" : "s"} above the target.`
+      : `${difference} point${difference === 1 ? "" : "s"} below the target. Check how it looks on the map.`;
   }
   return gate.passed
-    ? "This route matches the selected value."
-    : "This route does not match the selected value.";
+    ? "Matches your choice."
+    : "Doesn’t match your choice.";
 }
 
 function normaliseLabel(value) {
@@ -242,15 +360,11 @@ function LoadingState({ onCancel }) {
         <span />
       </div>
       <div>
-        <p className="eyebrow">Building route candidates</p>
-        <h2>Testing your drawing against real streets…</h2>
-        <p>
-          We’re comparing scale, orientation, and nearby street grids. Detailed ideas can take a
-          little longer.
-        </p>
+        <h2>Finding routes</h2>
+        <p>Testing nearby streets against your drawing. Complex drawings can take longer.</p>
       </div>
       <button type="button" className="button button--quiet" onClick={onCancel}>
-        Stop
+        Cancel
       </button>
     </section>
   );
@@ -282,7 +396,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       );
       setNextCursor(response.next_cursor ?? null);
     } catch (galleryError) {
-      setError(galleryError.message || "The anonymous map gallery could not be loaded.");
+      setError(galleryError.message || "We couldn’t load the gallery. Please try again.");
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -296,7 +410,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
 
   const removeAsset = useCallback(async (asset) => {
     const token = removalTokens[asset.id];
-    if (!token || !window.confirm("Remove this map screenshot from the public gallery?")) return;
+    if (!token || !window.confirm("Remove your map from the public gallery?")) return;
     setError("");
     try {
       await removeGalleryImage({ public_id: asset.id, removal_token: token });
@@ -304,7 +418,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       setAssets((current) => current.filter((item) => item.id !== asset.id));
       setRemovalTokens(forgetGalleryRemovalToken(asset.id));
     } catch (removalError) {
-      setError(removalError.message || "The gallery image could not be removed.");
+      setError(removalError.message || "We couldn’t remove that map. Please try again.");
     }
   }, [removalTokens]);
 
@@ -312,15 +426,11 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
     <section className="gallery" id="gallery" aria-labelledby="gallery-title">
       <div className="section-heading gallery-heading">
         <div>
-          <p className="eyebrow">Anonymous community maps</p>
-          <h2 id="gallery-title">GPS art gallery</h2>
-          <p>
-            Public route screenshots preserve the map, street names, and OpenStreetMap
-            attribution—without prompts, profiles, or activity histories.
-          </p>
+          <h2 id="gallery-title">Public gallery</h2>
+          <p>Map images shared by users. Prompts, profiles, and route files are not published.</p>
         </div>
         <a className="button button--quiet" href="#route-designer">
-          Create an artwork
+          Plan a route
         </a>
       </div>
 
@@ -331,8 +441,8 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       )}
       {!loading && !configured && (
         <div className="gallery-state">
-          <strong>The gallery is ready for Cloudinary credentials.</strong>
-          <span>Route generation and downloads remain available.</span>
+          <strong>Gallery unavailable</strong>
+          <span>Route planning and downloads still work.</span>
         </div>
       )}
       {error && (
@@ -342,8 +452,8 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       )}
       {!loading && configured && assets.length === 0 && !error && (
         <div className="gallery-state">
-          <strong>No public map artwork yet.</strong>
-          <span>Generate a route and publish its map screenshot to start the gallery.</span>
+          <strong>No maps have been shared.</strong>
+          <span>Publish a route map to add the first.</span>
         </div>
       )}
       {assets.length > 0 && (
@@ -363,7 +473,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
                 <span>Map data © OpenStreetMap contributors</span>
                 {removalTokens[asset.id] && (
                   <button type="button" onClick={() => removeAsset(asset)}>
-                    Remove mine
+                    Remove my post
                   </button>
                 )}
               </div>
@@ -378,7 +488,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
           onClick={() => loadGalleryPage(nextCursor, false)}
           disabled={loadingMore}
         >
-          {loadingMore ? "Loading…" : "Load more map artwork"}
+          {loadingMore ? "Loading…" : "Show more routes"}
         </button>
       )}
       <p className="gallery-attribution">
@@ -491,12 +601,12 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     ]),
   ];
   const stateLabel = automaticChecksPassed
-    ? "Automatic checks passed"
+    ? "Ready to download"
     : userAccepted
-      ? "Accepted by you"
+      ? "Approved by you"
       : activeRoute.snapped
-        ? "Ready for your review"
-        : "Guide — review required";
+        ? "Check before downloading"
+        : "Map preview only";
   const canPublishGallery = Boolean(
     activeRoute.gallery_publish_token &&
     activeRoute.snapped &&
@@ -582,7 +692,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
       setControlPoints(sampleControlPoints(response.points_preview));
       setEditDirty(false);
     } catch (error) {
-      setEditError(error.message || "The edited guide could not be re-routed.");
+      setEditError(error.message || "We couldn’t update that route. Please try again.");
     } finally {
       setEditBusy(false);
     }
@@ -602,7 +712,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     setGalleryError("");
     try {
       const imageDataUrl = await mapCaptureRef.current?.capturePng();
-      if (!imageDataUrl) throw new Error("The route map is not ready to capture yet.");
+      if (!imageDataUrl) throw new Error("The map isn’t ready to share yet.");
       const response = await publishGalleryImage({
         image_data_url: imageDataUrl,
         publish_token: activeRoute.gallery_publish_token,
@@ -613,7 +723,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
       onGalleryPublished?.(response.asset);
     } catch (publishError) {
       setGalleryError(
-        publishError.message || "The map screenshot could not be published.",
+        publishError.message || "We couldn’t share the map. Please try again.",
       );
     } finally {
       setGalleryBusy(false);
@@ -635,17 +745,12 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     >
       <div className="section-heading">
         <div>
-          <p className="eyebrow">
-            {automaticChecksPassed
-              ? "Route checks passed"
-              : "Selected-shape route for review"}
-          </p>
           <h2 id="result-title">
             {shapeName} in {city}
           </h2>
           {result.request_id && (
             <p className="debug-id">
-              Debug ID: <code>{result.request_id}</code>
+              Route ID: <code>{result.request_id}</code>
             </p>
           )}
         </div>
@@ -660,7 +765,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
       <div className="result-layout">
         <div className="map-card">
           <div className="candidate-toolbar">
-            <label htmlFor="route-candidate">Selected-shape route</label>
+            <label htmlFor="route-candidate">Route options</label>
             <select
               id="route-candidate"
               value={selectedCandidate?.id ?? "best"}
@@ -682,17 +787,17 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                     {index + 1}. {normaliseLabel(candidate.shape_name)} ·{" "}
                     {formatPercent(candidate.validation?.score)} ·{" "}
                     {formatMetric(candidate.distance_km)} km ·{" "}
-                    {candidate.verification?.passed ? "Checks passed" : "Review"}
+                    {candidate.verification?.passed ? "Ready" : "Needs a look"}
                   </option>
                 ))
               ) : (
-                <option value="best">Best selected-shape route</option>
+                <option value="best">Best route found</option>
               )}
             </select>
             <span>
               {candidates.length > 0
-                ? `${candidates.length} selected-shape route${candidates.length === 1 ? "" : "s"} shown; ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} passed checks, ${reviewCount} for review`
-                : `${auditedCount} evaluated; the best route remains available for review`}
+                ? `${candidates.length} option${candidates.length === 1 ? "" : "s"}: ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready, ${reviewCount} need a look`
+                : `${auditedCount} tried; showing the closest match`}
             </span>
           </div>
 
@@ -722,18 +827,14 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             </Suspense>
           ) : (
             <div className="route-map route-map--empty" role="status">
-              <strong>No route line was returned</strong>
-              <span>Adjust the idea and try another candidate.</span>
+              <strong>We couldn’t draw this route</strong>
+              <span>Change the idea or choose another route.</span>
             </div>
           )}
           <div className="route-editor" aria-label="Route editor">
             <div>
-              <strong>Manual route editor</strong>
-              <p>
-                Drag the numbered control points, then rebuild the line on the
-                street network. The updated measurements replace the current
-                result; routes below a target still require your explicit review.
-              </p>
+              <strong>Edit route</strong>
+              <p>Move a numbered point, then apply the changes.</p>
             </div>
             <div className="editor-actions">
               <button
@@ -758,7 +859,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                     onClick={resetEditor}
                     disabled={editBusy}
                   >
-                    Reset points
+                    Start over
                   </button>
                   <button
                     type="button"
@@ -766,7 +867,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                     onClick={rerouteEdited}
                     disabled={editBusy || controlPoints.length < 2}
                   >
-                    {editBusy ? "Re-routing…" : "Update street route"}
+                    {editBusy ? "Applying changes…" : "Apply changes"}
                   </button>
                 </>
               )}
@@ -778,24 +879,24 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             )}
             {editedRoute && (
               <p className="editor-success" role="status">
-                Edited route ready: {formatMetric(editedRoute.distance_km)} km,
+                Changes saved — {formatMetric(editedRoute.distance_km)} km.
                 {editedRoute.verification?.passed
-                  ? " matched to streets and passed every automatic check."
-                  : " with updated measurements; review the highlighted checks before accepting it."}
+                  ? " The route follows streets and passed every check."
+                  : " Check the highlighted items before downloading."}
               </p>
             )}
           </div>
           <div className="map-caption">
             {(activeRoute.ideal_preview ?? result.ideal_preview ?? []).length > 1 && (
               <span>
-                <span className="legend-line legend-line--guide" aria-hidden="true" /> Intended
-                outline
+                <span className="legend-line legend-line--guide" aria-hidden="true" /> Original
+                drawing
               </span>
             )}
             {(activeRoute.landmark_preview ?? result.landmark_preview ?? []).length > 0 && (
               <span>
-                <span className="legend-dot legend-dot--landmark" aria-hidden="true" /> Salient
-                landmarks
+                <span className="legend-dot legend-dot--landmark" aria-hidden="true" /> Key
+                points
               </span>
             )}
             <span>
@@ -806,11 +907,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             </span>
             <span className="point-count">
               {activeRoute.snapped
-                ? `${(activeRoute.points_preview ?? []).length.toLocaleString()} displayed of ${(
+                ? `${(activeRoute.points_preview ?? []).length.toLocaleString()} of ${(
                     routingDetails.route_point_count ??
                     (activeRoute.points_preview ?? []).length
-                  ).toLocaleString()} route points`
-                : "Drawing preview — not matched to streets"}
+                  ).toLocaleString()} map points shown`
+                : "Preview only — not matched to streets"}
             </span>
           </div>
         </div>
@@ -818,9 +919,9 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
         <div className="result-sidebar">
           <dl className="metrics">
             <MetricCard
-              label="Route quality"
+              label="Overall match"
               value={formatPercent(score)}
-              detail="combined fit score"
+              detail="Combined score"
               tone={qualityTone}
             />
             <MetricCard
@@ -833,39 +934,22 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
               detail={normaliseLabel(result.intent?.sport)}
             />
             <MetricCard
-              label="Shape likeness"
+              label="Shape match"
               value={formatPercent(validation?.shape_fidelity)}
-              detail="outline preserved"
+              detail="Route against drawing"
               tone={validation?.shape_fidelity >= 0.7 ? "good" : "warn"}
             />
             <MetricCard
-              label="Distance accuracy"
-              value={formatPercent(validation?.distance_fit)}
-              detail="target match"
-            />
-            <MetricCard
-              label="Loop closure"
-              value={activeRoute.closed ? formatPercent(validation?.closure) : "Open"}
-              detail={activeRoute.closed ? "start-to-finish fit" : "open-path design"}
-              tone={
-                activeRoute.closed && Number.isFinite(validation?.closure)
-                  ? validation.closure >= 0.6
-                    ? "good"
-                    : "warn"
-                  : "neutral"
-              }
-            />
-            <MetricCard
-              label="Routes shown"
+              label="Route options"
               value={
                 Number.isFinite(candidateSummary.shown_count)
                   ? candidateSummary.shown_count
                   : candidates.length
               }
               detail={
-                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} passed checks, ${reviewCount} for review; ${auditedCount} evaluated${
+                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready · ${reviewCount} review · ${auditedCount} tested${
                   Number.isFinite(result.preflight_count) && result.preflight_count > 0
-                    ? `; ${result.preflight_count} placements screened`
+                    ? ` · ${result.preflight_count} locations`
                     : ""
                 }`
               }
@@ -877,8 +961,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             <div className={`notice ${fitDecision.substituted ? "notice--success" : "notice--warning"}`}>
               <strong>
                 {fitDecision.substituted
-                  ? `${requestedShape} did not fit — using ${shapeName}`
-                  : `Quality notes for ${requestedShape}`}
+                  ? `${requestedShape} didn’t fit these streets — here’s a ${shapeName}`
+                  : `Why this ${requestedShape} needs a closer look`}
               </strong>
               <ul className="decision-reasons">
                 {(fitDecision.reasons ?? []).map((reason) => (
@@ -887,7 +971,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
               </ul>
               {(fitDecision.candidates_tested ?? []).length > 0 && (
                 <p>
-                  Alternatives measured:{" "}
+                  Other shapes tried:{" "}
                   {fitDecision.candidates_tested.map(normaliseLabel).join(", ")}.
                 </p>
               )}
@@ -896,18 +980,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
 
           {result.suggested_shape && !fitDecision?.substituted && (
             <div className="notice notice--info">
-              <strong>Street-friendly suggestion</strong>
+              <strong>Suggested shape</strong>
               <p>{normaliseLabel(result.suggested_shape)}</p>
             </div>
           )}
 
           {!automaticChecksPassed && (
             <div className="notice notice--warning" role="status">
-              <strong>Automatic verification recommends a closer look</strong>
+              <strong>Review this route</strong>
               <p>
                 {!activeRoute.snapped
-                  ? "The routing provider did not confirm connected streets, so the line may cross buildings, water, or inaccessible land. You can still accept and export the shown guide after inspecting it carefully."
-                  : "One or more geometric scores missed the automatic target. The route remains the selected shape and is available for your judgment, editing, and explicit GPX acceptance."}
+                  ? "The line could not be matched to connected streets and may cross inaccessible areas."
+                  : "The street route differs from the drawing or requested distance. Check the map before downloading."}
               </p>
             </div>
           )}
@@ -918,25 +1002,22 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             >
               <summary className="verification-heading">
                 <span>
-                  <span className="eyebrow">Shape-following verification</span>
                   <span className="verification-title">
                     {automaticChecksPassed
-                      ? "All automatic targets reached"
-                      : `${verification.failed_gates?.length ?? 0} metric target${verification.failed_gates?.length === 1 ? "" : "s"} need review`}
+                      ? "Checks passed"
+                      : `${verification.failed_gates?.length ?? 0} item${verification.failed_gates?.length === 1 ? "" : "s"} to check`}
                   </span>
                 </span>
                 <span className="verification-count">
-                  {verification.passed_count}/{verification.required_count} · view data
+                  {verification.passed_count} of {verification.required_count} passed · show details
                 </span>
               </summary>
               <div className="verification-body">
                 <div className="score-explainer">
-                  <strong>How to read these numbers</strong>
+                  <strong>What the scores mean</strong>
                   <p>
-                    Scores are 0–100 geometric similarity indices: higher means the routed
-                    line preserves more of the intended drawing. They are not probabilities
-                    and do not measure traffic or personal safety. The displayed minimums are
-                    conservative automatic-review targets; your visual judgment remains final.
+                    Higher scores mean a closer match to the drawing. They do not measure traffic,
+                    access, surface quality, or safety.
                   </p>
                 </div>
                 <ul className="gate-list">
@@ -948,8 +1029,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                           {gate.passed ? "✓" : "!"}
                         </span>
                         <span>
-                          <strong>{gate.label}</strong>
-                          <small>{gate.description}</small>
+                          <strong>{GATE_COPY[gate.key]?.label ?? gate.label}</strong>
+                          <small>{GATE_COPY[gate.key]?.description ?? gate.description}</small>
                           <small className="gate-interpretation">
                             {explainGateResult(gate)}
                           </small>
@@ -967,39 +1048,38 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
 
           {routeDetails && (
             <details className="route-facts">
-              <summary>Generated route details</summary>
+              <summary>Route details</summary>
               <p className="route-facts-intro">
-                Route/guide length shows detour added by streets (1.00× means no added
-                length). Mean deviation is the average outline offset divided by the guide’s
-                overall size, so smaller is better.
+                Street detour is the extra distance added by the road network. Average drift is
+                the difference between the route and drawing.
               </p>
               <dl>
                 <div>
-                  <dt>Selected shape</dt>
+                  <dt>Drawing</dt>
                   <dd>{shapeName}</dd>
                 </div>
                 <div>
-                  <dt>Activity profile</dt>
+                  <dt>Activity</dt>
                   <dd>{normaliseLabel(routingDetails.activity)}</dd>
                 </div>
                 <div>
-                  <dt>Street matched</dt>
+                  <dt>Follows streets</dt>
                   <dd>{routingDetails.street_matched ? "Yes" : "No"}</dd>
                 </div>
                 <div>
-                  <dt>Route / guide points</dt>
+                  <dt>Map points / drawing points</dt>
                   <dd>
                     {routingDetails.route_point_count ?? "—"} / {routingDetails.guide_point_count ?? "—"}
                   </dd>
                 </div>
                 <div>
-                  <dt>Actual / target distance</dt>
+                  <dt>Route / requested distance</dt>
                   <dd>
                     {formatMetric(distanceDetails.actual_km)} km / {formatMetric(distanceDetails.target_km)} km
                   </dd>
                 </div>
                 <div>
-                  <dt>Distance difference</dt>
+                  <dt>Over / under your request</dt>
                   <dd>
                     {formatSigned(distanceDetails.difference_km, 2, " km")} ({formatSigned(
                       distanceDetails.difference_percent,
@@ -1009,11 +1089,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   </dd>
                 </div>
                 <div>
-                  <dt>Route / guide length</dt>
+                  <dt>Street detour</dt>
                   <dd>{formatMetric(distanceDetails.route_to_guide_ratio, 2)}×</dd>
                 </div>
                 <div>
-                  <dt>Mean deviation / guide extent</dt>
+                  <dt>Average drift from drawing</dt>
                   <dd>{formatPercent(deviationDetails.mean_outline_deviation_ratio)}</dd>
                 </div>
                 {activeRoute.closed && (
@@ -1023,7 +1103,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   </div>
                 )}
                 <div>
-                  <dt>Rotation / physical scale</dt>
+                  <dt>Rotation / size</dt>
                   <dd>
                     {formatMetric(placementDetails.rotation_deg, 1)}° / {formatMetric(
                       placementDetails.scale_m,
@@ -1032,7 +1112,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   </dd>
                 </div>
                 <div>
-                  <dt>Placement offset N / E</dt>
+                  <dt>Moved north / east</dt>
                   <dd>
                     {formatSigned(placementDetails.lat_offset_m, 0, " m")} / {formatSigned(
                       placementDetails.lon_offset_m,
@@ -1042,7 +1122,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   </dd>
                 </div>
                 <div>
-                  <dt>Preflight road fit</dt>
+                  <dt>Starting position match</dt>
                   <dd>{formatPercent(placementDetails.preflight_score)}</dd>
                 </div>
               </dl>
@@ -1051,19 +1131,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
 
           <div className="export-card">
             <div>
-              <p className="eyebrow">Your route, your decision</p>
-              <h3>
-                {automaticChecksPassed
-                  ? "Checked GPX ready"
-                  : userAccepted
-                    ? "Your accepted route is ready"
-                    : "Review the evidence, then accept or edit"}
-              </h3>
+              <h3>{exportReady ? "Download route" : "Review before download"}</h3>
             </div>
             {!automaticChecksPassed && !userAccepted && (
               <p className="acceptance-copy">
-                Accepting means you choose this exact shown geometry despite the highlighted
-                automatic checks. Inspect the map and local accessibility before using it.
+                This route missed one or more checks. Inspect the map before choosing to download it.
               </p>
             )}
             <div className="download-actions">
@@ -1090,7 +1162,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   }}
                   disabled={exportBlockedByPendingEdits}
                 >
-                  Accept shown route &amp; download GPX
+                  Approve and download GPX
                 </button>
               )}
               {exportReady && activeRoute.gpx && (
@@ -1100,7 +1172,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   onClick={() => onDownload("gpx", activeRoute.gpx)}
                   disabled={exportBlockedByPendingEdits}
                 >
-                  {editedRoute?.gpx ? "Download edited GPX" : "Download candidate GPX"}
+                  {editedRoute?.gpx ? "Download edited GPX" : "Download GPX"}
                 </button>
               )}
               {exportReady && activeRoute.tcx && (
@@ -1116,17 +1188,16 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             </div>
             {exportBlockedByPendingEdits && (
               <p className="pending-edit-note" role="status">
-                Apply the moved points with “Update street route,” or discard them, before
-                downloading this route.
+                Apply or discard your changes before downloading.
               </p>
             )}
             {activeRoute.gallery_publish_token && !editedRoute && (
               <div className="gallery-publish">
                 <div>
-                  <strong>Publish this street map anonymously</strong>
+                  <strong>Publish map image</strong>
                   <p>
-                    The PNG will show this exact mapped area, street names, route line, and
-                    OpenStreetMap attribution. No prompt, profile, or route file is attached.
+                    Publishes the map, route line, location, and visible street names. Your prompt,
+                    profile, and route file stay private.
                   </p>
                 </div>
                 {!publishedAsset ? (
@@ -1146,12 +1217,12 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                       onClick={publishMapScreenshot}
                       disabled={!canPublishGallery || !galleryConsent || galleryBusy}
                     >
-                      {galleryBusy ? "Capturing and publishing…" : "Publish map screenshot"}
+                      {galleryBusy ? "Publishing…" : "Publish map"}
                     </button>
                   </>
                 ) : (
                   <p className="gallery-publish-success" role="status">
-                    Published anonymously. <a href="#gallery">View it in the gallery</a>.
+                    Map published. <a href="#gallery">View in gallery</a>.
                   </p>
                 )}
                 {galleryError && (
@@ -1160,20 +1231,20 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   </p>
                 )}
                 {!exportReady && (
-                  <small>Accept or verify this street-routed candidate before publishing.</small>
+                  <small>Review or approve this route before sharing it.</small>
                 )}
-                {editing && <small>Finish the current map edit before publishing.</small>}
+                {editing && <small>Finish editing before sharing the map.</small>}
               </div>
             )}
             {!activeRoute.gpx && (
               <p className="export-unavailable">
-                The route service did not return enough geometry to build a GPX. Edit or
-                regenerate the route and try again.
+                There isn’t enough route data to make a GPX file. Edit the route or create a new
+                one, then try again.
               </p>
             )}
             <p className="safety-note">
-              Always check crossings, access, surface, traffic, and current conditions before
-              following a generated route.
+              Check access, crossings, traffic, surfaces, and current conditions before using this
+              route.
             </p>
           </div>
         </div>
@@ -1184,7 +1255,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
           {issueList.length > 0 && (
             <details className="detail-card">
               <summary>
-                Candidate notes <span>{issueList.length}</span>
+                Route issues <span>{issueList.length}</span>
               </summary>
               <ul>
                 {issueList.map((issue) => (
@@ -1197,14 +1268,14 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
           {historyRows.length > 0 && (
             <details className="detail-card">
               <summary>
-                Candidate history <span>{historyRows.length}</span>
+                Earlier versions <span>{historyRows.length}</span>
               </summary>
               <div className="table-wrap">
                 <table>
-                  <caption className="sr-only">Route candidate quality scores</caption>
+                  <caption className="sr-only">Scores for earlier versions of this route</caption>
                   <thead>
                     <tr>
-                      <th scope="col">Pass</th>
+                      <th scope="col">Try</th>
                       <th scope="col">Score</th>
                       <th scope="col">Change</th>
                       <th scope="col">Shape match</th>
@@ -1214,7 +1285,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   <tbody>
                     {historyRows.map((entry, index) => (
                       <tr key={`${entry.iteration ?? index}-${index}`}>
-                        <td data-label="Pass">{entry.iteration ?? index}</td>
+                        <td data-label="Try">{entry.iteration ?? index}</td>
                         <td data-label="Score">{formatPercent(entry.score)}</td>
                         <td data-label="Change">
                           {Number.isFinite(entry.delta_vs_best)
@@ -1236,40 +1307,40 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
           {auditRows.length > 0 && (
             <details className="detail-card">
               <summary>
-                Route-attempt audit <span>{auditRows.length}</span>
+                Routes tested <span>{auditRows.length}</span>
               </summary>
               <div className="table-wrap">
                 <table>
                   <caption className="sr-only">
-                    Acceptance results for every fully evaluated route attempt
+                    Scores for every route that was tested
                   </caption>
                   <thead>
                     <tr>
-                      <th scope="col">Attempt</th>
+                      <th scope="col">Route</th>
                       <th scope="col">Shape</th>
-                      <th scope="col">Decision</th>
+                      <th scope="col">Result</th>
                       <th scope="col">Score</th>
                       <th scope="col">Likeness</th>
                       <th scope="col">Distance</th>
-                      <th scope="col">Failed checks</th>
+                      <th scope="col">Checks to review</th>
                     </tr>
                   </thead>
                   <tbody>
                     {auditRows.map((entry) => (
                       <tr key={entry.id}>
-                        <td data-label="Attempt">{entry.id}</td>
+                        <td data-label="Route">{entry.id}</td>
                         <td data-label="Shape">{normaliseLabel(entry.shape_name)}</td>
-                        <td data-label="Decision">
+                        <td data-label="Result">
                           {entry.decision === "verified"
-                            ? "Checks passed"
+                            ? "Ready"
                             : entry.decision === "review"
-                              ? "Review"
-                              : "Other shape"}
+                              ? "Needs a look"
+                              : "Different drawing"}
                         </td>
                         <td data-label="Score">{formatPercent(entry.score)}</td>
                         <td data-label="Likeness">{formatPercent(entry.shape_fidelity)}</td>
                         <td data-label="Distance">{formatMetric(entry.distance_km)} km</td>
-                        <td data-label="Failed checks">
+                        <td data-label="Checks to review">
                           {(entry.failed_gates ?? []).length > 0
                             ? entry.failed_gates.map(normaliseLabel).join(", ")
                             : "None"}
@@ -1289,18 +1360,26 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
 
 export default function App() {
   const [prompt, setPrompt] = useState(QUICK_IDEAS[0].prompt);
+  const [promptError, setPromptError] = useState("");
+  const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [suggestCity, setSuggestCity] = useState(SUGGEST_CITIES[0]);
   const [suggestSport, setSuggestSport] = useState("run");
   const [suggestDistance, setSuggestDistance] = useState("10");
+  const [suggestErrors, setSuggestErrors] = useState({});
+  const [suggestNotice, setSuggestNotice] = useState("");
   const [downloadNotice, setDownloadNotice] = useState("");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
+  const promptRef = useRef(null);
+  const suggestCityRef = useRef(null);
+  const suggestActivityRef = useRef(null);
+  const suggestDistanceRef = useRef(null);
 
   useEffect(() => {
     if (result) resultRef.current?.focus();
@@ -1310,6 +1389,10 @@ export default function App() {
     if (error) errorRef.current?.focus();
   }, [error]);
 
+  useEffect(() => {
+    if (promptValidationAttempt > 0 && promptError) promptRef.current?.focus();
+  }, [promptError, promptValidationAttempt]);
+
   useEffect(() => () => requestRef.current?.abort(), []);
 
   const activeIdea = useMemo(
@@ -1318,7 +1401,7 @@ export default function App() {
   );
 
   const generate = useCallback(async (nextPrompt) => {
-    const cleanPrompt = nextPrompt.trim();
+    const cleanPrompt = normaliseRoutePrompt(nextPrompt);
     if (!cleanPrompt) return;
 
     const controller = new AbortController();
@@ -1335,7 +1418,7 @@ export default function App() {
       if (generationError.name !== "AbortError") {
         setError(
           generationError.message ||
-            "We couldn’t create a route candidate. Check the idea and try again.",
+            "We couldn’t make that route. Check the idea and try again.",
         );
       }
     } finally {
@@ -1348,15 +1431,39 @@ export default function App() {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!loading) generate(prompt);
+    if (loading) return;
+
+    const validation = validateRoutePrompt(prompt);
+    setPromptError(validation.error);
+    if (validation.error) {
+      setPromptValidationAttempt((current) => current + 1);
+      return;
+    }
+
+    setPrompt(validation.value);
+    generate(validation.value);
   }
 
   function handleSuggest(event) {
     event.preventDefault();
     if (loading) return;
-    const distance = suggestDistance ? `, about ${suggestDistance} km` : "";
-    const suggestionPrompt = `suggest a ${suggestSport} route in ${suggestCity}${distance}`;
+
+    const { errors, numericDistance } = validateSuggestion({
+      city: suggestCity,
+      sport: suggestSport,
+      distance: suggestDistance,
+    });
+    setSuggestErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      if (errors.city) suggestCityRef.current?.focus();
+      else if (errors.sport) suggestActivityRef.current?.focus();
+      else suggestDistanceRef.current?.focus();
+      return;
+    }
+
+    const suggestionPrompt = `suggest a ${suggestSport} route in ${suggestCity}, about ${numericDistance} km`;
     setPrompt(suggestionPrompt);
+    setPromptError("");
     generate(suggestionPrompt);
   }
 
@@ -1373,12 +1480,13 @@ export default function App() {
     setDownloadNotice(`${extension.toUpperCase()} download started.`);
   }
 
-  const minimumDistance = suggestSport === "bike" ? 10 : 3;
+  const { minimum: minimumDistance, maximum: maximumDistance, activity: activityLabel } =
+    distanceLimits(suggestSport);
 
   return (
     <div className="app-shell">
       <a className="skip-link" href="#route-designer">
-        Skip to route generator
+        Skip to route planner
       </a>
 
       <header className="site-header">
@@ -1393,7 +1501,7 @@ export default function App() {
           </span>
         </a>
         <nav aria-label="Primary navigation">
-          <a href="#route-designer">Create</a>
+          <a href="#route-designer">Planner</a>
           <a href="#gallery">Gallery</a>
         </nav>
       </header>
@@ -1404,26 +1512,50 @@ export default function App() {
           id="route-designer"
           aria-labelledby="designer-title"
         >
+          <div className="planner-intro">
+            <h1 id="designer-title">Plan a GPS art route</h1>
+            <p className="planner-intro-copy">
+              Enter a drawing, city, activity, and distance. The planner finds nearby street routes
+              and creates GPX and TCX files.
+            </p>
+            <p className="planner-safety-note">
+              Check access, crossings, traffic, surfaces, and current conditions before using a
+              route.
+            </p>
+          </div>
+
           <div className="designer-card">
             <div className="card-heading">
               <div>
-                <p className="step-label">Street-aware GPS art</p>
-                <h1 id="designer-title">Turn your route into a drawing.</h1>
+                <h2>Route idea</h2>
+                <p>Describe a route or choose a shape.</p>
               </div>
-              <span className="keyboard-hint" aria-hidden="true">
-                Ctrl ↵ to generate
-              </span>
             </div>
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} noValidate>
               <label className="field-label" htmlFor="route-prompt">
-                Describe your idea
+                Drawing and location
               </label>
               <div className="textarea-wrap">
                 <textarea
                   id="route-prompt"
+                  ref={promptRef}
                   value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
+                  onChange={(event) => {
+                    const nextPrompt = event.target.value;
+                    setPrompt(nextPrompt);
+                    if (promptError) setPromptError(validateRoutePrompt(nextPrompt).error);
+                  }}
+                  onBlur={(event) => {
+                    const nextControl = event.relatedTarget;
+                    if (
+                      nextControl?.type === "submit" &&
+                      nextControl.form === event.currentTarget.form
+                    ) {
+                      return;
+                    }
+                    setPromptError(validateRoutePrompt(prompt).error);
+                  }}
                   onKeyDown={(event) => {
                     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                       event.preventDefault();
@@ -1432,8 +1564,10 @@ export default function App() {
                   }}
                   rows={3}
                   maxLength={PROMPT_LIMIT}
-                  placeholder="Try: a heart run in Budapest, about 8 km"
+                  placeholder="Heart, Budapest, running, 8 km"
                   aria-describedby="prompt-help prompt-count"
+                  aria-invalid={Boolean(promptError)}
+                  aria-errormessage={promptError ? "prompt-error" : undefined}
                   disabled={loading}
                   autoFocus
                   required
@@ -1442,12 +1576,21 @@ export default function App() {
                   {prompt.length}/{PROMPT_LIMIT}
                 </span>
               </div>
-              <p id="prompt-help" className="field-help">
-                Include what to draw, the city, your activity, and a target distance.
+              <p
+                id="prompt-help"
+                className={`field-help${promptError ? " field-help--with-error" : ""}`}
+              >
+                Example: heart, Budapest, running, 8 km.
               </p>
+              {promptError && (
+                <p id="prompt-error" className="field-error" role="alert">
+                  <span aria-hidden="true">!</span>
+                  {promptError}
+                </p>
+              )}
 
               <fieldset className="idea-picker">
-                <legend>Street-friendly quick ideas</legend>
+                <legend>Common shapes</legend>
                 <div className="idea-list">
                   {FEATURED_IDEAS.map((idea) => (
                     <button
@@ -1455,7 +1598,10 @@ export default function App() {
                       key={idea.label}
                       className="idea-chip"
                       aria-pressed={activeIdea === idea.label}
-                      onClick={() => setPrompt(idea.prompt)}
+                      onClick={() => {
+                        setPrompt(idea.prompt);
+                        setPromptError("");
+                      }}
                       disabled={loading}
                     >
                       <span aria-hidden="true">{idea.glyph}</span>
@@ -1468,8 +1614,8 @@ export default function App() {
               <details className="idea-catalog">
                 <summary>
                   <span>
-                    <strong>Browse all {QUICK_IDEAS.length} quick ideas</strong>
-                    <small>Curated for clear silhouettes and mostly continuous lines.</small>
+                    <strong>More shapes, letters, and numbers</strong>
+                    <small>{QUICK_IDEAS.length} options. Simple outlines work best.</small>
                   </span>
                   <b aria-hidden="true">+</b>
                 </summary>
@@ -1484,7 +1630,10 @@ export default function App() {
                             key={idea.label}
                             className="idea-chip"
                             aria-pressed={activeIdea === idea.label}
-                            onClick={() => setPrompt(idea.prompt)}
+                            onClick={() => {
+                              setPrompt(idea.prompt);
+                              setPromptError("");
+                            }}
                             disabled={loading}
                           >
                             <span aria-hidden="true">{idea.glyph}</span>
@@ -1500,31 +1649,41 @@ export default function App() {
               <button
                 type="submit"
                 className="button button--primary generate-button"
-                disabled={loading || !prompt.trim()}
+                disabled={loading}
               >
-                <span>{loading ? "Finding routes…" : "Find matching routes"}</span>
-                <span aria-hidden="true">→</span>
+                <span>{loading ? "Finding routes…" : "Find routes"}</span>
               </button>
             </form>
 
             <details className="suggest-panel">
               <summary>
-                Not sure what fits? Let the planner choose
+                Choose city, activity, and distance
                 <span aria-hidden="true">+</span>
               </summary>
-              <form className="suggest-form" onSubmit={handleSuggest}>
-                <div className="suggest-heading">
-                  <p className="step-label">City suggestion</p>
-                  <h3>Choose an idea likely to fit the local street grid</h3>
-                </div>
+              <form className="suggest-form" onSubmit={handleSuggest} noValidate>
                 <div className="suggest-fields">
                   <div className="field">
                     <label htmlFor="suggest-city">City</label>
                     <select
                       id="suggest-city"
+                      ref={suggestCityRef}
                       value={suggestCity}
-                      onChange={(event) => setSuggestCity(event.target.value)}
+                      onChange={(event) => {
+                        const nextCity = event.target.value;
+                        setSuggestCity(nextCity);
+                        if (suggestErrors.city) {
+                          setSuggestErrors((current) => ({
+                            ...current,
+                            city: SUGGEST_CITIES.includes(nextCity)
+                              ? ""
+                              : "Choose a city from the list.",
+                          }));
+                        }
+                      }}
+                      aria-invalid={Boolean(suggestErrors.city)}
+                      aria-errormessage={suggestErrors.city ? "suggest-city-error" : undefined}
                       disabled={loading}
+                      required
                     >
                       {SUGGEST_CITIES.map((cityName) => (
                         <option key={cityName} value={cityName}>
@@ -1532,47 +1691,127 @@ export default function App() {
                         </option>
                       ))}
                     </select>
+                    {suggestErrors.city && (
+                      <p id="suggest-city-error" className="field-error" role="alert">
+                        <span aria-hidden="true">!</span>
+                        {suggestErrors.city}
+                      </p>
+                    )}
                   </div>
-                  <div className="field">
-                    <label htmlFor="suggest-sport">Activity</label>
-                    <select
-                      id="suggest-sport"
-                      value={suggestSport}
-                      onChange={(event) => {
-                        const nextSport = event.target.value;
-                        setSuggestSport(nextSport);
-                        if (nextSport === "bike" && Number(suggestDistance) < 10) {
-                          setSuggestDistance("10");
-                        }
-                      }}
-                      disabled={loading}
-                    >
-                      <option value="run">Running</option>
-                      <option value="bike">Cycling</option>
-                    </select>
-                  </div>
+                  <fieldset
+                    className="field field--activity"
+                    aria-invalid={Boolean(suggestErrors.sport)}
+                    aria-describedby={suggestErrors.sport ? "suggest-sport-error" : undefined}
+                  >
+                    <legend>Activity</legend>
+                    <div className="activity-options">
+                      {[
+                        ["run", "Running"],
+                        ["bike", "Cycling"],
+                      ].map(([value, label]) => (
+                        <label className="activity-option" key={value}>
+                          <input
+                            ref={value === "run" ? suggestActivityRef : undefined}
+                            type="radio"
+                            name="suggest-activity"
+                            value={value}
+                            checked={suggestSport === value}
+                            onChange={() => {
+                              setSuggestSport(value);
+                              setSuggestErrors((current) => ({
+                                ...current,
+                                sport: "",
+                                distance: "",
+                              }));
+                              if (value === "bike" && Number(suggestDistance) < 10) {
+                                setSuggestDistance("10");
+                                setSuggestNotice(
+                                  "Cycling routes start at 10 km. Distance changed to 10 km.",
+                                );
+                              } else {
+                                setSuggestNotice("");
+                              }
+                            }}
+                            disabled={loading}
+                            required
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {suggestErrors.sport && (
+                      <p id="suggest-sport-error" className="field-error" role="alert">
+                        <span aria-hidden="true">!</span>
+                        {suggestErrors.sport}
+                      </p>
+                    )}
+                  </fieldset>
                   <div className="field field--distance">
                     <label htmlFor="suggest-distance">Distance</label>
                     <div className="input-suffix">
                       <input
                         id="suggest-distance"
+                        ref={suggestDistanceRef}
                         type="number"
                         inputMode="decimal"
                         min={minimumDistance}
-                        max={suggestSport === "bike" ? 200 : 60}
+                        max={maximumDistance}
                         step="1"
                         value={suggestDistance}
-                        onChange={(event) => setSuggestDistance(event.target.value)}
+                        onChange={(event) => {
+                          const nextDistance = event.target.value;
+                          setSuggestDistance(nextDistance);
+                          setSuggestNotice("");
+                          if (suggestErrors.distance) {
+                            const nextValidation = validateSuggestion({
+                              city: suggestCity,
+                              sport: suggestSport,
+                              distance: nextDistance,
+                            });
+                            setSuggestErrors((current) => ({
+                              ...current,
+                              distance: nextValidation.errors.distance ?? "",
+                            }));
+                          }
+                        }}
+                        onBlur={() => {
+                          const nextValidation = validateSuggestion({
+                            city: suggestCity,
+                            sport: suggestSport,
+                            distance: suggestDistance,
+                          });
+                          setSuggestErrors((current) => ({
+                            ...current,
+                            distance: nextValidation.errors.distance ?? "",
+                          }));
+                        }}
+                        aria-describedby="suggest-distance-help"
+                        aria-invalid={Boolean(suggestErrors.distance)}
+                        aria-errormessage={
+                          suggestErrors.distance ? "suggest-distance-error" : undefined
+                        }
                         disabled={loading}
                         required
                       />
                       <span>km</span>
                     </div>
+                    <p id="suggest-distance-help" className="field-hint">
+                      {minimumDistance}–{maximumDistance} km for {activityLabel}.
+                    </p>
+                    {suggestErrors.distance && (
+                      <p id="suggest-distance-error" className="field-error" role="alert">
+                        <span aria-hidden="true">!</span>
+                        {suggestErrors.distance}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <button type="submit" className="button button--secondary" disabled={loading}>
-                  Choose an idea and find routes
+                  Find a route
                 </button>
+                <p className="suggest-notice" aria-live="polite">
+                  {suggestNotice}
+                </p>
               </form>
             </details>
           </div>
@@ -1586,15 +1825,14 @@ export default function App() {
               !
             </div>
             <div>
-              <p className="eyebrow">No candidate created</p>
-              <h2>We couldn’t find a route for this idea</h2>
+              <h2>Route not found</h2>
               <p>{error}</p>
               <button
                 type="button"
                 className="button button--secondary"
                 onClick={() => generate(prompt)}
               >
-                Try this idea again
+                Try again
               </button>
             </div>
           </section>
@@ -1618,7 +1856,7 @@ export default function App() {
       </main>
 
       <footer>
-        <p>Draw boldly. Check the route. Move safely.</p>
+        <p>GPS Art Wizard</p>
         <p>Map data © OpenStreetMap contributors.</p>
       </footer>
       <div className="sr-only" aria-live="polite">

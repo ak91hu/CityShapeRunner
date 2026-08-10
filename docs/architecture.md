@@ -136,6 +136,13 @@ explicit without coupling the current runtime to one.
   refinement direction, practical omitted-distance defaults, routable
   templates, export quality gates, preview limits, provider caching, and
   invalid prompt handling.
+- `tests/test_api_contracts.py`: request whitespace normalisation, Pydantic
+  coordinate and length boundaries, legacy acceptance compatibility, safe
+  422/500 error mapping, request-ID propagation, oversized edit rejection,
+  and the health/gallery capability contract.
+- `tests/test_config.py`: boolean/list environment parsing, YAML overlay
+  application, environment precedence, numeric distance defaults, and the
+  explicit settings-cache lifecycle.
 - `tests/test_pipeline.py` and API tests verify that a gate-passing candidate
   ranks ahead of a higher-average failed candidate, while all final-shape
   routes remain selectable and reviewable.
@@ -145,9 +152,12 @@ explicit without coupling the current runtime to one.
   deletion authorization without contacting Cloudinary.
 - Playwright functional tests exercise the built user interface with explicit
   desktop/mobile/tablet assertions, including the 32-item quick-idea catalog,
-  generator focus, responsive containment, result wording, editor dirty state,
-  safe download gates, gallery storage failures, and gallery layout. Their API
-  responses are deterministic and do not consume external service quotas.
+  generator focus, prompt limits and keyboard submission, cancellation,
+  responsive containment, result wording, candidate switching, editor success
+  and failure recovery, safe download gates, gallery storage failures,
+  publication, pagination/removal, and gallery layout. Their API responses are
+  deterministic and do not consume external service quotas.
 
 The Python suite defaults to strict configuration and marker validation. Set
 `GEOCODE_OFFLINE=1` for deterministic local and CI runs.
+See [testing.md](testing.md) for the complete local and CI workflow.

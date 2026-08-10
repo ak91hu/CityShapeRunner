@@ -292,7 +292,7 @@ def _landmark_scale_similarity(
         and np.linalg.norm(reference[0] - reference[-1]) <= 0.05
         and np.linalg.norm(candidate[0] - candidate[-1]) <= 0.05
     )
-    landmarks = _salient_indices(reference_turns, span=span, closed=closed)
+    landmarks = _salient_indices(reference_turns, span=span, closed=bool(closed))
     if not landmarks:
         # Smooth contours such as circles have no isolated dominant point at
         # this scale; the other curve/coverage metrics remain authoritative.

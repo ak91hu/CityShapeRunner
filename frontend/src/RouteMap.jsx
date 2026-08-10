@@ -198,7 +198,7 @@ const RouteMap = forwardRef(function RouteMap({
         fillOpacity: 1,
         className: "route-landmark-marker",
       })
-        .bindTooltip(`Salient shape landmark ${index + 1}`)
+        .bindTooltip(`Key point ${index + 1}`)
         .addTo(routeLayer);
     });
 
@@ -220,11 +220,11 @@ const RouteMap = forwardRef(function RouteMap({
           icon: L.divIcon({
             className: "route-edit-marker",
             html: `<span>${index + 1}</span>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
+            iconSize: [44, 44],
+            iconAnchor: [22, 22],
           }),
         }).addTo(routeLayer);
-        marker.bindTooltip(`Drag route control point ${index + 1}`, {
+        marker.bindTooltip(`Move route point ${index + 1}`, {
           direction: "top",
         });
         marker.on("drag", () => {
@@ -234,6 +234,32 @@ const RouteMap = forwardRef(function RouteMap({
           const position = marker.getLatLng();
           onEditPoint?.(index, [position.lat, position.lng]);
         });
+        const element = marker.getElement();
+        if (element) {
+          element.setAttribute(
+            "aria-label",
+            `Edit point ${index + 1}. Drag it or use the arrow keys to move it.`,
+          );
+          element.addEventListener("keydown", (event) => {
+            const movement = {
+              ArrowUp: [1, 0],
+              ArrowDown: [-1, 0],
+              ArrowLeft: [0, -1],
+              ArrowRight: [0, 1],
+            }[event.key];
+            if (!movement) return;
+            event.preventDefault();
+            const step = event.shiftKey ? 0.0005 : 0.0001;
+            const current = marker.getLatLng();
+            const next = L.latLng(
+              current.lat + movement[0] * step,
+              current.lng + movement[1] * step,
+            );
+            marker.setLatLng(next);
+            editLine.setLatLngs(markers.map((item) => item.getLatLng()));
+            onEditPoint?.(index, [next.lat, next.lng]);
+          });
+        }
         return marker;
       });
     }
@@ -287,7 +313,7 @@ const RouteMap = forwardRef(function RouteMap({
         const container = containerRef.current;
         const map = mapRef.current;
         if (!container || !map || coordinates.length < 2) {
-          throw new Error("The route map is not ready to capture yet.");
+          throw new Error("The map isn’t ready to share yet.");
         }
         await waitForVisibleTiles(container);
         if (document.fonts?.ready) await document.fonts.ready;
@@ -296,14 +322,14 @@ const RouteMap = forwardRef(function RouteMap({
         const cssWidth = Math.round(containerRect.width);
         const cssHeight = Math.round(containerRect.height);
         if (cssWidth < 240 || cssHeight < 180) {
-          throw new Error("The route map is too small to publish.");
+          throw new Error("The map is too small to share.");
         }
         const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
         const canvas = document.createElement("canvas");
         canvas.width = Math.round(cssWidth * pixelRatio);
         canvas.height = Math.round(cssHeight * pixelRatio);
         const context = canvas.getContext("2d");
-        if (!context) throw new Error("This browser cannot capture the route map.");
+        if (!context) throw new Error("This browser can’t create a shareable map image.");
         context.scale(pixelRatio, pixelRatio);
         context.fillStyle = "#e7e3dc";
         context.fillRect(0, 0, cssWidth, cssHeight);
@@ -312,7 +338,7 @@ const RouteMap = forwardRef(function RouteMap({
           (tile) => tile.complete && tile.naturalWidth > 0,
         );
         if (visibleTiles.length === 0) {
-          throw new Error("The street map tiles have not finished loading.");
+          throw new Error("The street map is still loading. Try again in a moment.");
         }
         try {
           visibleTiles.forEach((tile) => {
@@ -330,7 +356,7 @@ const RouteMap = forwardRef(function RouteMap({
           });
         } catch (error) {
           throw new Error(
-            "The map provider did not allow this browser to capture its street tiles.",
+            "This browser couldn’t capture the street map.",
             { cause: error },
           );
         }
@@ -370,7 +396,7 @@ const RouteMap = forwardRef(function RouteMap({
           return canvas.toDataURL("image/png");
         } catch (error) {
           throw new Error(
-            "The street map could not be converted into a gallery image.",
+            "We couldn’t turn this map into a gallery image.",
             { cause: error },
           );
         }
@@ -388,10 +414,10 @@ const RouteMap = forwardRef(function RouteMap({
         roadRouted
           ? `${shapeName} street-route map. ${
               editing
-                ? "Drag the numbered blue control points to edit the route."
+                ? "Drag the numbered blue control points or use their arrow keys to edit the route."
                 : "Use the map controls to pan and zoom."
             }`
-          : `${shapeName} drawing preview. The line is not matched to streets.`
+          : `${shapeName} preview only. This line is not matched to streets.`
       }
     />
   );

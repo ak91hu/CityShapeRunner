@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import unicodedata
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -19,23 +20,41 @@ from ..tools import cloudinary_gallery, geo, gpx_writer, ors_client, shape_simil
 router = APIRouter()
 log = logging.getLogger(__name__)
 
+PROMPT_MAX_LENGTH = 320
+
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(
         ...,
         min_length=1,
-        max_length=500,
+        max_length=PROMPT_MAX_LENGTH,
         examples=["a heart run in Budapest, about 8km", "suggest a run in Debrecen, 10km"],
         description="Natural-language prompt describing the shape, city, sport, and optional target distance. "
         "Use 'suggest' to let AI pick the best shape for the city.",
     )
 
-    @field_validator("prompt")
+    @field_validator("prompt", mode="before")
     @classmethod
-    def normalise_prompt(cls, value: str) -> str:
-        cleaned = " ".join(value.split())
+    def normalise_prompt(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+
+        normalised = unicodedata.normalize("NFKC", value)
+        if any(
+            unicodedata.category(character) == "Cc" and character not in "\t\n\r"
+            for character in normalised
+        ):
+            raise ValueError("remove unsupported control characters from the route idea")
+
+        cleaned = " ".join(normalised.split())
         if not cleaned:
-            raise ValueError("prompt must not be blank")
+            raise ValueError("enter a route idea")
+        if len(cleaned) > PROMPT_MAX_LENGTH:
+            raise ValueError(
+                f"keep the route idea to {PROMPT_MAX_LENGTH} characters or fewer"
+            )
+        if not any(character.isalnum() for character in cleaned):
+            raise ValueError("include a shape, word, letter, or number to draw")
         return cleaned
 
 

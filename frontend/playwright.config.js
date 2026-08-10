@@ -31,7 +31,9 @@ export default defineConfig({
     // intermediate npm process can leave the Windows runner waiting at teardown.
     command: `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}`,
-    reuseExistingServer: !process.env.CI,
+    // A previous preview server can serve stale modules or disappear midway
+    // through a run. Always let Playwright own a fresh, isolated test server.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

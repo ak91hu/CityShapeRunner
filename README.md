@@ -24,7 +24,7 @@ results remain available for comparison, manual correction, and export.
 Route search is coarse-to-fine. Before spending Directions requests, one
 batched road-snap preflight compares up to 180 city-wide
 translation/rotation/scale placements. A quality-and-diversity selector sends
-seven genuinely different alternatives to the full router, while every
+seven distinct alternatives to the full router, while every
 preflight score remains in the diagnostics. Eighteen curvature-preserving
 guide points per placement improve the proxy without adding Directions calls.
 
@@ -134,6 +134,28 @@ python -m uvicorn gps_art_wizzard.main:app --reload
 
 The web client is then available after its Vite development server is started
 from `frontend/`, or directly from FastAPI after `frontend/dist` has been built.
+
+## Testing
+
+The backend suite is deterministic and runs without paid providers. The UI
+suite uses Playwright with mocked API, map-tile, and gallery responses, and runs
+every functional scenario in desktop and mobile Chromium.
+
+```bash
+GEOCODE_OFFLINE=1 python -m pytest -q
+python -m ruff check .
+python -m mypy --ignore-missing-imports gps_art_wizzard
+
+cd frontend
+npm ci
+npm run build
+npm run test:e2e
+```
+
+On Windows PowerShell, use `$env:GEOCODE_OFFLINE = "1"` before pytest. Install
+the browser once with `cd frontend && npx playwright install chromium`. See the
+[testing guide](docs/testing.md) for targeted commands, suite ownership,
+Playwright debugging, and the Windows temporary-directory workaround.
 
 ## Hosting
 

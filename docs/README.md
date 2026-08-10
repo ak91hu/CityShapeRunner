@@ -1,25 +1,23 @@
 # GPS Art Wizard
 
-Turn a run or ride into a recognisable drawing. Enter an idea such as “a heart
-run in Budapest, about 8 km”, choose one of the 32 quick starts, or ask for a
-city suggestion. The nine-agent pipeline interprets the request, creates and
-places the outline, routes it over streets, measures shape likeness, tests
-nearby alternatives, and retains every fully routed candidate. Quality gates
-rank every attempt. Every fully routed candidate for the final selected shape
-enters the selector with GPX/TCX geometry; candidates that pass all independent
-shape, street, distance, and closure checks rank first and download
-immediately, while the others require explicit review and acceptance. Attempts
-for a different suggested shape remain available in the audit summary.
+Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 32 preset
+shapes, or enter a city, activity, and distance. The planner creates and places
+the outline, routes it over streets, measures the match, and retains every fully
+routed candidate. Candidates that pass all independent shape, street, distance,
+and closure checks rank first and download immediately. Other candidates require
+explicit review and acceptance. Attempts for a different suggested shape remain
+available in the audit summary.
 
-Not sure what to draw? Ask the planner to suggest a suitable shape for a city:
+For a city-based suggestion, enter:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
 context to choose a template, placement, and orientation likely to fit the
 street network.
 
 ## Quick-idea catalog
 
-The centered generator shows 12 compact shapes first and keeps the full
-32-idea catalog behind “Browse all” so the prompt remains the primary control.
+The planner shows 12 common shapes first and keeps the full 32-option catalog
+behind “More shapes, letters, and numbers” so the prompt remains the primary
+control.
 Every preset uses a deterministic template or the built-in vector font:
 
 | Group | Ideas |
@@ -41,8 +39,9 @@ Veszprém, Zalaegerszeg, Eger, Sopron, Tatabánya, Kaposvár, Szekszárd,
 Békéscsaba, Cegléd, Siófok, and Keszthely. Each has an activity-specific,
 city-tailored suggestion instead of a global circle/star fallback.
 
-Inspired by [drawmyloop.com](https://drawmyloop.com/en), but with the painful
-waypoint-by-waypoint plotting replaced by an autonomous agent pipeline.
+The interaction model was informed by [drawmyloop.com](https://drawmyloop.com/en).
+GPS Art Wizard automates initial placement and keeps manual route-point editing
+available for corrections.
 
 ## How it works
 
@@ -233,7 +232,9 @@ For a non-root, multi-stage production image and operational settings, see
 
 ## Tests and quality checks
 
-Backend tests run offline when geocoding is disabled:
+Backend tests run offline when geocoding is disabled. Playwright starts its own
+Vite server and replaces backend, map-tile, and gallery traffic with
+deterministic fixtures:
 
 ```bash
 GEOCODE_OFFLINE=1 python -m pytest
@@ -251,6 +252,10 @@ On PowerShell, set the variable with
 browser once with `npx playwright install chromium` if it is not already
 present. The root CI workflow runs the backend suite on Python 3.12 and 3.14,
 then builds the frontend and executes its Playwright suite on Node.js 24.
+The [testing guide](testing.md) describes the test layers, targeted commands,
+current API-contract and browser-workflow coverage, failure artifacts, and the
+workspace-local pytest temporary-directory workaround for restricted Windows
+profiles.
 
 ## Safety and limitations
 
@@ -282,7 +287,8 @@ docs/          project, architecture, deployment, and agent-skill documentation
 ```
 
 See [AGENTS.md](AGENTS.md), [architecture.md](architecture.md),
-[gps-art-research.md](gps-art-research.md), [deployment.md](deployment.md), and
+[gps-art-research.md](gps-art-research.md), [ui-ux-rationale.md](ui-ux-rationale.md),
+[deployment.md](deployment.md), and
 the [2026-07-30 lessons learned](2026-07-30-lessons-learned.md) for the full
 design, research basis, operating model, measured production incidents, and
 troubleshooting checklist.

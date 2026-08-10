@@ -246,14 +246,12 @@ class Orchestrator:
                     candidates_tested=[shape.name],
                     reasons=[
                         (
-                            f"{requested.title()} is not available as a validated continuous "
-                            "route template, so it could not be tested without inventing an "
-                            "unreliable drawing."
+                            f"We don’t have a reliable one-line version of {requested.title()} "
+                            "yet, so we couldn’t match it to streets."
                         ),
                         (
-                            f"{shape.name.title()} was used only because its real-street route "
-                            f"passed every quality gate at "
-                            f"{validation.shape_fidelity:.0%} recognisability."
+                            f"{shape.name.title()} worked best on nearby streets, with a "
+                            f"{validation.shape_fidelity:.0%} shape match."
                         ),
                     ],
                 )
@@ -389,8 +387,8 @@ class Orchestrator:
                 primary_reasons.insert(
                     0,
                     (
-                        f"{requested.title()} is not available as a validated continuous route "
-                        f"template; the initial {requested_shape.title()} fallback also failed."
+                        f"We don’t have a reliable one-line version of {requested.title()} yet, "
+                        f"and {requested_shape.title()} didn’t fit these streets either."
                     ),
                 )
             state.fit_decision = FitDecision(
@@ -405,11 +403,10 @@ class Orchestrator:
                 reasons=[
                     *primary_reasons,
                     (
-                        f"{selected_shape.name.title()} was selected only after a real-street "
-                        f"candidate passed every quality gate: "
-                        f"{selected_validation.shape_fidelity:.0%} recognisability, "
-                        f"{selected_validation.distance_fit:.0%} distance accuracy, and "
-                        f"{selected_validation.closure:.0%} closure."
+                        f"{selected_shape.name.title()} was the strongest street route: "
+                        f"{selected_validation.shape_fidelity:.0%} shape match, "
+                        f"{selected_validation.distance_fit:.0%} distance match, and "
+                        f"{selected_validation.closure:.0%} return-to-start match."
                     ),
                 ],
             )
@@ -435,13 +432,13 @@ class Orchestrator:
             reasons.insert(
                 0,
                 (
-                    f"{requested.title()} is not available as a validated continuous route "
-                    f"template; the initial {requested_shape.title()} fallback also failed."
+                    f"We don’t have a reliable one-line version of {requested.title()} yet, "
+                    f"and {requested_shape.title()} didn’t fit these streets either."
                 ),
             )
         if not validation.on_roads:
             reasons.append(
-                "Street routing was unavailable, so no alternative could be verified safely."
+                "We couldn’t match any of the alternatives to connected streets."
             )
         elif attempted:
             best_note = ""
@@ -450,13 +447,12 @@ class Orchestrator:
                 and best_below_target.validation is not None
             ):
                 best_note = (
-                    f" The strongest alternative reached only "
-                    f"{best_below_target.validation.shape_fidelity:.0%} recognisability."
+                    f" The closest alternative had a "
+                    f"{best_below_target.validation.shape_fidelity:.0%} shape match."
                 )
             reasons.append(
-                f"Measured {', '.join(attempted)} on the same street network, but none "
-                f"met every recommended quality target.{best_note} All remain available "
-                f"for comparison and manual editing."
+                f"We also tried {', '.join(attempted)}, but none was a clear enough match."
+                f"{best_note} You can still compare and edit them."
             )
         state.fit_decision = FitDecision(
             requested_shape=requested,
@@ -557,66 +553,65 @@ class Orchestrator:
     @staticmethod
     def _fit_reasons(validation) -> list[str]:
         if validation is None:
-            return ["No valid street-route candidate was produced for the requested drawing."]
+            return ["We couldn’t match this drawing to nearby streets."]
         workflow = get_settings().workflow
         reasons: list[str] = []
         if not validation.on_roads:
             reasons.append(
-                "The routing provider did not return a real-street route, so recognisability "
-                "could not be verified."
+                "We couldn’t match this drawing to connected streets, so the map is only a "
+                "preview."
             )
         if validation.shape_fidelity < workflow.min_shape_fidelity:
             reasons.append(
-                f"The best requested-shape candidate preserved "
-                f"{validation.shape_fidelity:.0%} of the recognisable silhouette; "
-                f"the required minimum is {workflow.min_shape_fidelity:.0%}."
+                f"The closest route had a {validation.shape_fidelity:.0%} shape match. "
+                f"We aim for at least {workflow.min_shape_fidelity:.0%}."
             )
         if validation.spatial_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Ordered curve similarity was {validation.spatial_similarity:.0%}: the "
-                "street traversal departed too far from the selected drawing."
+                f"Line order scored {validation.spatial_similarity:.0%}; the street route "
+                "drifts too far from the drawing."
             )
         if validation.coverage_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Outline coverage was {validation.coverage_similarity:.0%}: streets pulled "
-                "substantial sections away from the guide contour."
+                f"Outline coverage scored {validation.coverage_similarity:.0%}; large sections "
+                "move away from the drawing."
             )
         if validation.turning_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Characteristic-turn preservation was {validation.turning_similarity:.0%}, "
-                "so the corners/curves that identify the shape were lost."
+                f"Turns and curves scored {validation.turning_similarity:.0%}; some of the "
+                "shape’s distinctive features are lost."
             )
         if validation.landmark_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Salient-landmark preservation was {validation.landmark_similarity:.0%}, "
-                "so one or more dominant tips, corners, or notches were lost."
+                f"Key points scored {validation.landmark_similarity:.0%}; one or more important "
+                "tips, corners, or notches are missing."
             )
         if validation.length_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Street detours stretched the route to {validation.route_length_ratio:.2f}× "
-                "the guide length, creating visually misleading extra strokes."
+                f"Street detours made the route {validation.route_length_ratio:.2f}× longer "
+                "than the drawing and added confusing extra lines."
             )
         if validation.extent_similarity < workflow.min_shape_fidelity:
             reasons.append(
-                f"Width/height preservation was {validation.extent_similarity:.0%}, "
-                "which changed the overall silhouette proportions."
+                f"Shape proportions scored {validation.extent_similarity:.0%}; the route is too "
+                "stretched or squashed."
             )
         if validation.distance_fit < 0.6:
             reasons.append(
-                f"Distance accuracy was {validation.distance_fit:.0%}; the route could not "
-                "stay close enough to the requested length."
+                f"Distance match scored {validation.distance_fit:.0%}; the route is too far "
+                "from the length you requested."
             )
         if validation.closure < 0.6:
             reasons.append(
-                f"Loop closure was {validation.closure:.0%}; the street network left an "
-                "unacceptable start-to-finish gap."
+                f"Return to start scored {validation.closure:.0%}; the finish is too far from "
+                "the starting point."
             )
         if (
             validation.score < workflow.validation_score_threshold
             and not reasons
         ):
             reasons.append(
-                f"The combined route score was {validation.score:.0%}, below the required "
+                f"Overall match scored {validation.score:.0%}. We aim for at least "
                 f"{workflow.validation_score_threshold:.0%}."
             )
         return reasons

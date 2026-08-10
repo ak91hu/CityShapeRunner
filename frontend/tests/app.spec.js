@@ -313,20 +313,25 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
 
   await expect(page).toHaveTitle(/GPS Art Wizard/);
   await expect(
-    page.getByRole("heading", { level: 1, name: /Turn your route into a drawing/ }),
+    page.getByRole("heading", { level: 1, name: /Plan a GPS art route/ }),
   ).toBeVisible();
-  await expect(page.getByLabel("Describe your idea")).toBeVisible();
-  await expect(page.getByLabel("Describe your idea")).toBeFocused();
+  await expect(page.getByLabel("Drawing and location")).toBeVisible();
+  await expect(page.getByLabel("Drawing and location")).toBeFocused();
   await expect(page.getByText("Planner online")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Find matching routes" })).toBeEnabled();
-  await page.getByText("Not sure what fits? Let the planner choose").click();
+  await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
+  await page.getByText("Choose city, activity, and distance").click();
   await expect(page.getByLabel("City")).toBeVisible();
-  await expect(page.getByLabel("Activity")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Activity" })).toBeVisible();
   await expect(page.getByLabel("Distance")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Choose an idea and find routes" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find a route" })).toBeVisible();
+  for (const option of await page.locator(".activity-option").all()) {
+    const box = await option.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
   await expect(page.getByLabel("City").locator('option[value="Miskolc"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Eger"]')).toHaveCount(1);
-  await page.getByText("Browse all 32 quick ideas").click();
+  await page.getByText("More shapes, letters, and numbers").click();
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(32);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Number 42" })).toBeVisible();
@@ -363,50 +368,50 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   await page.goto("/");
 
   await page.getByRole("button", { name: "Star" }).click();
-  await expect(page.getByLabel("Describe your idea")).toHaveValue(successfulRoute.prompt);
-  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(successfulRoute.prompt);
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   expect(requestPayload).toEqual({ prompt: successfulRoute.prompt });
-  await expect(page.locator(".route-state")).toContainText("Automatic checks passed");
+  await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(
-    page.locator(".metric").filter({ hasText: "Route quality" }).locator("dd:not(.metric-detail)"),
+    page.locator(".metric").filter({ hasText: "Overall match" }).locator("dd:not(.metric-detail)"),
   ).toHaveText("91%");
   await expect(
     page
       .locator(".metric")
-      .filter({ hasText: "Distance" })
+      .filter({ has: page.locator("dt", { hasText: /^Distance$/ }) })
       .first()
       .locator("dd:not(.metric-detail)"),
   ).toHaveText("19.82 km");
   await expect(
-    page.locator(".metric").filter({ hasText: "Routes shown" }).locator(".metric-detail"),
-  ).toHaveText("2 passed checks, 0 for review; 2 evaluated; 164 placements screened");
+    page.locator(".metric").filter({ hasText: "Route options" }).locator(".metric-detail"),
+  ).toHaveText("2 ready · 0 review · 2 tested · 164 locations");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
   await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
-  await expect(page.getByLabel("Selected-shape route")).toHaveValue("candidate-1");
-  await expect(page.getByLabel("Selected-shape route").locator("option")).toHaveCount(2);
-  await expect(page.getByText("All automatic targets reached")).toBeVisible();
-  await expect(page.locator(".verification-heading")).toContainText("12/12 · view data");
+  await expect(page.getByLabel("Route options")).toHaveValue("candidate-1");
+  await expect(page.getByLabel("Route options").locator("option")).toHaveCount(2);
+  await expect(page.getByText("Checks passed")).toBeVisible();
+  await expect(page.locator(".verification-heading")).toContainText("12 of 12 passed · show details");
   await expect(
-    page.locator(".gate-list").getByText("Ordered curve match", { exact: true }),
+    page.locator(".gate-list").getByText("Line order", { exact: true }),
   ).toBeHidden();
   await page.locator(".verification-heading").click();
   await expect(
-    page.locator(".gate-list").getByText("Ordered curve match", { exact: true }),
+    page.locator(".gate-list").getByText("Line order", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(/Scores are 0–100 geometric similarity indices/)).toBeVisible();
-  await expect(page.getByText("Generated route details")).toBeVisible();
-  await page.getByText("Generated route details").click();
+  await expect(page.getByText(/Higher scores mean a closer match to the drawing/)).toBeVisible();
+  await expect(page.getByText("Route details", { exact: true })).toBeVisible();
+  await page.getByText("Route details", { exact: true }).click();
   await expect(page.locator(".route-facts")).toContainText("842 / 401");
   await expect(page.locator(".route-facts")).toContainText("19.82 km / 20.00 km");
-  await expect(page.getByText("Route-attempt audit")).toContainText("2");
-  await page.getByText("Route-attempt audit").click();
-  await expect(page.locator(".detail-card table").last()).toContainText("Checks passed");
-  await expect(page.getByRole("button", { name: "Download candidate GPX" })).toBeEnabled();
+  await expect(page.getByText("Routes tested")).toContainText("2");
+  await page.getByText("Routes tested").click();
+  await expect(page.locator(".detail-card table").last()).toContainText("Ready");
+  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
 
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download candidate GPX" }).click();
+  await page.getByRole("button", { name: "Download GPX", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
 
@@ -438,15 +443,15 @@ test("smart suggestion validates inputs and submits the selected city, activity,
   });
   await page.goto("/");
 
-  await page.getByText("Not sure what fits? Let the planner choose").click();
+  await page.getByText("Choose city, activity, and distance").click();
   await page.getByLabel("City").selectOption("Pécs");
-  await page.getByLabel("Activity").selectOption("bike");
+  await page.getByRole("radio", { name: "Cycling" }).check();
   await page.getByLabel("Distance").fill("25");
-  await page.getByRole("button", { name: "Choose an idea and find routes" }).click();
+  await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => submittedPrompt).toBe("suggest a bike route in Pécs, about 25 km");
-  await expect(page.getByLabel("Describe your idea")).toHaveValue(submittedPrompt);
-  await expect(page.getByText("Street-friendly suggestion")).toBeVisible();
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(submittedPrompt);
+  await expect(page.getByText("Suggested shape")).toBeVisible();
 });
 
 test("API failures show a focused actionable error and allow retry", async ({ page }) => {
@@ -462,15 +467,15 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
   await expect(alert).toBeFocused();
   await expect(alert).toContainText("Road routing is temporarily unavailable.");
-  await expect(page.getByRole("button", { name: "Try this idea again" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Try this idea again" }).click();
+  await page.getByRole("button", { name: "Try again" }).click();
   await expect.poll(() => attempts).toBe(2);
 });
 
@@ -537,22 +542,22 @@ test("a straight-line guide can be explicitly accepted and exported with warning
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
 
-  await expect(page.getByText("Guide — review required")).toBeVisible();
+  await expect(page.getByText("Map preview only")).toBeVisible();
   await expect(
-    page.getByRole("region", { name: /drawing preview.*not matched to streets/i }),
+    page.getByRole("region", { name: /preview only.*not matched to streets/i }),
   ).toBeVisible();
-  await expect(page.getByText("Drawing preview — not matched to streets")).toBeVisible();
-  await expect(page.getByText("Automatic verification recommends a closer look")).toBeVisible();
-  await expect(page.getByText(/metric targets? need review/)).toBeVisible();
+  await expect(page.getByText("Preview only — not matched to streets")).toBeVisible();
+  await expect(page.getByText("Review this route")).toBeVisible();
+  await expect(page.getByText(/items? to check/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Accept shown route & download GPX" }).click();
+  await page.getByRole("button", { name: "Approve and download GPX" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
-  await expect(page.getByText("Accepted by you")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download candidate GPX" })).toBeEnabled();
+  await expect(page.getByText("Approved by you")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
 });
 
 test("a measured fallback explains why it replaced the requested drawing", async ({ page }) => {
@@ -576,8 +581,8 @@ test("a measured fallback explains why it replaced the requested drawing", async
           selected_fidelity: 0.82,
           candidates_tested: ["triangle", "diamond"],
           reasons: [
-            "The best requested-shape candidate preserved 41% of the recognisable silhouette; the required minimum is 70%.",
-            "Diamond passed every quality gate on real streets.",
+            "The closest route had a 41% shape match. We aim for at least 70%.",
+            "Diamond was a clear match on nearby streets.",
           ],
         },
         candidates: successfulRoute.candidates.map((candidate) => ({
@@ -590,13 +595,13 @@ test("a measured fallback explains why it replaced the requested drawing", async
   );
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect(page.getByRole("heading", { name: "Diamond in Debrecen" })).toBeVisible();
-  await expect(page.getByText("Cat did not fit — using Diamond")).toBeVisible();
-  await expect(page.getByText(/preserved 41%/)).toBeVisible();
-  await expect(page.getByText("Alternatives measured: Triangle, Diamond.")).toBeVisible();
-  await expect(page.locator(".route-state")).toContainText("Automatic checks passed");
+  await expect(page.getByText("Cat didn’t fit these streets — here’s a Diamond")).toBeVisible();
+  await expect(page.getByText(/41% shape match/)).toBeVisible();
+  await expect(page.getByText("Other shapes tried: Triangle, Diamond.")).toBeVisible();
+  await expect(page.locator(".route-state")).toContainText("Ready to download");
 });
 
 test("the online editor reroutes control points and downloads the edited GPX", async ({
@@ -632,15 +637,15 @@ test("the online editor reroutes control points and downloads the edited GPX", a
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Find matching routes" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   await page.getByRole("button", { name: "Edit this route" }).click();
   await expect(page.locator(".route-edit-marker")).toHaveCount(4);
-  await page.getByRole("button", { name: "Update street route" }).click();
+  await page.getByRole("button", { name: "Apply changes" }).click();
 
   await expect.poll(() => editPayload?.control_points?.length).toBe(4);
   expect(editPayload.shape_name).toBe("star");
-  await expect(page.getByText(/Edited route ready: 19.90 km/)).toBeVisible();
+  await expect(page.getByText(/Changes saved — 19.90 km/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Close editor" })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download edited GPX" }).click();
@@ -714,14 +719,15 @@ test("a verified route map can be published anonymously with streets and attribu
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Find matching routes" }).click();
-  await expect(page.getByText("Publish this street map anonymously")).toBeVisible();
+  await page.getByRole("button", { name: "Find routes" }).click();
+  await expect(page.getByText("Publish map image")).toBeVisible();
+  await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
   await page
     .getByLabel("I understand that this location and its street names will be public.")
     .check();
-  await page.getByRole("button", { name: "Publish map screenshot" }).click();
+  await page.getByRole("button", { name: "Publish map" }).click();
 
-  await expect(page.getByText("Published anonymously.")).toBeVisible();
+  await expect(page.getByText("Map published.")).toBeVisible();
   expect(publishedPayload.confirm_public_location).toBe(true);
   expect(publishedPayload.publish_token).toBe("candidate-1-gallery-token");
   expect(publishedPayload.image_data_url).toMatch(/^data:image\/png;base64,/);
