@@ -15,11 +15,25 @@ nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
 The project combines 73 deterministic shape templates, a complete A–Z/0–9
-vector font, local profiles for 50 Hungarian and 30 other European cities, optional LLM planning,
+vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
+Balaton shore municipalities, and 30 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
 GPX/TCX export. Every fully routed result is retained as a selectable candidate.
 Quality thresholds rank and warn instead of deleting a route, so lower-scoring
 results remain available for comparison, manual correction, and export.
+
+The structured planner contains 124 unique destinations: Siófok belongs to both
+the Hungarian top-50 and official Balaton coverage, but appears only once in the
+picker. Every Balaton destination resolves locally and has its own placement
+profile for shoreline, terrain, rail, road, and wetland constraints. See
+[Lake Balaton coverage](docs/balaton-city-coverage.md) for the source, complete
+list, and recommendation policy.
+
+Free-form prompts are not limited to the picker. Common phrases such as
+`draw a heart in Lyon, 8 km` can recover an unlisted settlement locally, then
+Nominatim is restricted to inhabited-place results and its administrative bbox
+is reduced to a bounded urban search area. Invalid coordinates fall back
+explicitly instead of entering placement math.
 
 Route search is coarse-to-fine. Before spending Directions requests, one
 batched road-snap preflight compares up to 180 city-wide

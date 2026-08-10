@@ -156,6 +156,56 @@ const HUNGARIAN_CITIES = [
   "Tata",
 ];
 
+// The official Lake Balaton shore-municipality list contains 45 places.
+// Siófok remains in the main Hungary group above, so it is omitted here to
+// keep every select value unique.
+const BALATON_SHORE_CITIES = [
+  "Alsóörs",
+  "Aszófő",
+  "Ábrahámhegy",
+  "Badacsonytomaj",
+  "Badacsonytördemic",
+  "Balatonakali",
+  "Balatonakarattya",
+  "Balatonalmádi",
+  "Balatonberény",
+  "Balatonboglár",
+  "Balatonederics",
+  "Balatonfenyves",
+  "Balatonfőkajár",
+  "Balatonföldvár",
+  "Balatonfüred",
+  "Balatonfűzfő",
+  "Balatongyörök",
+  "Balatonkenese",
+  "Balatonkeresztúr",
+  "Balatonlelle",
+  "Balatonmáriafürdő",
+  "Balatonőszöd",
+  "Balatonrendes",
+  "Balatonszabadi",
+  "Balatonszárszó",
+  "Balatonszemes",
+  "Balatonszentgyörgy",
+  "Balatonszepezd",
+  "Balatonudvari",
+  "Balatonvilágos",
+  "Csopak",
+  "Fonyód",
+  "Gyenesdiás",
+  "Keszthely",
+  "Kővágóörs",
+  "Örvényes",
+  "Paloznak",
+  "Révfülöp",
+  "Szántód",
+  "Szigliget",
+  "Tihany",
+  "Vonyarcvashegy",
+  "Zamárdi",
+  "Zánka",
+];
+
 const EUROPEAN_CITIES = [
   "London",
   "Paris",
@@ -191,9 +241,14 @@ const EUROPEAN_CITIES = [
 
 const SUGGEST_CITY_GROUPS = [
   { label: "Hungary", cities: HUNGARIAN_CITIES },
+  { label: "Lake Balaton shore", cities: BALATON_SHORE_CITIES },
   { label: "Europe", cities: EUROPEAN_CITIES },
 ];
-const SUGGEST_CITIES = [...HUNGARIAN_CITIES, ...EUROPEAN_CITIES];
+const SUGGEST_CITIES = [
+  ...HUNGARIAN_CITIES,
+  ...BALATON_SHORE_CITIES,
+  ...EUROPEAN_CITIES,
+];
 
 const PROMPT_LIMIT = 320;
 const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
@@ -1851,7 +1906,7 @@ export default function App() {
                       ))}
                     </select>
                     <p id="suggest-city-help" className="field-help">
-                      50 Hungarian and 30 European cities.
+                      All 45 Lake Balaton shore municipalities are covered; Siófok is listed under Hungary.
                     </p>
                     {suggestErrors.city && (
                       <p id="suggest-city-error" className="field-error" role="alert">

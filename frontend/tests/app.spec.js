@@ -350,10 +350,18 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   }
   await expect(page.getByLabel("City").locator('option[value="Miskolc"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Eger"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator("option")).toHaveCount(80);
-  await expect(page.getByLabel("City").locator("optgroup")).toHaveCount(2);
+  await expect(page.getByLabel("City").locator("option")).toHaveCount(124);
+  await expect(page.getByLabel("City").locator("optgroup")).toHaveCount(3);
   await expect(page.getByLabel("City").locator('optgroup[label="Hungary"] option')).toHaveCount(50);
+  await expect(
+    page.getByLabel("City").locator('optgroup[label="Lake Balaton shore"] option'),
+  ).toHaveCount(44);
   await expect(page.getByLabel("City").locator('optgroup[label="Europe"] option')).toHaveCount(30);
+  const cityValues = await page
+    .getByLabel("City")
+    .locator("option")
+    .evaluateAll((options) => options.map((option) => option.value));
+  expect(new Set(cityValues).size).toBe(124);
   await expect(page.getByLabel("City").locator('option[value="Érd"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Szolnok"]')).toHaveCount(1);
   await expect(

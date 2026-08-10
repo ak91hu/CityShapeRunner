@@ -37,6 +37,11 @@ _GUIDANCE_SPACING_M = 400.0
 _CORNER_TURN_DEG = 14.0
 _HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=5.0)
 _CONNECTIVITY_ERROR_CODES = {2009, 2013, 2014, 2015, 2016}
+_PUBLIC_ORS_BASE_URLS = frozenset({
+    "https://api.heigit.org/openrouteservice",
+    # Kept for existing deployments until ORS shuts the legacy host down.
+    "https://api.openrouteservice.org",
+})
 _FAILED_PAIR_PATTERN = re.compile(
     r"between\s+points?\s+(\d+).*?\band\s+(\d+)",
     flags=re.IGNORECASE,
@@ -77,6 +82,10 @@ class SnapPreflightResult:
 
 def profile_for(sport: str) -> str:
     return _PROFILE_MAP.get(sport, "foot-walking")
+
+
+def _is_public_ors(base_url: str) -> bool:
+    return base_url.rstrip("/").casefold() in _PUBLIC_ORS_BASE_URLS
 
 
 def _snap_request(
@@ -134,7 +143,7 @@ def preflight_route_candidates(
     if not candidate_routes:
         return []
     cfg = get_settings().routing
-    public_service = cfg.ors_base_url.rstrip("/") == "https://api.openrouteservice.org"
+    public_service = _is_public_ors(cfg.ors_base_url)
     if not cfg.ors_api_key and public_service:
         return None
 
@@ -636,7 +645,7 @@ def snap_route(
     if len(prepared) < 2:
         return _straight_line_connector(prepared, closed=closed)
 
-    public_service = cfg.ors_base_url.rstrip("/") == "https://api.openrouteservice.org"
+    public_service = _is_public_ors(cfg.ors_base_url)
     if not cfg.ors_api_key and public_service:
         return _straight_line_connector(prepared, closed=closed)
 

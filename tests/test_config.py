@@ -113,6 +113,12 @@ def test_environment_values_override_yaml_overlays(monkeypatch) -> None:
     assert settings.routing.continue_straight is False
 
 
+def test_routing_uses_the_current_heigit_public_endpoint_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("ORS_BASE_URL", raising=False)
+
+    assert config.RoutingConfig().ors_base_url == "https://api.heigit.org/openrouteservice"
+
+
 def test_settings_are_cached_until_explicitly_cleared(monkeypatch) -> None:
     monkeypatch.setattr(config, "_load_yaml_overlays", lambda: {})
     monkeypatch.setenv("DEFAULT_CITY", "Budapest")

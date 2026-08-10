@@ -337,6 +337,66 @@ def test_requested_additional_cities_have_local_route_profiles(city, monkeypatch
     assert geocoder.city_context(city, result)
 
 
+def test_unlisted_settlement_geocoding_is_filtered_and_search_box_is_bounded(monkeypatch):
+    captured: dict[str, object] = {}
+    monkeypatch.delenv("GEOCODE_OFFLINE", raising=False)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{
+                "lat": "45.7640",
+                "lon": "4.8357",
+                "boundingbox": ["45.1", "46.3", "3.9", "5.8"],
+                "display_name": "Lyon, France",
+            }]
+
+    def fake_get(url, *, params, headers, timeout):
+        captured.update(url=url, params=params, headers=headers, timeout=timeout)
+        return Response()
+
+    monkeypatch.setattr(
+        geocoder,
+        "get_settings",
+        lambda: SimpleNamespace(
+            geocoder=SimpleNamespace(
+                nominatim_email="",
+                nominatim_base_url="https://nominatim.example",
+            )
+        ),
+    )
+    monkeypatch.setattr(geocoder.httpx, "get", fake_get)
+
+    result = geocoder.geocode("Lyon")
+
+    assert result.name == "Lyon"
+    assert result.substituted is False
+    assert result.bbox == pytest.approx((45.684, 45.844, 4.7157, 4.9557))
+    assert captured["url"] == "https://nominatim.example/search"
+    assert captured["params"]["layer"] == "address"
+    assert captured["params"]["featureType"] == "settlement"
+
+
+def test_invalid_unlisted_geocoder_coordinates_fall_back_safely(monkeypatch):
+    monkeypatch.delenv("GEOCODE_OFFLINE", raising=False)
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"lat": "nan", "lon": "4.8357", "display_name": "Broken"}]
+
+    monkeypatch.setattr(geocoder.httpx, "get", lambda *_args, **_kwargs: Response())
+
+    result = geocoder.geocode("Unlisted broken place")
+
+    assert result.name == "Budapest"
+    assert result.substituted is True
+
+
 def test_major_hungarian_city_catalog_covers_the_ksh_top_fifty():
     assert len(geocoder.MAJOR_HUNGARIAN_CITIES) == 50
     assert len(set(geocoder.MAJOR_HUNGARIAN_CITIES)) == 50
@@ -346,6 +406,64 @@ def test_major_hungarian_city_catalog_covers_the_ksh_top_fifty():
         "Szeged",
     )
     assert all(geocoder._known_default(city) is not None for city in geocoder.MAJOR_HUNGARIAN_CITIES)
+
+
+def test_balaton_catalog_covers_all_official_shore_municipalities_locally(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("catalogued Balaton municipalities must resolve locally")
+
+    monkeypatch.setattr(geocoder.httpx, "get", fail_if_called)
+    cities = geocoder.BALATON_SHORE_CITIES
+
+    assert len(cities) == 45
+    assert len(set(cities)) == 45
+    assert cities[0] == "Alsóörs"
+    assert cities[-1] == "Zánka"
+    assert set(cities) & set(geocoder.MAJOR_HUNGARIAN_CITIES) == {"Siófok"}
+    assert {
+        "Alsópáhok", "Cserszegtomaj", "Felsőörs", "Felsőpáhok",
+        "Hévíz", "Kőröshegy", "Lovas",
+    }.isdisjoint(cities)
+
+    for city in cities:
+        result = geocoder.geocode(city)
+        context = geocoder.city_context(city, result)
+        assert result.name == city
+        assert result.substituted is False
+        assert city.casefold() in geocoder._CITY_GEOGRAPHY
+        assert any(term in context.casefold() for term in ("balaton", "lake", "shore"))
+
+
+def test_every_balaton_shore_intent_is_parsed_without_an_llm_call(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a catalogued Balaton request must use local intent parsing")
+
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.intent_agent.try_complete",
+        fail_if_called,
+    )
+
+    for city in geocoder.BALATON_SHORE_CITIES:
+        state = WorkflowState(prompt=f"draw a heart in {city}, 8 km")
+        IntentAgent().run(state)
+        assert state.intent is not None
+        assert state.intent.city == city
+        assert state.intent.shape == "heart"
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("draw a heart in Lyon, 8 km", "Lyon"),
+        ("a cat run near Saint-Étienne about 9 km", "Saint-Étienne"),
+        ("suggest a bike route around Ho Chi Minh City for 25 km", "Ho Chi Minh City"),
+        ("draw a heart in a minimalist style", None),
+    ],
+)
+def test_unlisted_city_fallback_is_conservative(prompt, expected):
+    parsed = IntentAgent()._parse(IntentAgent()._fallback(prompt).text)
+
+    assert parsed.city == expected
 
 
 def test_major_european_city_catalog_has_thirty_local_profiled_cities(monkeypatch):
@@ -368,7 +486,10 @@ def test_major_european_city_catalog_has_thirty_local_profiled_cities(monkeypatc
 
 @pytest.mark.parametrize(
     "city",
-    ["Érd", "Szolnok", "Szigetszentmiklós", "Stockholm", "Athens", "Kraków"],
+    [
+        "Érd", "Szolnok", "Szigetszentmiklós", "Stockholm", "Athens", "Kraków",
+        "Balatonföldvár", "Kővágóörs", "Ábrahámhegy",
+    ],
 )
 def test_new_major_city_intents_are_parsed_without_a_network_call(city, monkeypatch):
     def fail_if_called(*_args, **_kwargs):
@@ -735,6 +856,22 @@ def test_ors_failure_preserves_internal_code_and_failed_pair():
 def test_routing_default_allows_gps_art_u_turns(monkeypatch):
     monkeypatch.delenv("ORS_CONTINUE_STRAIGHT", raising=False)
     assert RoutingConfig().continue_straight is False
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.heigit.org/openrouteservice",
+        "https://api.heigit.org/openrouteservice/",
+        "https://api.openrouteservice.org",
+    ],
+)
+def test_public_ors_hosts_require_an_api_key(base_url):
+    assert ors_client._is_public_ors(base_url) is True
+
+
+def test_self_hosted_ors_is_not_mistaken_for_the_public_service():
+    assert ors_client._is_public_ors("http://ors.internal/ors") is False
 
 
 def test_failed_pair_pruning_preserves_closed_loop_endpoints():
@@ -1279,6 +1416,86 @@ def test_shape_recommender_profiles_every_registered_template():
     )
 
 
+def test_every_balaton_city_has_an_explicit_numeric_route_prior():
+    expected = {city.casefold() for city in geocoder.BALATON_SHORE_CITIES}
+
+    assert set(shape_recommender.BALATON_CITY_ROUTE_PRIORS) == expected
+    for city in geocoder.BALATON_SHORE_CITIES:
+        context = geocoder.city_context(city, geocoder.geocode(city))
+        profile = shape_recommender.analyse_city(city, context)
+        assert (
+            profile.grid_order,
+            profile.connectivity,
+            profile.barrier_risk,
+            profile.terrain_risk,
+            profile.radial_order,
+        ) == shape_recommender.BALATON_CITY_ROUTE_PRIORS[city.casefold()]
+
+
+def test_recommendation_ranking_cache_is_bounded_and_returns_fresh_lists():
+    shape_recommender._rank_shapes_cached.cache_clear()
+    context = geocoder.city_context("Tihany", geocoder.geocode("Tihany"))
+
+    first = shape_recommender.rank_shapes("Tihany", context, "run", 8.0)
+    first.pop()
+    second = shape_recommender.rank_shapes("Tihany", context, "run", 8.0)
+    info = shape_recommender._rank_shapes_cached.cache_info()
+
+    assert len(second) == len(shape_library.SHAPES)
+    assert info.hits == 1
+    assert info.maxsize == 512
+
+
+def test_recommendation_ranking_normalises_unexpected_request_values():
+    context = geocoder.city_context("Tihany", geocoder.geocode("Tihany"))
+
+    unexpected = shape_recommender.rank_shapes(
+        "Tihany",
+        context,
+        "hoverboard",
+        float("nan"),
+    )
+    defaulted = shape_recommender.rank_shapes("Tihany", context, "run", None)
+
+    assert [item.name for item in unexpected] == [item.name for item in defaulted]
+
+
+def test_balaton_recommendation_document_matches_the_runtime_ranker():
+    document = (
+        Path(__file__).resolve().parents[1] / "docs" / "balaton-city-coverage.md"
+    ).read_text(encoding="utf-8")
+    table = document.split("## Baseline recommendation list", 1)[1].split(
+        "## Regression coverage",
+        1,
+    )[0]
+    documented: dict[str, tuple[str, str]] = {}
+    for line in table.splitlines():
+        if not line.startswith("| ") or line.startswith("| Municipality"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) == 3 and cells[0] != "---":
+            documented[cells[0]] = (cells[1], cells[2])
+
+    assert set(documented) == set(geocoder.BALATON_SHORE_CITIES)
+    for city in geocoder.BALATON_SHORE_CITIES:
+        context = geocoder.city_context(city, geocoder.geocode(city))
+        expected = (
+            ", ".join(
+                item.name
+                for item in shape_recommender.recommend_shapes(
+                    city, context, "run", 8.0
+                )
+            ),
+            ", ".join(
+                item.name
+                for item in shape_recommender.recommend_shapes(
+                    city, context, "bike", 25.0
+                )
+            ),
+        )
+        assert documented[city] == expected
+
+
 def test_shape_suggestion_reduces_detail_for_hilly_sparse_streets():
     sparse = shape_recommender.recommend_shapes(
         "Hilltown",
@@ -1299,7 +1516,11 @@ def test_shape_suggestion_reduces_detail_for_hilly_sparse_streets():
 
 
 def test_every_catalogued_city_gets_three_measurable_recommendations():
-    cities = (*geocoder.MAJOR_HUNGARIAN_CITIES, *geocoder.MAJOR_EUROPEAN_CITIES)
+    cities = tuple(dict.fromkeys((
+        *geocoder.MAJOR_HUNGARIAN_CITIES,
+        *geocoder.BALATON_SHORE_CITIES,
+        *geocoder.MAJOR_EUROPEAN_CITIES,
+    )))
     primary_shapes: set[str] = set()
 
     for city in cities:

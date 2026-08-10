@@ -11,6 +11,7 @@ the PlanningAgent uses for map-aware route planning.
 from __future__ import annotations
 
 import logging
+import math
 import re
 
 import httpx
@@ -109,6 +110,100 @@ _DEFAULTS = {
     "Jászberény": GeoResult("Jászberény", 47.4953, 19.9186, (47.47, 47.52, 19.88, 19.96)),
     "Monor": GeoResult("Monor", 47.3511, 19.4486, (47.33, 47.37, 19.42, 19.48)),
     "Várpalota": GeoResult("Várpalota", 47.1989, 18.1361, (47.17, 47.22, 18.10, 18.17)),
+    # Lake Balaton shore municipalities from Annex 1/2 of Act CXII of
+    # 2000.  These route-oriented boxes stay close to each settlement's
+    # continuous street network instead of copying water-heavy administrative
+    # boundaries from the geocoder.
+    "Alsóörs": GeoResult("Alsóörs", 46.9883, 17.9771, (46.970, 47.006, 17.955, 18.004)),
+    "Aszófő": GeoResult("Aszófő", 46.9289, 17.8334, (46.916, 46.943, 17.814, 17.853)),
+    "Ábrahámhegy": GeoResult("Ábrahámhegy", 46.8148, 17.5715, (46.800, 46.830, 17.550, 17.594)),
+    "Badacsonytomaj": GeoResult(
+        "Badacsonytomaj", 46.8058, 17.5147, (46.780, 46.827, 17.486, 17.543)
+    ),
+    "Badacsonytördemic": GeoResult(
+        "Badacsonytördemic", 46.8120, 17.4737, (46.794, 46.824, 17.458, 17.497)
+    ),
+    "Balatonakali": GeoResult(
+        "Balatonakali", 46.8837, 17.7527, (46.865, 46.902, 17.724, 17.783)
+    ),
+    "Balatonakarattya": GeoResult(
+        "Balatonakarattya", 47.0240, 18.1439, (47.002, 47.045, 18.110, 18.180)
+    ),
+    "Balatonalmádi": GeoResult(
+        "Balatonalmádi", 47.0303, 18.0156, (47.000, 47.063, 17.980, 18.058)
+    ),
+    "Balatonberény": GeoResult(
+        "Balatonberény", 46.7108, 17.3193, (46.691, 46.731, 17.288, 17.348)
+    ),
+    "Balatonboglár": GeoResult(
+        "Balatonboglár", 46.7785, 17.6553, (46.752, 46.803, 17.620, 17.696)
+    ),
+    "Balatonederics": GeoResult(
+        "Balatonederics", 46.8091, 17.3813, (46.788, 46.827, 17.352, 17.414)
+    ),
+    "Balatonfenyves": GeoResult(
+        "Balatonfenyves", 46.7177, 17.4945, (46.687, 46.748, 17.451, 17.522)
+    ),
+    "Balatonfőkajár": GeoResult(
+        "Balatonfőkajár", 47.0203, 18.2122, (46.995, 47.047, 18.174, 18.252)
+    ),
+    "Balatonföldvár": GeoResult(
+        "Balatonföldvár", 46.8491, 17.8792, (46.829, 46.871, 17.849, 17.904)
+    ),
+    "Balatonfűzfő": GeoResult(
+        "Balatonfűzfő", 47.0620, 18.0410, (47.045, 47.087, 18.007, 18.068)
+    ),
+    "Balatongyörök": GeoResult(
+        "Balatongyörök", 46.7616, 17.3505, (46.746, 46.784, 17.320, 17.389)
+    ),
+    "Balatonkenese": GeoResult(
+        "Balatonkenese", 47.0355, 18.1087, (47.008, 47.062, 18.071, 18.143)
+    ),
+    "Balatonkeresztúr": GeoResult(
+        "Balatonkeresztúr", 46.6977, 17.3704, (46.681, 46.724, 17.337, 17.414)
+    ),
+    "Balatonmáriafürdő": GeoResult(
+        "Balatonmáriafürdő", 46.7050, 17.3718, (46.690, 46.738, 17.338, 17.416)
+    ),
+    "Balatonőszöd": GeoResult(
+        "Balatonőszöd", 46.8069, 17.8002, (46.785, 46.837, 17.766, 17.828)
+    ),
+    "Balatonrendes": GeoResult(
+        "Balatonrendes", 46.8274, 17.5858, (46.807, 46.841, 17.561, 17.619)
+    ),
+    "Balatonszabadi": GeoResult(
+        "Balatonszabadi", 46.8913, 18.1336, (46.871, 46.921, 18.096, 18.181)
+    ),
+    "Balatonszárszó": GeoResult(
+        "Balatonszárszó", 46.8263, 17.8342, (46.805, 46.858, 17.799, 17.879)
+    ),
+    "Balatonszemes": GeoResult(
+        "Balatonszemes", 46.8060, 17.7790, (46.782, 46.838, 17.739, 17.807)
+    ),
+    "Balatonszentgyörgy": GeoResult(
+        "Balatonszentgyörgy", 46.6922, 17.3000, (46.667, 46.721, 17.267, 17.337)
+    ),
+    "Balatonszepezd": GeoResult(
+        "Balatonszepezd", 46.8518, 17.6638, (46.830, 46.872, 17.635, 17.707)
+    ),
+    "Balatonudvari": GeoResult(
+        "Balatonudvari", 46.9054, 17.8048, (46.884, 46.923, 17.779, 17.843)
+    ),
+    "Balatonvilágos": GeoResult(
+        "Balatonvilágos", 46.9642, 18.1593, (46.944, 46.992, 18.110, 18.199)
+    ),
+    "Csopak": GeoResult("Csopak", 46.9797, 17.9231, (46.958, 47.001, 17.894, 17.958)),
+    "Gyenesdiás": GeoResult(
+        "Gyenesdiás", 46.7725, 17.2860, (46.753, 46.800, 17.264, 17.323)
+    ),
+    "Kővágóörs": GeoResult(
+        "Kővágóörs", 46.8490, 17.6016, (46.824, 46.874, 17.568, 17.638)
+    ),
+    "Örvényes": GeoResult("Örvényes", 46.9148, 17.8165, (46.901, 46.931, 17.795, 17.837)),
+    "Paloznak": GeoResult("Paloznak", 46.9833, 17.9409, (46.961, 47.005, 17.912, 17.971)),
+    "Szántód": GeoResult("Szántód", 46.8694, 17.9045, (46.850, 46.889, 17.879, 17.936)),
+    "Szigliget": GeoResult("Szigliget", 46.7990, 17.4354, (46.776, 46.825, 17.405, 17.468)),
+    "Zánka": GeoResult("Zánka", 46.8729, 17.6834, (46.850, 46.895, 17.648, 17.727)),
     "Balatonlelle": GeoResult("Balatonlelle", 46.7772, 17.8942, (46.76, 46.80, 17.87, 17.92)),
     "Tihany": GeoResult("Tihany", 46.9133, 17.8889, (46.90, 46.93, 17.87, 17.91)),
     "Badacsony": GeoResult("Badacsony", 46.7814, 17.6314, (46.76, 46.80, 17.60, 17.66)),
@@ -184,6 +279,25 @@ MAJOR_HUNGARIAN_CITIES = (
     "Kiskunfélegyháza", "Pápa", "Gyula", "Gyöngyös", "Ajka", "Kiskunhalas",
     "Jászberény", "Orosháza", "Szentes", "Gyál", "Hajdúszoboszló", "Siófok",
     "Dunaharaszti", "Tata",
+)
+
+# The current Lake Balaton shore-municipality list from Annex 1/2 of
+# Act CXII of 2000.  Near-shore settlements marked with an asterisk in the
+# source are intentionally excluded.  Siófok also appears in the KSH top 50,
+# so consumers should deduplicate when presenting both groups.
+# https://njt.hu/jogszabaly/2000-112-00-00
+BALATON_SHORE_CITIES = (
+    "Alsóörs", "Aszófő", "Ábrahámhegy", "Badacsonytomaj",
+    "Badacsonytördemic", "Balatonakali", "Balatonakarattya", "Balatonalmádi",
+    "Balatonberény", "Balatonboglár", "Balatonederics", "Balatonfenyves",
+    "Balatonfőkajár", "Balatonföldvár", "Balatonfüred", "Balatonfűzfő",
+    "Balatongyörök", "Balatonkenese", "Balatonkeresztúr", "Balatonlelle",
+    "Balatonmáriafürdő", "Balatonőszöd", "Balatonrendes", "Balatonszabadi",
+    "Balatonszárszó", "Balatonszemes", "Balatonszentgyörgy", "Balatonszepezd",
+    "Balatonudvari", "Balatonvilágos", "Csopak", "Fonyód", "Gyenesdiás",
+    "Keszthely", "Kővágóörs", "Örvényes", "Paloznak", "Révfülöp",
+    "Siófok", "Szántód", "Szigliget", "Tihany", "Vonyarcvashegy", "Zamárdi",
+    "Zánka",
 )
 
 # A regionally balanced European set based on cities covered by Eurostat's
@@ -654,6 +768,239 @@ _CITY_GEOGRAPHY: dict[str, str] = {
     ),
 }
 
+# Lake Balaton needs more specific placement guidance than an ordinary city
+# bbox: the lake, the shore railway/road corridors, hills on the north shore,
+# and wetlands in the west can all turn a visually good template into an
+# unroutable trace.  Profiles also describe the local street density so the
+# shape recommender can reduce detail in small or constrained settlements.
+_CITY_GEOGRAPHY.update({
+    "alsóörs": (
+        "Alsóörs is a small, hilly north-shore settlement with Lake Balaton to the south. "
+        "Keep compact shapes on one connected inland street cluster, north of the railway and shore road where "
+        "possible. The sloping, irregular and fairly sparse network favours simple continuous outlines."
+    ),
+    "aszófő": (
+        "Aszófő has a small, sparse street network on rising ground north of Lake Balaton. Keep the drawing "
+        "compact around the village, avoid the lakeshore, railway and wetlands toward the Tihany basin, and do "
+        "not rely on fine detail. East-west-oriented simple outlines fit the narrow land corridor best."
+    ),
+    "ábrahámhegy": (
+        "Ábrahámhegy occupies a narrow, hilly strip north of Lake Balaton. The shore railway and Route 71 "
+        "divide a sparse, irregular network, so place small shapes inland on one connected side of those barriers. "
+        "Simple elongated silhouettes are more reliable than detailed or circular ones."
+    ),
+    "badacsonytomaj": (
+        "Badacsonytomaj is constrained between Lake Balaton to the south and the steep Badacsony volcanic hill. "
+        "Use compact, simple shapes within one connected neighbourhood and avoid climbing roads, vineyards, the "
+        "shore railway and water. The terrain and fragmented settlements make fine detail fragile."
+    ),
+    "badacsonytördemic": (
+        "Badacsonytördemic has a sparse, irregular network between Lake Balaton and the steep Badacsony slopes. "
+        "Keep small continuous outlines in the village street cluster, avoiding the railway, Route 71, vineyards "
+        "and water. Low-detail shapes are the safest recommendation."
+    ),
+    "balatonakali": (
+        "Balatonakali is a small north-shore settlement with the lake to the south and rolling hills inland. "
+        "Place compact shapes north of the railway on connected village streets. The sparse network and shore "
+        "barriers favour simple, moderately elongated outlines aligned roughly east-west."
+    ),
+    "balatonakarattya": (
+        "Balatonakarattya sits on a high, hilly bluff above the eastern basin, with Lake Balaton to the west and "
+        "southwest. Keep compact shapes on the connected plateau streets and avoid steep shore access roads, the "
+        "railway and water. Irregular streets favour simple outlines over detailed templates."
+    ),
+    "balatonalmádi": (
+        "Balatonalmádi wraps around the northeast shore and rises into wooded hills. Place compact shapes within "
+        "one connected central or northern neighbourhood, away from Lake Balaton, rail crossings and steep outer "
+        "roads. Its hilly, irregular network supports moderate detail only after testing several placements."
+    ),
+    "balatonberény": (
+        "Balatonberény is a small, mostly flat southwest-shore settlement with Lake Balaton to the north. Keep "
+        "compact shapes on the connected grid south of the railway, avoiding the shore, wetlands and large "
+        "agricultural gaps. Simple orthogonal outlines work best."
+    ),
+    "balatonboglár": (
+        "Balatonboglár has a fairly connected, mostly regular grid south of Lake Balaton, interrupted by the "
+        "railway, Route 7 and the Vár-hegy area. Use the flatter central and southern streets for medium shapes, "
+        "avoid the shore and hill, and start with east-west or north-south orientations."
+    ),
+    "balatonederics": (
+        "Balatonederics lies between the lake basin, wetlands and the steep Keszthely Hills. Its street network is "
+        "small, sparse and irregular. Keep shapes compact in the village core, avoid Route 71, the railway, water "
+        "and hillside tracks, and recommend simple continuous silhouettes."
+    ),
+    "balatonfenyves": (
+        "Balatonfenyves is flat and strongly elongated along the south shore, with Lake Balaton to the north and "
+        "wetlands and canals inland. Use the connected residential streets on one side of the railway; elongated "
+        "east-west outlines fit better than tall shapes. Avoid water, rail crossings and sparse outer areas."
+    ),
+    "balatonfőkajár": (
+        "Balatonfőkajár is inland from the northeast shore and has a small, sparse village network. It is less "
+        "water-constrained than most Balaton settlements, but the M7 and agricultural gaps limit continuity. Keep "
+        "shapes compact around the connected core and prefer low-detail outlines."
+    ),
+    "balatonföldvár": (
+        "Balatonföldvár has a compact, connected south-shore grid with Lake Balaton to the north and rising "
+        "ground to the south. Place small or medium shapes south of the railway without crossing Route 7 repeatedly. "
+        "The local grid can support moderate detail, especially in east-west orientations."
+    ),
+    "balatonfüred": (
+        "Balatonfüred has one of the larger connected north-shore street networks, with Lake Balaton to the south "
+        "and hills to the north. Place medium shapes on the flatter central and eastern grid, north of the railway, "
+        "and avoid the shore, steep outer roads and large park areas. Moderate detail and several orientations are viable."
+    ),
+    "balatonfűzfő": (
+        "Balatonfűzfő has separated neighbourhoods around the northeast basin, with the lake to the south and "
+        "industrial land between street clusters. Keep compact shapes within one connected residential area and "
+        "avoid water, rail lines, industrial parcels and steep links. Simple outlines are the most reliable."
+    ),
+    "balatongyörök": (
+        "Balatongyörök is a narrow, hilly settlement between Lake Balaton to the south and the Keszthely Hills. "
+        "Keep compact shapes on one connected street cluster north of the railway and Route 71. Sparse hillside "
+        "roads and water barriers favour simple east-west-oriented outlines."
+    ),
+    "balatonkenese": (
+        "Balatonkenese sits on hilly bluffs at the lake's eastern end. Place compact shapes on connected plateau "
+        "streets, away from Lake Balaton, steep shore approaches, the railway and large gullies. The irregular "
+        "network favours simple continuous outlines and a few tested rotations."
+    ),
+    "balatonkeresztúr": (
+        "Balatonkeresztúr is flat and set just inland from the southwest shore. Its connected village grid can "
+        "support compact orthogonal shapes, but the railway, Route 7, canals and gaps between settlements are "
+        "barriers. Keep the route in one street cluster and avoid extending north into the lakefront strip."
+    ),
+    "balatonlelle": (
+        "Balatonlelle has a flat, connected and fairly regular south-shore grid with Lake Balaton to the north. "
+        "Place medium shapes south of the railway while avoiding Route 7 and the M7 corridor farther inland. "
+        "East-west or north-south orientations can support moderate detail without repeated barrier crossings."
+    ),
+    "balatonmáriafürdő": (
+        "Balatonmáriafürdő is flat and elongated along the southwest shore, with the lake to the north and "
+        "canals and wetlands inland. Keep compact shapes on one side of the railway in the connected residential "
+        "strip. Simple east-west silhouettes are safer than tall or highly detailed shapes."
+    ),
+    "balatonőszöd": (
+        "Balatonőszöd has a small, sparse south-shore network separated from the lakefront by rail and road "
+        "corridors. Use the compact inland village grid, avoid Lake Balaton, Route 7, the M7 and agricultural gaps, "
+        "and prefer simple continuous outlines."
+    ),
+    "balatonrendes": (
+        "Balatonrendes is a very small, hilly north-shore settlement with a sparse and fragmented street network. "
+        "Keep the drawing compact and inland, avoiding Lake Balaton, the railway, Route 71 and quarry or vineyard "
+        "tracks. Only simple low-detail silhouettes are likely to remain recognisable."
+    ),
+    "balatonszabadi": (
+        "Balatonszabadi is flat and mostly inland east of Siófok. The central village has a usable regular grid, "
+        "while the railway, M7 and disconnected lakeside district create barriers. Place compact or medium shapes "
+        "in one connected core; orthogonal outlines and rotations near 0 or 90 degrees are good starting points."
+    ),
+    "balatonszárszó": (
+        "Balatonszárszó has a compact south-shore grid with Lake Balaton to the north. Keep small or medium shapes "
+        "south of the railway and within the connected town streets, avoiding Route 7, the M7 and wooded gaps. "
+        "Moderately simple east-west-oriented outlines fit the corridor well."
+    ),
+    "balatonszemes": (
+        "Balatonszemes is mostly flat with a connected south-shore street grid. Place compact or medium shapes "
+        "south of the railway, avoiding Lake Balaton, Route 7 and the M7 corridor. The grid supports moderate detail, "
+        "with east-west or north-south orientations as strong starting points."
+    ),
+    "balatonszentgyörgy": (
+        "Balatonszentgyörgy lies by the marshy western basin and is crossed by major rail and road corridors. "
+        "Keep compact shapes in the connected village core, away from wetlands, canals, rail yards and Route 7. "
+        "The sparse network favours simple continuous outlines."
+    ),
+    "balatonszepezd": (
+        "Balatonszepezd is a narrow, hilly north-shore settlement with Lake Balaton to the south. The railway, "
+        "Route 71 and sparse hillside roads leave little continuous space. Use small east-west-oriented outlines "
+        "within one street cluster and avoid fine detail."
+    ),
+    "balatonudvari": (
+        "Balatonudvari has a small, sparse network on rolling ground north of Lake Balaton. Keep shapes compact "
+        "and inland, on one connected side of the railway and Route 71. Simple elongated silhouettes cope best "
+        "with the narrow shore corridor and irregular local streets."
+    ),
+    "balatonvilágos": (
+        "Balatonvilágos extends along a high bluff above the lake's eastern shore. Keep compact shapes on connected "
+        "streets away from the steep edge, Lake Balaton, the railway and M7 approaches. Its elongated, partly "
+        "irregular network favours simple outlines aligned with the shore."
+    ),
+    "csopak": (
+        "Csopak is a compact, hilly north-shore settlement with Lake Balaton to the south. Place small shapes on "
+        "the connected inland streets north of the railway and avoid the shore, Route 71 and steep vineyard roads. "
+        "Simple or moderately detailed continuous outlines work better than intricate templates."
+    ),
+    "fonyód": (
+        "Fonyód combines a connected south-shore street network with two prominent hills and Lake Balaton to the "
+        "north. Place compact or medium shapes on flatter streets south or east of the hills, avoiding the shore, "
+        "railway and steep winding roads. Moderate detail is possible after testing several placements."
+    ),
+    "gyenesdiás": (
+        "Gyenesdiás has a connected but sloping street network between Lake Balaton to the south and the Keszthely "
+        "Hills. Keep compact or medium shapes north of the railway and away from steep forest roads. Moderate detail "
+        "can work on the denser lower grid; elongated east-west outlines fit the corridor."
+    ),
+    "keszthely": (
+        "Keszthely has the largest dense, connected and fairly regular grid on Balaton's western shore, with the "
+        "lake to the east. Place medium or detailed shapes west of the shore and south of the hillier outer areas. "
+        "Avoid the waterfront, railway, Helikon park and large institutional blocks; multiple orientations are viable."
+    ),
+    "kővágóörs": (
+        "Kővágóörs sits inland on rolling, hilly terrain north of the shore. Its sparse, irregular village "
+        "roads are separated from lakeside neighbourhoods and quarry areas. Keep shapes compact in one connected "
+        "cluster and recommend simple low-detail outlines."
+    ),
+    "örvényes": (
+        "Örvényes is a very small north-shore village with sparse streets between Lake Balaton and rolling "
+        "hills. Keep the route compact and inland, avoid the railway, Route 71 and water, and use a simple continuous "
+        "outline; intricate templates exceed the available network detail."
+    ),
+    "paloznak": (
+        "Paloznak is a small, hilly village above the north shore with a sparse and irregular street network. Place "
+        "compact shapes within the connected village core, avoiding steep vineyard roads, Route 71 and Lake Balaton. "
+        "Simple low-detail outlines are the reliable choice."
+    ),
+    "révfülöp": (
+        "Révfülöp occupies a narrow, hilly strip north of Lake Balaton. Keep compact shapes on connected "
+        "inland streets, avoid the railway, Route 71, water and steep outer roads, and favour simple east-west "
+        "silhouettes over detailed templates."
+    ),
+    "siófok": (
+        "Siófok has the largest flat, connected and regular grid on the south shore, with Lake Balaton to the north. "
+        "Place medium or detailed shapes south of the railway and keep them on one side of the Sió channel. Avoid "
+        "the shore, M7 and large rail areas; rotations near 0 or 90 degrees align well with the grid."
+    ),
+    "szántód": (
+        "Szántód has a small, flat network at the narrowest part of the lake, beside ferry facilities and wetlands. "
+        "Use compact shapes south of the railway within one connected residential cluster. Avoid Lake Balaton, "
+        "marshy areas, Route 7 and routes that depend on the ferry."
+    ),
+    "szigliget": (
+        "Szigliget is a small peninsula-like settlement constrained by Lake Balaton, wetlands and a steep volcanic "
+        "castle hill. Streets are sparse, winding and irregular. Keep shapes very compact on lower connected roads, "
+        "avoid water and hillside tracks, and recommend only simple continuous outlines."
+    ),
+    "tihany": (
+        "Tihany is a narrow, hilly peninsula surrounded by Lake Balaton and split by the Inner Lake and protected "
+        "land. Its streets are sparse and winding. Keep shapes very compact within one connected village area, avoid "
+        "water, trails and ferry dependence, and use simple low-detail outlines."
+    ),
+    "vonyarcvashegy": (
+        "Vonyarcvashegy has a connected but sloping east-west street network between Lake Balaton and the Keszthely "
+        "Hills. Keep compact shapes north of the railway and away from the waterfront and steep forest roads. "
+        "Simple or moderate elongated outlines fit better than tall, intricate shapes."
+    ),
+    "zamárdi": (
+        "Zamárdi is mostly flat with a connected south-shore grid, Lake Balaton to the north and the M7 to the south. "
+        "Place compact or medium shapes between the railway and motorway without repeated crossings. East-west or "
+        "north-south orientations support moderate detail; avoid the shore and large camping areas."
+    ),
+    "zánka": (
+        "Zánka is a small, hilly north-shore settlement with the lake to the south and separated institutional land "
+        "to the east. Keep compact shapes in the connected village streets north of the railway and Route 71. "
+        "Sparse, irregular roads favour simple east-west-oriented outlines."
+    ),
+})
+
 
 def _known_default(city: str) -> GeoResult | None:
     query = city.casefold().strip()
@@ -680,6 +1027,34 @@ def _default(city: str) -> GeoResult:
         fallback.lon,
         fallback.bbox,
         substituted=True,
+    )
+
+
+def _route_search_bbox(lat: float, lon: float, value: object) -> BoundingBox:
+    """Return a finite urban search box, not an unbounded admin region."""
+    half_lat = 0.04
+    half_lon = 0.06
+    if isinstance(value, list | tuple) and len(value) >= 4:
+        try:
+            south, north, west, east = (float(item) for item in value[:4])
+        except (TypeError, ValueError):
+            pass
+        else:
+            if (
+                all(math.isfinite(item) for item in (south, north, west, east))
+                and -90 <= south < north <= 90
+                and -180 <= west < east <= 180
+            ):
+                # Municipality boundaries can cover lakes, forests, or large
+                # rural areas. A bounded box keeps the 180-placement search
+                # around the returned settlement centre.
+                half_lat = min(0.08, max(0.02, (north - south) / 2.0))
+                half_lon = min(0.12, max(0.03, (east - west) / 2.0))
+    return (
+        max(-90.0, lat - half_lat),
+        min(90.0, lat + half_lat),
+        max(-180.0, lon - half_lon),
+        min(180.0, lon + half_lon),
     )
 
 
@@ -711,6 +1086,10 @@ def geocode(city: str) -> GeoResult:
         "format": "json",
         "limit": 1,
         "addressdetails": 0,
+        # Unknown prompts should resolve to inhabited places, not a same-name
+        # shop, mountain, railway feature, or lake.
+        "layer": "address",
+        "featureType": "settlement",
     }
     if cfg.nominatim_email:
         # Nominatim documents the email query parameter for identifying
@@ -726,10 +1105,16 @@ def geocode(city: str) -> GeoResult:
             hit = data[0]
             lat = float(hit["lat"])
             lon = float(hit["lon"])
-            bb = hit.get("boundingbox", ["47.35", "47.60", "18.93", "19.30"])
-            south, north, west, east = (float(bb[0]), float(bb[1]), float(bb[2]), float(bb[3]))
+            if not (
+                math.isfinite(lat)
+                and math.isfinite(lon)
+                and -90 <= lat <= 90
+                and -180 <= lon <= 180
+            ):
+                raise ValueError("geocoder returned invalid coordinates")
+            bbox = _route_search_bbox(lat, lon, hit.get("boundingbox"))
             name = hit.get("display_name", city).split(",")[0]
-            return GeoResult(name, lat, lon, (south, north, west, east))
+            return GeoResult(name, lat, lon, bbox)
     except Exception as e:  # noqa: BLE001
         log.warning("Nominatim geocode failed for %r (%s) — using built-in default", city, e)
 

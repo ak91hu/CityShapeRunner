@@ -21,6 +21,12 @@ then measured on the actual route graph. The result includes a concise reason;
 the full method and coverage groups are in
 [City-aware shape recommendations](city-shape-recommendations.md).
 
+The city picker exposes 124 unique destinations. This includes every one of the
+45 shore municipalities in the current Lake Balaton statutory list; Siófok is
+shown only in the Hungary group to avoid a duplicate option. The legal scope,
+complete list, local geocoding approach, and shore-specific planning constraints
+are documented in [Lake Balaton city coverage](balaton-city-coverage.md).
+
 ## Quick-idea catalog
 
 The planner shows six common shapes first and keeps the full searchable

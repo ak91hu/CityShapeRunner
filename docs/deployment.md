@@ -63,6 +63,7 @@ CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode
 NOMINATIM_EMAIL=operations@example.com
+ORS_BASE_URL=https://api.heigit.org/openrouteservice
 ORS_CONTINUE_STRAIGHT=false
 ORS_PREFERENCE=shortest
 ```
@@ -73,6 +74,12 @@ the source of truth. GPX/TCX documents are generated in memory and downloaded
 by the browser. `CLOUDINARY_URL` is optional; set it as a masked runtime secret
 to enable the anonymous map-screenshot gallery. Never expose it to Vite or any
 `VITE_*` variable.
+
+`ORS_BASE_URL` uses HeiGIT's current public endpoint. The legacy
+`https://api.openrouteservice.org` host is scheduled to shut down on
+2026-08-24; existing overrides remain recognised during migration, but new
+deployments must use the value above. See the
+[openrouteservice announcement](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912).
 
 Create a Northflank secret group or enter masked runtime secrets for:
 

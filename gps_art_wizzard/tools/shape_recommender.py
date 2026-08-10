@@ -13,7 +13,7 @@ import cmath
 import math
 import re
 from dataclasses import dataclass
-from functools import cache
+from functools import cache, lru_cache
 
 from . import geo, shape_library
 
@@ -83,6 +83,55 @@ class ShapeRecommendation:
     reason: str
     shape: ShapeRouteProfile
     city: CityRouteProfile
+
+
+# Curated numeric priors make Balaton recommendations explicit and stable.
+# The prose contexts remain useful for planning and explanations, but parsing
+# English keywords alone cannot distinguish a flat shore grid from a narrow
+# volcanic peninsula with enough precision. Values are conservative starting
+# priors; live snap/routing/validation still decides which route is usable.
+_BALATON_LARGE_GRIDS = frozenset({"Keszthely", "Siófok"})
+_BALATON_CONNECTED_GRIDS = frozenset({
+    "Balatonboglár", "Balatonföldvár", "Balatonfüred", "Balatonlelle",
+    "Balatonszabadi", "Balatonszemes", "Gyenesdiás", "Zamárdi",
+})
+_BALATON_FLAT_CORRIDORS = frozenset({
+    "Balatonberény", "Balatonfenyves", "Balatonkeresztúr",
+    "Balatonmáriafürdő", "Balatonőszöd", "Balatonszárszó",
+    "Balatonszentgyörgy", "Balatonvilágos", "Szántód",
+})
+_BALATON_WESTERN_MIXED = frozenset({
+    "Balatonederics", "Balatongyörök", "Fonyód", "Vonyarcvashegy",
+})
+_BALATON_SEVERELY_CONSTRAINED = frozenset({
+    "Badacsonytomaj", "Badacsonytördemic", "Balatonrendes", "Örvényes",
+    "Paloznak", "Szigliget", "Tihany",
+})
+_BALATON_HILLY_SHORE = frozenset({
+    "Alsóörs", "Aszófő", "Ábrahámhegy", "Balatonakali",
+    "Balatonakarattya", "Balatonalmádi", "Balatonfűzfő", "Balatonkenese",
+    "Balatonszepezd", "Balatonudvari", "Csopak", "Kővágóörs",
+    "Révfülöp", "Zánka",
+})
+_BALATON_INLAND_CORE = frozenset({"Balatonfőkajár"})
+
+
+def _prior_group(
+    cities: frozenset[str],
+    values: tuple[float, float, float, float, float],
+) -> dict[str, tuple[float, float, float, float, float]]:
+    return {city.casefold(): values for city in cities}
+
+
+BALATON_CITY_ROUTE_PRIORS = {
+    **_prior_group(_BALATON_LARGE_GRIDS, (0.92, 0.90, 0.58, 0.12, 0.10)),
+    **_prior_group(_BALATON_CONNECTED_GRIDS, (0.78, 0.80, 0.62, 0.25, 0.10)),
+    **_prior_group(_BALATON_FLAT_CORRIDORS, (0.74, 0.67, 0.72, 0.15, 0.08)),
+    **_prior_group(_BALATON_WESTERN_MIXED, (0.48, 0.55, 0.76, 0.58, 0.08)),
+    **_prior_group(_BALATON_SEVERELY_CONSTRAINED, (0.30, 0.30, 0.84, 0.85, 0.05)),
+    **_prior_group(_BALATON_HILLY_SHORE, (0.45, 0.44, 0.70, 0.66, 0.06)),
+    **_prior_group(_BALATON_INLAND_CORE, (0.58, 0.55, 0.30, 0.22, 0.08)),
+}
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -174,8 +223,13 @@ def shape_catalog_profiles() -> dict[str, ShapeRouteProfile]:
     return {name: analyse_shape(name) for name in sorted(shape_library.SHAPES)}
 
 
+@lru_cache(maxsize=512)
 def analyse_city(city: str, map_context: str) -> CityRouteProfile:
     """Convert the curated prose profile into explicit scoring dimensions."""
+    prior = BALATON_CITY_ROUTE_PRIORS.get(city.casefold().strip())
+    if prior is not None:
+        return CityRouteProfile(city, *prior)
+
     low = map_context.casefold()
     # Do not turn phrases such as "no major river" into a barrier signal.
     barriers_text = re.sub(
@@ -275,7 +329,38 @@ def rank_shapes(
     sport: str,
     distance_km: float | None,
 ) -> list[ShapeRecommendation]:
-    """Score the complete registry for this city/activity/distance request."""
+    """Score the registry, returning a fresh list backed by a bounded cache."""
+    clean_city = str(city).strip()[:100]
+    clean_context = str(map_context).strip()[:4_000]
+    clean_sport = "bike" if str(sport).casefold() == "bike" else "run"
+    try:
+        numeric_distance = float(distance_km) if distance_km is not None else None
+    except (TypeError, ValueError):
+        numeric_distance = None
+    if numeric_distance is not None:
+        numeric_distance = (
+            round(min(300.0, max(1.0, numeric_distance)), 2)
+            if math.isfinite(numeric_distance) and numeric_distance > 0
+            else None
+        )
+    return list(
+        _rank_shapes_cached(
+            clean_city,
+            clean_context,
+            clean_sport,
+            numeric_distance,
+        )
+    )
+
+
+@lru_cache(maxsize=512)
+def _rank_shapes_cached(
+    city: str,
+    map_context: str,
+    sport: str,
+    distance_km: float | None,
+) -> tuple[ShapeRecommendation, ...]:
+    """Immutable cached implementation for repeated planning passes."""
     city_profile = analyse_city(city, map_context)
     distance_capacity = _distance_capacity(sport, distance_km)
     supported_detail = min(city_profile.detail_capacity, distance_capacity)
@@ -321,7 +406,7 @@ def rank_shapes(
             )
         )
 
-    return sorted(recommendations, key=lambda item: (-item.score, item.name))
+    return tuple(sorted(recommendations, key=lambda item: (-item.score, item.name)))
 
 
 def recommend_shapes(

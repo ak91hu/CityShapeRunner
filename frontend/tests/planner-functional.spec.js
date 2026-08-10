@@ -195,7 +195,7 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City");
-  await expect(city.locator("option")).toHaveCount(80);
+  await expect(city.locator("option")).toHaveCount(124);
   await city.selectOption("Szolnok");
   await page.getByRole("radio", { name: "Cycling" }).check();
   await page.getByLabel("Distance").fill("24");
@@ -217,7 +217,7 @@ test("the Europe city group submits an accented European destination", async ({ 
   const city = page.getByLabel("City");
   await expect(city.locator('optgroup[label="Europe"] option')).toHaveCount(30);
   await expect(page.locator("#suggest-city-help")).toHaveText(
-    "50 Hungarian and 30 European cities.",
+    "All 45 Lake Balaton shore municipalities are covered; Siófok is listed under Hungary.",
   );
   await city.selectOption("Kraków");
   await page.getByRole("radio", { name: "Running" }).check();
@@ -229,5 +229,26 @@ test("the Europe city group submits an accented European destination", async ({ 
   });
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
     "suggest a run route in Kraków, about 14 km",
+  );
+});
+
+test("the Balaton shore group submits a local accented settlement", async ({ page }) => {
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+  await page.getByText("Choose city, activity, and distance").click();
+
+  const city = page.getByLabel("City");
+  await expect(city.locator('optgroup[label="Lake Balaton shore"] option')).toHaveCount(44);
+  await expect(city.locator('option[value="Siófok"]')).toHaveCount(1);
+  await city.selectOption("Kővágóörs");
+  await page.getByRole("radio", { name: "Cycling" }).check();
+  await page.getByLabel("Distance").fill("22");
+  await page.getByRole("button", { name: "Find a route" }).click();
+
+  await expect.poll(() => capture.lastPayload()).toEqual({
+    prompt: "suggest a bike route in Kővágóörs, about 22 km",
+  });
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+    "suggest a bike route in Kővágóörs, about 22 km",
   );
 });

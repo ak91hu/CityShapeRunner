@@ -42,7 +42,12 @@ class LLMConfig:
 @dataclass
 class RoutingConfig:
     ors_api_key: str = field(default_factory=lambda: os.getenv("ORS_API_KEY", ""))
-    ors_base_url: str = field(default_factory=lambda: os.getenv("ORS_BASE_URL", "https://api.openrouteservice.org"))
+    ors_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "ORS_BASE_URL",
+            "https://api.heigit.org/openrouteservice",
+        )
+    )
     snap_radius_m: int = field(default_factory=lambda: _int("ORS_SNAP_RADIUS_M", 120))
     # GPS-art cusps and lettering often require U-turns at via-points.
     continue_straight: bool = field(

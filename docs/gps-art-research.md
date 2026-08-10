@@ -586,6 +586,23 @@ the [official restrictions](https://openrouteservice.org/restrictions/) and
 [routing documentation](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/routing-options)
 must be treated as operational constraints.
 
+The same restrictions allow 5,000 locations in one snap request. The production
+preflight uses at most 180 placements with 18 guide points each (3,240
+locations), so batching stays inside the documented limit while avoiding one
+network round trip per placement. The snap endpoint returns results in input
+order and may return `null` when no edge is found within the radius; candidate
+slices and coverage scoring preserve both behaviours before any Directions
+request. See the official
+[snapping endpoint documentation](https://giscience.github.io/openrouteservice/api-reference/endpoints/snapping/).
+
+As of 2026-04-28, openrouteservice deprecated
+`api.openrouteservice.org` and announced its shutdown for 2026-08-24. The
+application default now uses `api.heigit.org/openrouteservice`; the old base URL
+is still identified as a hosted service during the transition so a missing key
+cannot accidentally trigger anonymous traffic. This is an operational
+migration, not an algorithm change. See the
+[official announcement](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912).
+
 Therefore the current ORS funnel is a measured approximation, not an
 implementation of Waschk–Krüger or Li–Fu. A research-grade next engine would
 load the local activity graph and perform target-aware graph search directly.

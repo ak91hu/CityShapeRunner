@@ -10,14 +10,32 @@ from ..config import get_settings
 from ..llm import LLMResponse, extract_json, try_complete
 from ..prompts import render
 from ..state import Intent, WorkflowState
-from ..tools.geocoder import MAJOR_EUROPEAN_CITIES, MAJOR_HUNGARIAN_CITIES
+from ..tools.geocoder import (
+    BALATON_SHORE_CITIES,
+    MAJOR_EUROPEAN_CITIES,
+    MAJOR_HUNGARIAN_CITIES,
+)
 from .base import BaseAgent
 
 _KNOWN_CITIES = [
     *MAJOR_HUNGARIAN_CITIES,
+    *(city for city in BALATON_SHORE_CITIES if city not in MAJOR_HUNGARIAN_CITIES),
     *MAJOR_EUROPEAN_CITIES,
-    "Keszthely", "Balatonfüred", "Visegrád", "Makó", "New York",
+    "Visegrád", "Makó", "New York",
 ]
+
+_UNLISTED_CITY_PATTERN = re.compile(
+    r"""\b(?:in|near|around)\s+
+        ([^\d,.;!?]{1,100}?)
+        (?=
+            \s+(?:in|near|around|about|for|while|during|on)\b
+            |\s+\d+(?:[.,]\d+)?\s*km\b
+            |[,.;!?]
+            |$
+        )
+    """,
+    flags=re.IGNORECASE | re.VERBOSE,
+)
 
 
 class IntentAgent(BaseAgent):
@@ -100,6 +118,8 @@ class IntentAgent(BaseAgent):
         dist_match = re.search(r"(\d+(?:\.\d+)?)\s*km", low)
         dist = float(dist_match.group(1)) if dist_match else None
         city = next((c for c in _KNOWN_CITIES if c.lower() in low), None)
+        if city is None:
+            city = _extract_unlisted_city(text)
 
         # Detect suggestion requests.
         suggest = any(w in low for w in (
@@ -150,6 +170,28 @@ def _clean_optional_text(value: object, *, max_length: int) -> str | None:
         return None
     cleaned = " ".join(value.split()).strip()
     return cleaned[:max_length] or None
+
+
+def _extract_unlisted_city(text: str) -> str | None:
+    """Conservatively recover an unlisted settlement from common phrasing."""
+    matches = list(_UNLISTED_CITY_PATTERN.finditer(text))
+    if not matches:
+        return None
+    candidate = matches[-1].group(1).strip(" \t\r\n\"'")
+    candidate = re.sub(r"^the\s+(?:city|town|village)\s+of\s+", "", candidate, flags=re.I)
+    candidate = " ".join(candidate.split())
+    low = candidate.casefold()
+    if (
+        len(candidate) < 2
+        or len(candidate.split()) > 6
+        or low in {"a city", "any city", "my city", "the city", "here", "anywhere"}
+        or any(
+            token in low
+            for token in (" style", " route", " running", " cycling", " bike", " run")
+        )
+    ):
+        return None
+    return candidate[:100]
 
 
 def _parse_bool(value: object) -> bool:

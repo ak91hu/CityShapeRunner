@@ -89,11 +89,13 @@ Sources: [WCAG 2.2 target-size guidance](https://www.w3.org/WAI/WCAG22/Understan
 
 ### Match the control to the question
 
-The GOV.UK Design System advises using selects sparingly. The 80-city list
+The GOV.UK Design System advises using selects sparingly. The 124-destination list
 remains a native select, which stays compact and uses the platform's familiar
-mobile picker. Hungary's KSH top 50 and the 30-city European coverage set are
-separate labelled option groups, so users do not have to scan one undifferentiated
-list. A two-item running/cycling choice is faster to scan as visible radio
+mobile picker. Hungary's KSH top 50, 44 additional Lake Balaton shore
+municipalities, and the 30-city European coverage set are separate labelled
+option groups. Siófok stays in the Hungary group instead of appearing twice.
+This keeps the long list structured and its option values unique. A two-item
+running/cycling choice is faster to scan as visible radio
 options, so activity uses two large radio targets while distance remains a
 labelled number input.
 
