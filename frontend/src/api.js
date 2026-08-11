@@ -11,6 +11,7 @@ export class ApiError extends Error {
 async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
   const controller = new AbortController();
   let timedOut = false;
+  let timeoutId = null;
 
   const forwardAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) {
@@ -19,10 +20,12 @@ async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
     signal?.addEventListener("abort", forwardAbort, { once: true });
   }
 
-  const timeoutId = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
 
   try {
     const response = await fetch(`${BASE}${path}`, {
@@ -49,7 +52,7 @@ async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
     return data;
   } catch (error) {
     if (timedOut) {
-      throw new ApiError("This is taking longer than expected. Please try again.");
+      throw new ApiError("The service didn’t respond in time. Please try again.");
     }
     if (signal?.aborted) {
       throw new DOMException("The request was cancelled.", "AbortError");
@@ -58,7 +61,7 @@ async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
     if (error?.name === "AbortError") throw error;
     throw new ApiError("We can’t reach the route planner. Check your connection and try again.");
   } finally {
-    window.clearTimeout(timeoutId);
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
     signal?.removeEventListener("abort", forwardAbort);
   }
 }
@@ -70,7 +73,10 @@ export function health(options = {}) {
 export function generate(prompt, options = {}) {
   return request("/generate", {
     ...options,
-    timeoutMs: 180_000,
+    // Custom drawings may include one bounded AI repair plus several measured
+    // street-network candidates. Keep waiting until the server responds or
+    // the user explicitly uses the existing Cancel action.
+    timeoutMs: null,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),

@@ -123,7 +123,14 @@ class ShapeAgent(BaseAgent):
         idea = intent.shape
         if not idea:
             return None
-        hit = shape_library.get_shape(idea) or shape_library.find_by_keyword(idea)
+        hit = shape_library.get_shape(idea)
+        if hit is None:
+            hit = shape_library.find_by_keyword(idea)
+            if hit and not shape_library.template_match_covers_description(
+                idea,
+                hit[0],
+            ):
+                return None
         if not hit:
             return None
         name, paths, closed = hit

@@ -62,6 +62,7 @@ EXPORT_DIR=
 CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode
+OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini
 NOMINATIM_EMAIL=operations@example.com
 ORS_BASE_URL=https://api.heigit.org/openrouteservice
 ORS_CONTINUE_STRAIGHT=false
@@ -80,6 +81,11 @@ to enable the anonymous map-screenshot gallery. Never expose it to Vite or any
 2026-08-24; existing overrides remain recognised during migration, but new
 deployments must use the value above. See the
 [openrouteservice announcement](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912).
+
+`OPENCODE_STRUCTURED_MODEL` is intentionally separate from `LLM_MODEL`.
+Schema-bound tasks use Zen's Responses endpoint and strict JSON Schema, while
+general chat-compatible work can keep the configured `/chat/completions`
+model.
 
 Create a Northflank secret group or enter masked runtime secrets for:
 

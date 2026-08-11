@@ -236,10 +236,16 @@ opencode) and put it in `.env`:
 ```bash
 OPENCODE_API_KEY=zen-...
 OPENCODE_BASE_URL=https://opencode.ai/zen/v1
+OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini # /v1/responses, strict JSON-schema tasks
 LLM_MODEL=glm-5.2            # any /v1/chat/completions model: kimi-k2.6, deepseek-v4-flash, ...
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode,anthropic,openai,ollama
 ```
+
+`LLM_MODEL` remains the general chat model. Strictly structured jobs such as
+unknown-shape contour generation use `OPENCODE_STRUCTURED_MODEL` through Zen's
+Responses endpoint. This prevents a reasoning-heavy chat model from consuming
+the output limit before it emits the required coordinate JSON.
 
 Install the SDK: `pip install -e ".[opencode]"` (the `openai` package is shared
 with the OpenAI provider).

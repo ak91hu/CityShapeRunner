@@ -41,7 +41,12 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
                 from .opencode_provider import OpenCodeProvider
                 candidates.append(
                     OpenCodeProvider(
-                        cfg.opencode_key, cfg.opencode_base_url, cfg.model, cfg.temperature, cfg.max_tokens
+                        cfg.opencode_key,
+                        cfg.opencode_base_url,
+                        cfg.model,
+                        cfg.temperature,
+                        cfg.max_tokens,
+                        structured_model=cfg.opencode_structured_model,
                     )
                 )
             elif name == "openai" and cfg.openai_key:

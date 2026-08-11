@@ -154,8 +154,15 @@ class PlanningAgent(BaseAgent):
         if intent.text:
             return "text"
         idea = intent.shape
-        if idea and (shape_library.get_shape(idea) or shape_library.find_by_keyword(idea)):
-            return "template"
+        if idea:
+            if shape_library.get_shape(idea):
+                return "template"
+            keyword_hit = shape_library.find_by_keyword(idea)
+            if keyword_hit and shape_library.template_match_covers_description(
+                idea,
+                keyword_hit[0],
+            ):
+                return "template"
         return "llm"
 
     def _fallback(self, state: WorkflowState, extent_heading: float, map_context: str) -> LLMResponse:

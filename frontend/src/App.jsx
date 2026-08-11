@@ -2240,7 +2240,7 @@ export default function App() {
               !
             </div>
             <div>
-              <h2>Route not found</h2>
+              <h2>We couldn’t finish this route</h2>
               <p>{error}</p>
               <button
                 type="button"

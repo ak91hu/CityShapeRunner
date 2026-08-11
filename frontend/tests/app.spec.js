@@ -519,6 +519,9 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
   await expect(alert).toBeFocused();
+  await expect(
+    alert.getByRole("heading", { name: "We couldn’t finish this route" }),
+  ).toBeVisible();
   await expect(alert).toContainText("Road routing is temporarily unavailable.");
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 

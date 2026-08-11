@@ -18,6 +18,7 @@ from gps_art_wizzard.agents.planning_agent import PlanningAgent
 from gps_art_wizzard.agents.preflight_agent import PreflightAgent
 from gps_art_wizzard.agents.refinement_agent import RefinementAgent
 from gps_art_wizzard.agents.shape_agent import (
+    _CUSTOM_SHAPE_JSON_SCHEMA,
     ShapeAgent,
     _clear_custom_shape_cache,
     _validated_paths,
@@ -2272,6 +2273,86 @@ def test_custom_shape_generation_keeps_requested_name_and_closes_outline(monkeyp
     assert state.shape.closed is True
     assert state.shape.paths[0][0] == state.shape.paths[0][-1]
     assert LineString(state.shape.paths[0]).is_simple
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_shape", "expected_city", "expected_sport", "expected_distance"),
+    [
+        ("a robot run in Budapest, about 8 km", "robot", "Budapest", "run", 8.0),
+        (
+            "a lighthouse with crashing waves run in Barcelona, about 9 km",
+            "lighthouse with crashing waves",
+            "Barcelona",
+            "run",
+            9.0,
+        ),
+        (
+            "a dragon wearing a crown in Berlin, about 24 km while cycling",
+            "dragon wearing a crown",
+            "Berlin",
+            "bike",
+            24.0,
+        ),
+        (
+            "Rajzolj egy gőzölgő kávéscsészét Budapesten, futva, 8 km",
+            "gőzölgő kávéscsészét",
+            "Budapest",
+            "run",
+            8.0,
+        ),
+    ],
+)
+def test_arbitrary_described_shapes_reach_ai_generation_with_route_metadata(
+    monkeypatch,
+    prompt,
+    expected_shape,
+    expected_city,
+    expected_sport,
+    expected_distance,
+):
+    _clear_custom_shape_cache()
+    captured = {}
+    response = LLMResponse(
+        text=json.dumps(
+            {
+                "name": expected_shape,
+                "paths": [[
+                    [-1, 2], [1, 2], [1, 1.2], [2, 1.2], [2, 0.6],
+                    [1.2, 0.6], [1.2, -1], [0.8, -1], [0.8, -2],
+                    [0.2, -2], [0.2, -1], [-0.2, -1], [-0.2, -2],
+                    [-0.8, -2], [-0.8, -1], [-1.2, -1], [-1.2, 0.6],
+                    [-2, 0.6], [-2, 1.2], [-1, 1.2], [-1, 2],
+                ]],
+                "closed": True,
+            }
+        ),
+        provider="test-provider",
+    )
+
+    def complete(*_args, **kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(prompt=prompt)
+
+    IntentAgent().run(state)
+    PlanningAgent().run(state)
+    ShapeAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == expected_shape
+    assert state.intent.city == expected_city
+    assert state.intent.sport == expected_sport
+    assert state.intent.distance_km == expected_distance
+    assert state.plan is not None
+    assert state.plan.shape_strategy == "llm"
+    assert state.shape is not None
+    assert state.shape.name == expected_shape
+    assert state.shape.source == "llm"
+    assert state.shape.closed is True
+    assert state.errors == []
+    assert captured["json_schema"] is _CUSTOM_SHAPE_JSON_SCHEMA
 
 
 def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):

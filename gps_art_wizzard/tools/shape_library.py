@@ -1243,3 +1243,56 @@ def find_by_keyword(text: str) -> ShapeGen | None:
             name = KEYWORDS[keyword]
             return get_shape(name)
     return None
+
+
+def template_match_covers_description(
+    description: str | None,
+    canonical_name: str,
+) -> bool:
+    """Whether a keyword names the drawing instead of one part of it.
+
+    Simple modifiers such as ``big heart`` may use a template. Composite
+    descriptions such as ``dragon wearing a crown`` must keep the full request
+    and reach custom AI geometry even though one component is catalogued.
+    """
+
+    if not description:
+        return True
+    allowed_modifiers = {
+        "a",
+        "an",
+        "art",
+        "big",
+        "bold",
+        "compact",
+        "detailed",
+        "drawing",
+        "large",
+        "minimal",
+        "minimalist",
+        "outline",
+        "shape",
+        "simple",
+        "small",
+        "stylized",
+        "stylised",
+        "the",
+    }
+    low = description.casefold()
+    matching_keywords = [
+        keyword
+        for keyword, name in KEYWORDS.items()
+        if name == canonical_name
+        and re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
+    ]
+    if not matching_keywords:
+        return False
+    keyword = max(matching_keywords, key=len)
+    residual = re.sub(
+        rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)",
+        " ",
+        low,
+        count=1,
+    )
+    residual_words = set(re.findall(r"[\w'-]+", residual, flags=re.UNICODE))
+    return residual_words <= allowed_modifiers

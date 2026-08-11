@@ -30,6 +30,12 @@ class LLMConfig:
     model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", ""))
     opencode_key: str = field(default_factory=lambda: os.getenv("OPENCODE_API_KEY", ""))
     opencode_base_url: str = field(default_factory=lambda: os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"))
+    opencode_structured_model: str = field(
+        default_factory=lambda: os.getenv(
+            "OPENCODE_STRUCTURED_MODEL",
+            "gpt-5.4-mini",
+        )
+    )
     openai_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     anthropic_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     ollama_base_url: str = field(default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))

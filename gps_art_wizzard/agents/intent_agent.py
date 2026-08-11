@@ -189,7 +189,10 @@ class IntentAgent(BaseAgent):
 
             custom_shape = _extract_custom_shape(text, city=city)
             hit = shape_library.find_by_keyword(low)
-            if hit and _template_match_covers_candidate(custom_shape, hit[0]):
+            if hit and shape_library.template_match_covers_description(
+                custom_shape,
+                hit[0],
+            ):
                 shape = hit[0]
             elif drawn_text:
                 shape = "text"
@@ -337,56 +340,6 @@ def _extract_custom_shape(text: str, *, city: str | None) -> str | None:
     ):
         return None
     return candidate[:80]
-
-
-def _template_match_covers_candidate(candidate: str | None, canonical_name: str) -> bool:
-    """Whether a keyword match describes the whole request, not one prop.
-
-    ``big heart`` should keep the deterministic heart template, while
-    ``octopus wearing a crown`` is a new composite drawing even though crown is
-    in the catalog.
-    """
-
-    if not candidate:
-        return True
-
-    from ..tools import shape_library
-
-    allowed_modifiers = {
-        "art",
-        "big",
-        "bold",
-        "compact",
-        "detailed",
-        "drawing",
-        "large",
-        "minimal",
-        "minimalist",
-        "outline",
-        "shape",
-        "simple",
-        "small",
-        "stylized",
-        "stylised",
-    }
-    low = candidate.casefold()
-    matching_keywords = [
-        keyword
-        for keyword, name in shape_library.KEYWORDS.items()
-        if name == canonical_name
-        and re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
-    ]
-    if not matching_keywords:
-        return False
-    keyword = max(matching_keywords, key=len)
-    residual = re.sub(
-        rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)",
-        " ",
-        low,
-        count=1,
-    )
-    residual_words = set(re.findall(r"[\w'-]+", residual, flags=re.UNICODE))
-    return residual_words <= allowed_modifiers
 
 
 def _parse_bool(value: object) -> bool:
