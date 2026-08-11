@@ -51,8 +51,9 @@ normal pipeline geocodes its city once. There is no process-global geocoder
 cache; a transient fallback therefore cannot leak into later requests.
 Supported cities resolve directly from the curated route database without a
 public Nominatim round trip. Common known-template requests also bypass LLM
-intent/planning calls; remote reasoning is reserved for ambiguous or free-form
-requests.
+intent/planning calls. Locally parsed free-form drawings also use deterministic
+planning and spend inference only on the vector scaffold. Successful custom
+geometry is kept in a bounded versioned cache; fallback output is never cached.
 
 ## Why a custom graph, not LangGraph?
 
@@ -120,9 +121,9 @@ explicit without coupling the current runtime to one.
 
 | Missing | Behaviour |
 |---------|-----------|
-| No LLM key | agents use rule-based fallbacks; an unsupported shape becomes an explicitly labelled fallback star |
+| No LLM key | an unsupported drawing becomes an explicitly labelled one-character vector fallback linked to the requested idea |
 | No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide with a strong obstacle warning; explicit acceptance is required before GPX download |
-| LLM returns malformed or invalid data | the agent rejects the payload and applies its bounded deterministic fallback |
+| LLM returns malformed or invalid data | executable geometry checks request one bounded repair, then use the explicit deterministic fallback |
 | Validation never reaches threshold | orchestrator returns the best iteration + a `below_threshold` flag |
 | Any automatic verification gate fails | selected-shape attempt remains selectable and editable; its measurements are explained and explicit acceptance enables GPX |
 | Geocoder rate-limited | city centre falls back to the configured default city |

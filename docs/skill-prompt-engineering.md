@@ -18,4 +18,5 @@ tags: [llm, json, discipline]
 - Distances are always in **kilometres**. Sports are `"run"` or `"bike"` only.
 - Coordinates are **[lat, lon]** in decimal degrees, or **[x, y]** in unit space
   — the prompt will say which. Never mix the two.
-- Keep responses small. Emit 40–120 points for a shape, never hundreds.
+- Keep responses small. Emit 24–72 meaningful control points for a shape;
+  smoothing and bounded guide-point sampling happen later.

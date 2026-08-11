@@ -58,9 +58,9 @@ browser projects execute serially.
 
 ### Browser tests and live services
 
-The default Playwright run contains 63 logical browser tests. Each test runs in
+The default Playwright run contains 66 logical browser tests. Each test runs in
 desktop Chromium and a Pixel 7-sized Chromium project, so a complete run reports
-126 executions.
+132 executions.
 
 These tests are deterministic functional UI tests, not live-service smoke tests.
 They intercept the HTTP boundary for route generation, editing, acceptance, and

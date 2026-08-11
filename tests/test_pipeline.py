@@ -11,6 +11,7 @@ import string
 import numpy as np
 import pytest
 
+from gps_art_wizzard.agents.shape_agent import _clear_custom_shape_cache
 from gps_art_wizzard.orchestrator import generate
 from gps_art_wizzard.tools import geo, shape_library, shape_similarity, text_shapes
 
@@ -45,10 +46,13 @@ def test_pipeline_text_shape():
     assert any("explicit user acceptance" in error for error in state.errors)
 
 
-def test_unknown_shape_is_not_mislabelled_as_the_requested_drawing():
+def test_unknown_shape_uses_an_explicit_idea_linked_offline_fallback():
+    _clear_custom_shape_cache()
     state = generate("a platypus in Budapest, 8 km")
+    assert state.intent is not None
+    assert state.intent.shape == "platypus"
     assert state.shape is not None
-    assert state.shape.name == "star"
+    assert state.shape.name == "P label"
     assert state.shape.source == "fallback"
     assert any("fallback" in error for error in state.errors)
 

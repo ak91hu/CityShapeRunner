@@ -144,7 +144,10 @@ and corrections clear the message without erasing the user's input.
 The free-text idea is deliberately not restricted to ASCII or a narrow English
 pattern. It is Unicode-normalised, whitespace is collapsed, invisible control
 characters are rejected, and a letter or number is required while accented and
-non-Latin text remains valid. The structured suggestion form can be stricter:
+non-Latin text remains valid. Its copy explicitly welcomes drawings outside the
+catalog, while generated results identify that their outline was made from the
+description and ask the user to compare it with the street route. The structured
+suggestion form can be stricter:
 city and activity use allowlists, while distance must be a whole number within
 the activity-specific range. A running-to-cycling switch that raises the
 minimum distance announces that change instead of silently replacing the

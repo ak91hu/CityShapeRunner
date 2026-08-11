@@ -35,6 +35,15 @@ Nominatim is restricted to inhabited-place results and its administrative bbox
 is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
+Free-form drawings are not limited to the 86-option catalog either. A named
+custom idea is preserved locally, converted to bounded vector control geometry
+with one normal model call, checked for degenerate proportions and
+self-intersections, and repaired at most once before it reaches placement. Only
+successful generated shapes enter the 128-entry cache. If no model is available,
+the result uses an explicit idea-linked letter fallback instead of relabelling a
+stock icon as the requested object. See the
+[custom-shape research and decision record](docs/custom-shape-generation.md).
+
 Route search is coarse-to-fine. Before spending Directions requests, one
 batched road-snap preflight compares up to 180 city-wide
 translation/rotation/scale placements. A quality-and-diversity selector sends
@@ -147,7 +156,10 @@ The new complex templates are single continuous silhouettes wherever possible,
 preserve recognisable high-curvature landmarks, and use longer cycling starts
 when their detail needs more road-network resolution. They are starting points,
 not guarantees: the result still depends on local connectivity, access rules,
-and route-provider coverage.
+and route-provider coverage. Cat, dog, bird, and bat now have separate
+route-readable outlines and distinct catalog markers. A rotation-, scale-,
+start-, and direction-independent audit checks every pair in the 73-template
+registry; see the [shape-template research and uniqueness guard](docs/shape-template-uniqueness.md).
 
 The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
 settlements](https://www.ksh.hu/stadat_files/fol/en/fol0014.html). Each resolves locally without a public-geocoder call and has a

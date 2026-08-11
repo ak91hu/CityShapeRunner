@@ -126,3 +126,34 @@ test("suggested generations explain which shape the planner selected", async ({ 
   await expect(notice).toContainText("Diamond");
   await expect(notice).toContainText("aligns with the ordered street bearings");
 });
+
+test("a generated custom drawing is clearly explained", async ({ page }) => {
+  const result = buildRouteResult({
+    prompt: "a platypus in Debrecen, cycling, 20 km",
+    intent: {
+      shape: "platypus",
+      text: null,
+      city: "Debrecen",
+      sport: "bike",
+      distance_km: 20,
+      style: null,
+    },
+    shape: { name: "platypus", closed: true, source: "llm", n_paths: 1 },
+    requested_shape: "platypus",
+  });
+  result.candidates = result.candidates.map((candidate) => ({
+    ...candidate,
+    shape_name: "platypus",
+    shape_source: "llm",
+  }));
+  result.candidate_summary = {
+    ...result.candidate_summary,
+    selected_shape: "platypus",
+  };
+
+  await openGeneratedRoute(page, result);
+
+  const notice = page.locator(".notice--info").filter({ hasText: "Made from your idea" });
+  await expect(notice).toContainText("created for your description");
+  await expect(notice).toContainText("Compare the dashed drawing");
+});

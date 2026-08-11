@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from shapely.geometry import LineString
 
 from gps_art_wizzard.agents.export_agent import ExportAgent
 from gps_art_wizzard.agents.intent_agent import IntentAgent
@@ -16,7 +17,11 @@ from gps_art_wizzard.agents.placement_agent import PlacementAgent
 from gps_art_wizzard.agents.planning_agent import PlanningAgent
 from gps_art_wizzard.agents.preflight_agent import PreflightAgent
 from gps_art_wizzard.agents.refinement_agent import RefinementAgent
-from gps_art_wizzard.agents.shape_agent import ShapeAgent, _validated_paths
+from gps_art_wizzard.agents.shape_agent import (
+    ShapeAgent,
+    _clear_custom_shape_cache,
+    _validated_paths,
+)
 from gps_art_wizzard.agents.validation_agent import ValidationAgent
 from gps_art_wizzard.api.routes import (
     EditedRouteRequest,
@@ -25,6 +30,7 @@ from gps_art_wizzard.api.routes import (
     edit_route,
 )
 from gps_art_wizzard.config import RoutingConfig
+from gps_art_wizzard.llm import LLMResponse
 from gps_art_wizzard.llm import factory as llm_factory
 from gps_art_wizzard.orchestrator import Orchestrator
 from gps_art_wizzard.quality import quality_gate_report
@@ -46,6 +52,7 @@ from gps_art_wizzard.tools import (
     shape_library,
     shape_recommender,
     shape_similarity,
+    shape_uniqueness,
 )
 
 EXTENDED_SHAPE_NAMES = frozenset(
@@ -114,6 +121,45 @@ def test_common_template_intent_skips_remote_llm(monkeypatch):
     assert state.intent.shape == "heart"
     assert state.intent.city == "Tatabánya"
     assert state.intent.distance_km == 8.0
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("draw a platypus in Budapest, 8 km", "platypus"),
+        ("create a robot riding a bicycle in Berlin for 18 km", "robot riding a bicycle"),
+        ("flying pig, Debrecen, running, 10 km", "flying pig"),
+        ("trace 'octopus wearing a crown' near Győr, 12 km", "octopus wearing a crown"),
+    ],
+)
+def test_intent_fallback_preserves_named_custom_drawings(prompt, expected):
+    agent = IntentAgent()
+    intent = agent._parse(agent._fallback(prompt).text)
+
+    assert intent.shape == expected
+    assert intent.suggest is False
+
+
+def test_custom_shape_intent_skips_redundant_intent_model_call(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a locally parsed custom request must skip intent inference")
+
+    monkeypatch.setattr("gps_art_wizzard.agents.intent_agent.try_complete", fail_if_called)
+    state = WorkflowState(prompt="draw a platypus in Budapest, 8 km")
+
+    IntentAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == "platypus"
+
+
+@pytest.mark.parametrize("prompt", ["draw a pickaxe in Eger", "draw an idea bulb in Pécs"])
+def test_named_custom_objects_are_not_misread_as_suggestion_requests(prompt):
+    agent = IntentAgent()
+    intent = agent._parse(agent._fallback(prompt).text)
+
+    assert intent.suggest is False
+    assert intent.shape is not None
 
 
 def test_intent_rejects_non_finite_distance_and_bounds_large_requests():
@@ -717,7 +763,7 @@ def test_tree_is_a_single_closed_route_without_transfer_stroke():
     assert paths[0][0] == paths[0][-1]
 
 
-@pytest.mark.parametrize("shape_name", ["cat", "dog"])
+@pytest.mark.parametrize("shape_name", ["bat", "bird", "cat", "dog"])
 def test_animal_templates_are_single_closed_street_routable_silhouettes(shape_name):
     generated = shape_library.get_shape(shape_name)
 
@@ -727,7 +773,52 @@ def test_animal_templates_are_single_closed_street_routable_silhouettes(shape_na
     assert closed is True
     assert len(paths) == 1
     assert paths[0][0] == paths[0][-1]
-    assert 12 <= len(paths[0]) <= 80
+    assert 50 <= len(paths[0]) <= 80
+    assert LineString(paths[0]).is_simple
+
+
+def test_featured_animal_silhouettes_are_geometrically_distinct():
+    animal_names = ("cat", "dog", "bird", "bat")
+
+    distances = {
+        (first, second): shape_uniqueness.template_distance(first, second)
+        for index, first in enumerate(animal_names)
+        for second in animal_names[index + 1 :]
+    }
+
+    assert min(distances.values()) > 0.20, distances
+
+
+def test_shape_uniqueness_distance_ignores_safe_placement_and_traversal_changes():
+    original = [[
+        (-0.8, -0.5), (0.7, -0.4), (0.9, 0.2),
+        (0.2, 0.9), (-0.6, 0.6), (-0.8, -0.5),
+    ]]
+    angle = math.radians(37.0)
+    transformed_core = [
+        (
+            3.4 * (x * math.cos(angle) - y * math.sin(angle)) + 12.0,
+            3.4 * (x * math.sin(angle) + y * math.cos(angle)) - 7.0,
+        )
+        for x, y in original[0][:-1]
+    ]
+    shifted = transformed_core[2:] + transformed_core[:2]
+    reversed_shifted = list(reversed(shifted))
+    transformed = [[*reversed_shifted, reversed_shifted[0]]]
+
+    assert (
+        shape_uniqueness.contour_distance(original, transformed)
+        < shape_uniqueness.DUPLICATE_DISTANCE_THRESHOLD
+    )
+
+
+def test_registered_shape_targets_do_not_duplicate_each_other():
+    distances = shape_uniqueness.catalog_pair_distances()
+
+    assert len(distances) == math.comb(len(shape_library.SHAPES), 2)
+    assert shape_uniqueness.find_catalog_duplicates() == []
+    # These were formerly the exact same square under a 45-degree rotation.
+    assert shape_uniqueness.template_distance("diamond", "square") > 0.10
 
 
 def test_dog_keyword_uses_template_instead_of_llm_fallback(monkeypatch):
@@ -1946,6 +2037,26 @@ def test_template_keyword_alias_skips_llm_planning(monkeypatch):
     assert state.plan.lat_offset_m == 1_500.0
 
 
+def test_custom_shape_planning_is_local_and_commits_free_draw_strategy(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("custom placement planning must not spend a model call")
+
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.planning_agent.try_complete",
+        fail_if_called,
+    )
+    state = WorkflowState(
+        prompt="a platypus in Budapest, 8 km",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+    )
+
+    PlanningAgent().run(state)
+
+    assert state.plan is not None
+    assert state.plan.shape_strategy == "llm"
+    assert state.plan.difficulty == "hard"
+
+
 def test_llm_shape_validation_drops_bad_points_and_bounds_payload():
     paths = _validated_paths(
         [
@@ -1956,6 +2067,135 @@ def test_llm_shape_validation_drops_bad_points_and_bounds_payload():
     assert paths == [[(0.0, 0.0), (1.0, 1.0)]]
     with pytest.raises(ValueError, match="no drawable"):
         _validated_paths([[[0, 0]], [["bad", 1]]])
+
+
+def test_custom_shape_generation_keeps_requested_name_and_closes_outline(monkeypatch):
+    _clear_custom_shape_cache()
+    response = LLMResponse(
+        text=json.dumps(
+            {
+                "name": "generic animal",
+                "paths": [
+                    [[0, 0], [1, 0], [1.2, 0.5], [0.7, 1], [0, 1], [-0.2, 0.5]]
+                ],
+                "closed": True,
+            }
+        ),
+        provider="test-provider",
+    )
+    monkeypatch.setattr(
+        "gps_art_wizzard.agents.shape_agent.try_complete",
+        lambda *_args, **_kwargs: response,
+    )
+    state = WorkflowState(
+        prompt="draw a platypus in Budapest",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    assert state.shape is not None
+    assert state.shape.name == "platypus"
+    assert state.shape.source == "llm"
+    assert state.shape.closed is True
+    assert state.shape.paths[0][0] == state.shape.paths[0][-1]
+    assert LineString(state.shape.paths[0]).is_simple
+
+
+def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
+    _clear_custom_shape_cache()
+    responses = iter(
+        [
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "bow tie",
+                        "paths": [
+                            [[0, 0], [1, 1], [0, 1], [1, 0], [0.5, -0.2], [0, 0]]
+                        ],
+                        "closed": True,
+                    }
+                ),
+                provider="test-provider",
+            ),
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "platypus",
+                        "paths": [
+                            [[0, 0], [1, 0], [1.1, 0.4], [0.8, 1], [0, 1], [-0.2, 0.4], [0, 0]]
+                        ],
+                        "closed": True,
+                    }
+                ),
+                provider="test-provider",
+            ),
+        ]
+    )
+    calls = 0
+
+    def complete(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return next(responses)
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(
+        prompt="draw a platypus in Budapest",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    assert calls == 2
+    assert state.shape is not None
+    assert state.shape.name == "platypus"
+    assert state.shape.source == "llm"
+
+
+def test_successful_custom_geometry_is_cached_without_sharing_mutable_paths(monkeypatch):
+    _clear_custom_shape_cache()
+    calls = 0
+    response = LLMResponse(
+        text=json.dumps(
+            {
+                "name": "platypus",
+                "paths": [
+                    [[0, 0], [1, 0], [1.1, 0.4], [0.8, 1], [0, 1], [-0.2, 0.4], [0, 0]]
+                ],
+                "closed": True,
+            }
+        ),
+        provider="test-provider",
+    )
+
+    def complete(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return response
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+
+    def custom_state() -> WorkflowState:
+        return WorkflowState(
+            prompt="draw a platypus in Budapest",
+            intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+            plan=Plan(shape_strategy="llm"),
+        )
+
+    first = custom_state()
+    ShapeAgent().run(first)
+    assert first.shape is not None
+    first.shape.paths[0][0] = (99.0, 99.0)
+
+    second = custom_state()
+    ShapeAgent().run(second)
+
+    assert calls == 1
+    assert second.shape is not None
+    assert second.shape.paths[0][0] != (99.0, 99.0)
 
 
 def test_preview_sampler_never_exceeds_limit_and_keeps_endpoints():

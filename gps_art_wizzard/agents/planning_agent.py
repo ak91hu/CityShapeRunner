@@ -55,16 +55,11 @@ class PlanningAgent(BaseAgent):
             suggest="true" if state.intent.suggest else "false",
         )
         fallback = self._fallback(state, extent_heading, map_context)
-        known_template = bool(
-            state.intent.shape
-            and (
-                shape_library.get_shape(state.intent.shape)
-                or shape_library.find_by_keyword(state.intent.shape)
-            )
-        )
-        if known_template or state.intent.text or state.intent.suggest:
-            # Geometry for known templates is numeric and should be stable.
-            # Reserve the LLM planner for unsupported/free-form shapes.
+        if state.intent.shape or state.intent.text or state.intent.suggest:
+            # The curated city context already provides deterministic rotation
+            # and placement priors.  A named custom drawing only needs the
+            # ShapeAgent's geometry call; spending another model call on the
+            # same request adds latency without measuring any street data.
             resp = fallback
         else:
             resp = try_complete(

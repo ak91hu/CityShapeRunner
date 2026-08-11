@@ -1,0 +1,171 @@
+# Custom free-text shape generation
+
+## Goal
+
+The catalog is a fast path, not a boundary. A request such as “an octopus
+wearing a crown in Budapest, running, 12 km” must retain the complete drawing
+idea, create a route-oriented outline when a model provider is available, and
+explain any fallback honestly when it is not.
+
+“Supported” does not mean that every noun can be converted into a recognisable
+street route. It means that the request is preserved, generation is bounded and
+validated, malformed geometry cannot enter routing, and the user can compare
+the intended line with the routed result before exporting it.
+
+## Research findings
+
+Several adjacent research areas point to the same engineering pattern:
+
+1. [Sketch-RNN](https://arxiv.org/abs/1704.03477) represents recognisable
+   drawings as compact stroke sequences. This supports using ordered vector
+   points rather than asking for a raster image and tracing its pixels.
+2. [DeepSVG](https://papers.nips.cc/paper/2020/hash/bcf9d6bd14a2095866ce8c950b702341-Abstract.html)
+   separates high-level shapes from low-level drawing commands. The application
+   follows the same boundary: intent parsing owns the semantic request, while
+   ShapeAgent owns only route geometry.
+3. [IconShop](https://arxiv.org/abs/2304.14400) reports that a uniquely
+   decodable vector token sequence is central to reliable text-guided icon
+   synthesis. A strict JSON point-list schema is less expressive than full SVG,
+   but it is deterministic to parse, easy to bound, and maps directly to this
+   route engine.
+4. [Chat2SVG](https://openaccess.thecvf.com/content/CVPR2025/papers/Wu_Chat2SVG_Vector_Graphics_Generation_with_Large_Language_Models_and_Image_CVPR_2025_paper.pdf)
+   uses an LLM for a semantic vector scaffold and separate optimisation for
+   geometric quality. This argues against trusting one raw model response as a
+   finished route. GPS Art Wizard substitutes executable topology checks, a
+   bounded repair request, and road-network optimisation for the paper's image
+   diffusion stages.
+5. [Waschk and Krüger](https://doi.org/10.1007/s41095-019-0146-z) show that
+   ordinary waypoint routing can seriously deform GPS art, while
+   [Powałka](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad)
+   combines transform search, several route candidates, evaluation, and
+   interactive correction. Therefore a valid generated silhouette is only the
+   start of the process; placement and routed measurements remain authoritative.
+6. Cartographic simplification research explicitly checks topology because
+   simplification can introduce boundary crossings. The
+   [USGS summary of Kronenfeld et al.](https://pubs.usgs.gov/publication/70210904)
+   records self-intersection as an evaluated failure mode and topology checks as
+   its mitigation. The custom-shape smoother therefore cannot silently replace
+   a simple control polygon with a crossed curve.
+
+The practical conclusion is a staged pipeline with cheap deterministic checks
+around one normal generative call, rather than a chain of unconstrained model
+calls.
+
+## Implemented decision pipeline
+
+### 1. Preserve the request locally
+
+IntentAgent removes city, activity, and distance clauses but keeps semantic
+modifiers such as “flying”, “wearing a crown”, or “riding a bicycle”. A catalog
+keyword is used only when it describes the whole candidate. This prevents a
+composite request containing “crown” from collapsing to the built-in crown
+template.
+
+Suggestion detection uses word-bounded task phrases. Object names such as
+“pickaxe” and “idea bulb” no longer trigger suggestion mode by substring.
+
+### 2. Spend inference only on geometry
+
+Known templates and text remain fully local. A locally parsed custom request
+also uses deterministic city planning because curated placement context already
+provides the rotation, offset, and difficulty prior. The usual custom request
+therefore needs one model call—the shape scaffold—not separate intent, planning,
+and shape calls.
+
+### 3. Treat the description as untrusted data
+
+The shape and style values are JSON-encoded before prompt interpolation. The
+prompt states that embedded instructions are data and narrows output to one JSON
+schema. The server never executes generated SVG, XML, Python, or JavaScript.
+
+### 4. Generate route-oriented control geometry
+
+The model is asked for 24–72 meaningful control points, normally as one closed
+outer silhouette. It is told to omit eyes, shading, texture, and other details
+that would require disconnected transfer lines. Curves are densified locally;
+the model does not spend tokens on hundreds of nearly identical samples.
+
+### 5. Run executable geometry checks
+
+Before placement, the parser enforces:
+
+- JSON list structure and finite numeric coordinate pairs;
+- at most eight strokes, 240 points per stroke, and 800 points in total;
+- exact closure when the response declares a closed drawing;
+- at least six control points for generated geometry;
+- non-degenerate width and height;
+- a maximum 4:1 defensive aspect-ratio boundary;
+- coordinates in the documented `[-10, 10]` range; and
+- no self-intersection in any substantial stroke.
+
+The prompt targets the stricter 2:1 design preference. The 4:1 executable limit
+allows naturally tall or wide subjects while still rejecting geometry that is
+not a useful city-scale scaffold.
+
+### 6. Repair once, then stop
+
+If a real provider returns malformed, collapsed, extremely stretched, or
+self-crossing geometry, ShapeAgent sends one low-temperature repair request
+containing the validation reason. A fixed single retry prevents accidental
+latency and cost loops. If the repair also fails, deterministic fallback takes
+over.
+
+### 7. Smooth without changing topology
+
+Custom control paths use a bounded Catmull–Rom interpolation. The smoothed path
+is accepted only if it remains simple; otherwise the original control polygon
+is retained. Later guide-point selection preserves important curvature while
+respecting the routing provider's waypoint budget.
+
+### 8. Cache only successful custom drawings
+
+A 128-entry process-local least-recently-used cache keys successful generated
+geometry by a SHA-256 digest of the normalized request and style plus a schema
+version. The raw custom wording is not retained in the cache key or value.
+Callers receive fresh path lists so one route cannot mutate another. Provider
+failures and deterministic fallbacks are never cached, so a short outage cannot
+poison later requests.
+
+### 9. Degrade honestly
+
+Without a working model provider, the app creates a one-character vector label
+derived from the idea—for example `P label` for “platypus”—and marks its source
+as `fallback`. It does not rename a star as a platypus. The result screen and
+fit decision retain the requested drawing name and explain the substitution.
+
+### 10. Keep road evidence authoritative
+
+Generated geometry enters the same placement preflight, activity-specific
+Directions routing, independent recognition gates, editor, and explicit-review
+flow as catalog shapes. A model-created outline receives no automatic quality
+credit merely because its JSON was valid.
+
+## Alternatives considered
+
+| Option | Strength | Why it is not the default now |
+|---|---|---|
+| Text-to-raster image, then vector tracing | Can use strong image generators and visual conditioning | Adds another provider, raster artefacts, tracing ambiguity, more latency, and far too many vertices for street routing. |
+| Full SVG generation | Bézier paths are compact and expressive | Safely parsing every SVG feature is a much larger attack and compatibility surface; most SVG semantics are irrelevant to a one-line route. |
+| Three generated candidates on every request | Better chance of one strong silhouette | Triples output size or inference work before any street evidence exists. One candidate plus a repair-on-failure gives a better default cost profile. |
+| Always substitute the nearest catalog shape | Fast and deterministic | Violates the named request and fails precisely where custom support matters. It remains only an explicitly disclosed last-resort route option. |
+| Ask the model to judge its own drawing | Cheap semantic opinion | It is not independent evidence. Executable geometry checks and routed measurements are more reliable for the properties this application can verify. |
+
+## Remaining limitations and next experiments
+
+Geometry validation cannot prove that a silhouette looks like the requested
+object. The next meaningful quality step is an offline labelled evaluation set:
+common objects, composite objects, abstract symbols, multilingual descriptions,
+prompt-injection attempts, and deliberately impossible route ideas. Human raters
+should score the intended outline before routing and the final line after
+routing separately.
+
+If that evaluation shows semantic generation is the main bottleneck, test a
+vision-language verifier on rendered outline thumbnails or request several
+scaffolds in one structured response and route only the best geometry-diverse
+candidate. Neither should be described as a recognisability guarantee without
+labelled human agreement data.
+
+User-supplied sketches or images are a separate feature. They require file
+validation, foreground extraction, vectorisation, topology repair, and explicit
+privacy handling; they should not be silently treated as the same problem as a
+text-only custom shape.

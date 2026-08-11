@@ -8,6 +8,14 @@ and closure checks rank first and download immediately. Other candidates require
 explicit review and acceptance. Attempts for a different suggested shape remain
 available in the audit summary.
 
+The free-text field is not limited to the catalog. Named custom drawings keep
+their full description, use a bounded model-generated vector scaffold when a
+provider is available, and pass executable topology checks before routing. A
+failed or unavailable generator produces an explicitly labelled, idea-linked
+fallback instead of pretending that a stock icon is the requested object. See
+[Custom free-text shape generation](custom-shape-generation.md) for the research,
+decision pipeline, security boundaries, and remaining limitations.
+
 For a city-based suggestion, enter:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
 context to choose a template, placement, and orientation likely to fit the
@@ -47,7 +55,9 @@ The selected city and distance in each preset are conservative starting points.
 Complex templates use one continuous silhouette wherever possible, retain
 their most informative corners and notches, and start at longer distances when
 their detail needs more streets. Multi-character text uses a longer cycling
-preset.
+preset. The cat, dog, bird, and bat have separate route-readable silhouettes;
+an invariant full-catalog audit prevents two canonical names from encoding the
+same route target. See [Recognisable and unique GPS-art templates](shape-template-uniqueness.md).
 
 The structured city picker covers the 50 largest Hungarian settlements in the
 [KSH 2025 population table](https://www.ksh.hu/stadat_files/fol/en/fol0014.html).
@@ -137,9 +147,9 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
   discarded),
 - a **provider fallback loop** (tries the configured provider order after an
   LLM error),
-- a **shape fallback** (template → text → LLM-drawn, order set by the plan);
-  if an unknown shape still cannot be drawn, the result is explicitly labelled
-  as a fallback star and an error is recorded.
+- a **shape fallback** (template → text → validated model-drawn geometry, order
+  set by the plan); invalid generated geometry gets one bounded repair attempt,
+  then an idea-linked letter fallback is explicitly labelled and recorded.
 
 The result screen includes a candidate selector and a Leaflet route editor.
 The selector ranks routes that pass every automatic check ahead of review

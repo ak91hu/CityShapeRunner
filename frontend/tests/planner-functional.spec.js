@@ -41,7 +41,7 @@ test("the route idea exposes its help and character count to assistive technolog
 
   const prompt = page.getByLabel("Drawing and location");
   await expect(prompt).toHaveAttribute("aria-describedby", "prompt-help prompt-count");
-  await expect(page.locator("#prompt-help")).toContainText("Example: heart, Budapest");
+  await expect(page.locator("#prompt-help")).toContainText("a flying pig in Budapest");
   await expect(page.locator("#prompt-count")).toHaveText("35/320");
   await expect(prompt).toBeFocused();
 });
@@ -92,8 +92,22 @@ test("the expanded catalogue filters by name and selects a detailed shape", asyn
   );
 
   await filter.fill("not-a-shape");
-  await expect(page.getByText("No matching options.")).toBeVisible();
+  await expect(page.getByText("Nothing in the catalog")).toBeVisible();
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(0);
+});
+
+test("a custom free-text drawing is submitted without catalog selection", async ({ page }) => {
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+
+  await page.getByLabel("Drawing and location").fill(
+    "an octopus wearing a crown in Budapest, running, 12 km",
+  );
+  await page.getByRole("button", { name: "Find routes" }).click();
+
+  await expect.poll(() => capture.lastPayload()).toEqual({
+    prompt: "an octopus wearing a crown in Budapest, running, 12 km",
+  });
 });
 
 test("mouse submission of an empty idea shows a persistent focused error", async ({ page }) => {
@@ -216,9 +230,7 @@ test("the Europe city group submits an accented European destination", async ({ 
 
   const city = page.getByLabel("City");
   await expect(city.locator('optgroup[label="Europe"] option')).toHaveCount(30);
-  await expect(page.locator("#suggest-city-help")).toHaveText(
-    "All 45 Lake Balaton shore municipalities are covered; Siófok is listed under Hungary.",
-  );
+  await expect(page.locator("#suggest-city-help")).toHaveCount(0);
   await city.selectOption("Kraków");
   await page.getByRole("radio", { name: "Running" }).check();
   await page.getByLabel("Distance").fill("14");

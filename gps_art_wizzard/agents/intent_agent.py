@@ -37,6 +37,31 @@ _UNLISTED_CITY_PATTERN = re.compile(
     flags=re.IGNORECASE | re.VERBOSE,
 )
 
+_CUSTOM_REQUEST_PREFIX = re.compile(
+    r"""^\s*(?:
+        (?:please\s+)?(?:draw|trace|make|create|sketch|plan|run|jog|cycle|ride)
+            \s+(?:me\s+)?(?:(?:a|an|the)\s+)?
+        |(?:a|an|the)\s+
+        )
+    """,
+    flags=re.IGNORECASE | re.VERBOSE,
+)
+
+_SUGGESTION_PATTERNS = (
+    re.compile(r"\b(?:suggest|recommend|surprise|inspire)\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+should\s+(?:i|we)\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:pick|choose)\s+(?:(?:a|an|the|my|our)\s+)?"
+        r"(?:shape|drawing|route|idea)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:give|show)\s+me\s+(?:an?|some)\s+(?:idea|inspiration)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bany\s+(?:shape|drawing|route|idea)\b", re.IGNORECASE),
+)
+
 
 class IntentAgent(BaseAgent):
     name = "intent"
@@ -122,10 +147,7 @@ class IntentAgent(BaseAgent):
             city = _extract_unlisted_city(text)
 
         # Detect suggestion requests.
-        suggest = any(w in low for w in (
-            "suggest", "surprise", "recommend", "what should", "pick", "choose",
-            "idea", "inspire", "any ",
-        ))
+        suggest = _is_suggestion_request(text)
 
         text_match = re.search(
             r"""\b(?:write|spell)\s+(?:the\s+(?:word|text)\s+)?["']?
@@ -153,11 +175,19 @@ class IntentAgent(BaseAgent):
         shape = None
         if not suggest:
             from ..tools import shape_library
+
+            custom_shape = _extract_custom_shape(text, city=city)
             hit = shape_library.find_by_keyword(low)
-            if hit:
+            if hit and _template_match_covers_candidate(custom_shape, hit[0]):
                 shape = hit[0]
             elif drawn_text:
                 shape = "text"
+            else:
+                # Preserve a named, unsupported drawing instead of dropping it
+                # and forcing ShapeAgent to guess.  This also lets common custom
+                # requests skip a redundant intent-model call: only the actual
+                # vector drawing needs generative inference.
+                shape = custom_shape or (hit[0] if hit else None)
         payload = {
             "shape": shape, "text": drawn_text, "city": city,
             "sport": sport, "distance_km": dist, "style": None, "suggest": suggest,
@@ -192,6 +222,140 @@ def _extract_unlisted_city(text: str) -> str | None:
     ):
         return None
     return candidate[:100]
+
+
+def _is_suggestion_request(text: str) -> bool:
+    """Detect an open-ended recommendation without matching named objects.
+
+    The earlier substring checks treated words such as ``pickaxe`` and phrases
+    such as ``idea bulb`` as requests to choose a shape.  Word-bounded,
+    task-specific patterns keep those valid custom drawings intact.
+    """
+
+    return any(pattern.search(text) for pattern in _SUGGESTION_PATTERNS)
+
+
+def _extract_custom_shape(text: str, *, city: str | None) -> str | None:
+    """Recover a concise free-form drawing description from a route prompt.
+
+    This parser is intentionally conservative.  It removes route metadata but
+    keeps semantic modifiers such as ``flying`` or ``wearing a hat`` so the
+    ShapeAgent has enough information to produce a distinctive silhouette.
+    """
+
+    candidate = " ".join(text.split()).strip(" \t\r\n\"'")
+    candidate = re.sub(
+        r"\b(?:about\s+)?\d+(?:[.,]\d+)?\s*(?:km|kilomet(?:re|er)s?)\b",
+        " ",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+
+    if city:
+        city_clause = re.compile(
+            rf"\s+\b(?:in|near|around)\s+"
+            rf"(?:(?:the\s+)?(?:city|town|village)\s+of\s+)?{re.escape(city)}\b",
+            flags=re.IGNORECASE,
+        )
+        match = city_clause.search(candidate)
+        if match:
+            candidate = candidate[: match.start()]
+
+    # Comma-separated prompts conventionally put the drawing first.  Activity
+    # and distance clauses that remain after city removal are not shape data.
+    candidate = candidate.split(",", maxsplit=1)[0]
+    candidate = re.sub(
+        r"\s+\b(?:for|while|during|as)\s+(?:a\s+)?"
+        r"(?:run|jog|ride|bike|bicycle|cycling|runner|cyclist)\b.*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\s+\b(?:run|running|jog|jogging|bike|biking|cycle|cycling)\s+route\s*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\s+\b(?:run|running|jog|jogging|biking|cycling)\s*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = _CUSTOM_REQUEST_PREFIX.sub("", candidate, count=1)
+    candidate = candidate.strip(" \t\r\n\"'.,;:!?-")
+    candidate = " ".join(candidate.split())
+
+    generic = {
+        "art",
+        "drawing",
+        "gps art",
+        "route",
+        "shape",
+        "something",
+        "something cool",
+        "custom drawing",
+        "custom route",
+    }
+    if (
+        not candidate
+        or candidate.casefold() in generic
+        or len(candidate.split()) > 12
+        or not any(character.isalnum() for character in candidate)
+    ):
+        return None
+    return candidate[:80]
+
+
+def _template_match_covers_candidate(candidate: str | None, canonical_name: str) -> bool:
+    """Whether a keyword match describes the whole request, not one prop.
+
+    ``big heart`` should keep the deterministic heart template, while
+    ``octopus wearing a crown`` is a new composite drawing even though crown is
+    in the catalog.
+    """
+
+    if not candidate:
+        return True
+
+    from ..tools import shape_library
+
+    allowed_modifiers = {
+        "art",
+        "big",
+        "bold",
+        "compact",
+        "detailed",
+        "drawing",
+        "large",
+        "minimal",
+        "minimalist",
+        "outline",
+        "shape",
+        "simple",
+        "small",
+        "stylized",
+        "stylised",
+    }
+    low = candidate.casefold()
+    matching_keywords = [
+        keyword
+        for keyword, name in shape_library.KEYWORDS.items()
+        if name == canonical_name
+        and re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
+    ]
+    if not matching_keywords:
+        return False
+    keyword = max(matching_keywords, key=len)
+    residual = re.sub(
+        rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)",
+        " ",
+        low,
+        count=1,
+    )
+    residual_words = set(re.findall(r"[\w'-]+", residual, flags=re.UNICODE))
+    return residual_words <= allowed_modifiers
 
 
 def _parse_bool(value: object) -> bool:

@@ -102,6 +102,24 @@ const QUICK_IDEAS = [
 
 const IDEA_CATEGORIES = ["Simple shapes", "Nature", "Animals", "Objects", "Symbols", "Letters, numbers & text"];
 const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
+const DISTINCT_IDEA_GLYPHS = Object.freeze({
+  Bat: "🦇",
+  Bear: "🐻",
+  Bird: "🐦",
+  Cat: "🐈",
+  Dog: "🐕",
+  Dragon: "🐉",
+  Duck: "🦆",
+  Owl: "🦉",
+  Penguin: "🐧",
+  Rabbit: "🐇",
+  Turtle: "🐢",
+  Whale: "🐋",
+});
+
+function ideaGlyph(idea) {
+  return DISTINCT_IDEA_GLYPHS[idea.label] ?? idea.glyph;
+}
 
 const HUNGARIAN_CITIES = [
   "Budapest",
@@ -752,6 +770,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const exportBlockedByPendingEdits = editing && editDirty;
   const qualityTone = score == null ? "neutral" : automaticChecksPassed ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
+  const shapeSource = activeRoute.shape_source ?? result.shape?.source;
   const fitDecision = result.fit_decision;
   const requestedShape = normaliseLabel(
     fitDecision?.requested_shape ?? result.requested_shape ?? result.shape?.name,
@@ -1161,6 +1180,16 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
               <strong>Suggested shape</strong>
               <p>{normaliseLabel(result.suggested_shape)}</p>
               {result.suggestion_reason && <p>{result.suggestion_reason}</p>}
+            </div>
+          )}
+
+          {shapeSource === "llm" && !fitDecision?.substituted && (
+            <div className="notice notice--info">
+              <strong>Made from your idea</strong>
+              <p>
+                This outline was created for your description, then tested against nearby
+                streets. Compare the dashed drawing with the route before you head out.
+              </p>
             </div>
           )}
 
@@ -1702,8 +1731,8 @@ export default function App() {
           <div className="planner-intro">
             <h1 id="designer-title">Plan a GPS art route</h1>
             <p className="planner-intro-copy">
-              Enter a drawing, city, activity, and distance. The planner finds nearby street routes
-              and creates GPX and TCX files.
+              Bring an idea — a classic shape or something completely yours. Add a city, activity,
+              and distance, and we’ll test it against nearby streets.
             </p>
             <p className="planner-safety-note">
               Check access, crossings, traffic, surfaces, and current conditions before using a
@@ -1715,7 +1744,7 @@ export default function App() {
             <div className="card-heading">
               <div>
                 <h2>Route idea</h2>
-                <p>Describe a route or choose a shape.</p>
+                <p>Got a shape in mind? Describe it, even if it isn’t in the catalog.</p>
               </div>
             </div>
 
@@ -1751,7 +1780,7 @@ export default function App() {
                   }}
                   rows={3}
                   maxLength={PROMPT_LIMIT}
-                  placeholder="Heart, Budapest, running, 8 km"
+                  placeholder="A flying pig in Budapest, running, 10 km"
                   aria-describedby="prompt-help prompt-count"
                   aria-invalid={Boolean(promptError)}
                   aria-errormessage={promptError ? "prompt-error" : undefined}
@@ -1767,7 +1796,7 @@ export default function App() {
                 id="prompt-help"
                 className={`field-help${promptError ? " field-help--with-error" : ""}`}
               >
-                Example: heart, Budapest, running, 8 km.
+                Try: a flying pig in Budapest, running, 10 km. Custom ideas are welcome.
               </p>
               {promptError && (
                 <p id="prompt-error" className="field-error" role="alert">
@@ -1791,7 +1820,7 @@ export default function App() {
                       }}
                       disabled={loading}
                     >
-                      <span aria-hidden="true">{idea.glyph}</span>
+                      <span aria-hidden="true">{ideaGlyph(idea)}</span>
                       {idea.label}
                     </button>
                   ))}
@@ -1802,7 +1831,7 @@ export default function App() {
                 <summary>
                   <span>
                     <strong>More shapes, letters, and numbers</strong>
-                    <small>{QUICK_IDEAS.length} options. Detailed shapes work best on longer routes.</small>
+                    <small>{QUICK_IDEAS.length} ready-made options, or type your own idea above.</small>
                   </span>
                   <b aria-hidden="true">+</b>
                 </summary>
@@ -1839,7 +1868,7 @@ export default function App() {
                               }}
                               disabled={loading}
                             >
-                              <span aria-hidden="true">{idea.glyph}</span>
+                              <span aria-hidden="true">{ideaGlyph(idea)}</span>
                               {idea.label}
                             </button>
                           ))}
@@ -1849,7 +1878,7 @@ export default function App() {
                   })}
                   {filteredIdeas.length === 0 && (
                     <p className="idea-empty" role="status">
-                      No matching options. Try a broader name or category.
+                      Nothing in the catalog — no problem. Type your own idea above.
                     </p>
                   )}
                 </div>
@@ -1891,7 +1920,6 @@ export default function App() {
                       }}
                       aria-invalid={Boolean(suggestErrors.city)}
                       aria-errormessage={suggestErrors.city ? "suggest-city-error" : undefined}
-                      aria-describedby="suggest-city-help"
                       disabled={loading}
                       required
                     >
@@ -1905,9 +1933,6 @@ export default function App() {
                         </optgroup>
                       ))}
                     </select>
-                    <p id="suggest-city-help" className="field-help">
-                      All 45 Lake Balaton shore municipalities are covered; Siófok is listed under Hungary.
-                    </p>
                     {suggestErrors.city && (
                       <p id="suggest-city-error" className="field-error" role="alert">
                         <span aria-hidden="true">!</span>

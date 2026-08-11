@@ -98,8 +98,8 @@ unwanted transfer lines.
 | Moderate open/orthogonal | arrow, lightning | Useful on constrained or elongated street fabrics; lightning benefits from an ordered axis. |
 | Moderate continuous outline | bell, cat, crown, flower, fox, hourglass, location pin, mushroom, octagon, owl, pear, rocket, speech bubble, star, teardrop, whale | Main medium-distance pool. Ranking depends heavily on grid/radial order, terrain, barriers, and activity. |
 | Detailed orthogonal | cactus, castle, cross | Reserved for longer routes with ordered, connected streets. |
-| Detailed continuous outline | airplane, apple, bat, bear, butterfly, car, cloud, dog, duck, elephant, flame, guitar, house, maple leaf, mountain, penguin, pine tree, shark, snail, snowflake, tree, trophy, tulip, turtle, umbrella | Considered for long routes when city detail capacity is high; otherwise the overshoot penalty keeps them out of the expensive shortlist. |
-| Disconnected | anchor, bird, dolphin, dragon, fish, helix, horse, key, mug, note, rabbit, sailboat, skull, sun | Analysed but excluded from automatic top-three selection. Still usable as an explicit user choice with normal routing and review gates. |
+| Detailed continuous outline | airplane, apple, bat, bear, bird, butterfly, car, cloud, dog, duck, elephant, flame, guitar, house, maple leaf, mountain, penguin, pine tree, shark, snail, snowflake, tree, trophy, tulip, turtle, umbrella | Considered for long routes when city detail capacity is high; otherwise the overshoot penalty keeps them out of the expensive shortlist. |
+| Disconnected | anchor, dolphin, dragon, fish, helix, horse, key, mug, note, rabbit, sailboat, skull, sun | Analysed but excluded from automatic top-three selection. Still usable as an explicit user choice with normal routing and review gates. |
 
 ## Runtime decision sequence
 

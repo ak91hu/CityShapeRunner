@@ -319,7 +319,7 @@ export async function openGeneratedRoute(page, result = buildRouteResult()) {
   const capture = await mockGeneration(page, result);
   await page.goto("/");
   await page.getByRole("button", { name: "Find routes" }).click();
-  await expect(page.getByRole("heading", { name: /Star in Debrecen/i })).toBeVisible();
+  await expect(page.locator(".result")).toBeVisible();
   return capture;
 }
 

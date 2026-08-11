@@ -157,65 +157,47 @@ def square() -> ShapeGen:
 
 
 def cat() -> ShapeGen:
-    """Single-stroke cat-head silhouette with unmistakable pointed ears."""
-    vertices: Path = [
-        (0.0, -0.92),
-        (-0.38, -0.82),
-        (-0.68, -0.56),
-        (-0.82, -0.18),
-        (-0.78, 0.30),
-        (-0.92, 0.98),
-        (-0.34, 0.66),
-        (0.0, 0.72),
-        (0.34, 0.66),
-        (0.92, 0.98),
-        (0.78, 0.30),
-        (0.82, -0.18),
-        (0.68, -0.56),
-        (0.38, -0.82),
-        (0.0, -0.92),
-    ]
-    points: Path = []
-    for start, end in zip(vertices, vertices[1:], strict=False):
-        points.extend(_lerp(start, end, 3)[:-1])
-    points.append(vertices[-1])
-    return ("cat", [points], True)
+    """Sitting side-view cat with pointed ears, muzzle, paws, and curled tail."""
+    return _outline(
+        "cat",
+        [
+            (-0.28, -0.92), (-0.30, -0.28), (-0.52, -0.02),
+            (-0.72, 0.16), (-0.52, 0.24), (-0.54, 0.62),
+            (-0.44, 0.98), (-0.14, 0.72), (0.16, 0.94),
+            (0.20, 0.62), (0.46, 0.40), (0.62, 0.02),
+            (0.64, -0.32), (0.84, -0.18), (1.0, 0.10),
+            (0.92, -0.48), (0.66, -0.76), (0.30, -0.82),
+            (0.14, -0.52), (0.04, -0.92),
+        ],
+        3,
+    )
 
 
 def dog() -> ShapeGen:
-    """Single-stroke side-view dog with raised tail, muzzle, ear, and legs."""
-    vertices: Path = [
-        (-1.0, 0.58),
-        (-0.74, 0.16),
-        (-0.56, 0.34),
-        (0.20, 0.34),
-        (0.40, 0.62),
-        (0.58, 0.42),
-        (0.80, 0.36),
-        (1.0, 0.22),
-        (0.78, 0.10),
-        (0.54, 0.14),
-        (0.42, -0.18),
-        (0.48, -0.72),
-        (0.18, -0.72),
-        (0.08, -0.26),
-        (-0.30, -0.26),
-        (-0.38, -0.72),
-        (-0.68, -0.72),
-        (-0.62, -0.08),
-        (-0.80, 0.10),
-        (-1.0, 0.58),
-    ]
-    points: Path = []
-    for start, end in zip(vertices, vertices[1:], strict=False):
-        points.extend(_lerp(start, end, 3)[:-1])
-    points.append(vertices[-1])
-    return ("dog", [points], True)
+    """Standing side-view dog with a broad tail, floppy ear, muzzle, and legs."""
+    return _outline(
+        "dog",
+        [
+            (-1.0, 0.62), (-0.80, 0.24), (-0.48, 0.34),
+            (0.16, 0.34), (0.18, 0.72), (0.46, 0.40),
+            (0.40, 0.24), (0.58, 0.52), (0.76, 0.40),
+            (1.0, 0.30), (0.98, 0.10), (0.70, 0.04),
+            (0.58, -0.28), (0.62, -0.82), (0.36, -0.82),
+            (0.30, -0.34), (-0.28, -0.32), (-0.36, -0.82),
+            (-0.68, -0.82), (-0.64, -0.18), (-0.84, 0.12),
+        ],
+        3,
+    )
 
 
 def diamond() -> ShapeGen:
-    pts: Path = [(0.0, 1.0), (1.0, 0.0), (0.0, -1.0), (-1.0, 0.0), (0.0, 1.0)]
-    return ("diamond", [pts], True)
+    # A cut gemstone silhouette, rather than a square rotated by 45 degrees.
+    # The flat crown and tapered pavilion remain visible after road snapping.
+    points: Path = [
+        (-0.92, 0.30), (-0.48, 0.88), (0.48, 0.88),
+        (0.92, 0.30), (0.0, -0.96), (-0.92, 0.30),
+    ]
+    return ("diamond", [points], True)
 
 
 def moon() -> ShapeGen:
@@ -274,26 +256,19 @@ def tree() -> ShapeGen:
 
 
 def bird() -> ShapeGen:
-    # Flying bird silhouette: spread wings + body.
-    t = _samples(200)
-    body: Path = [(0.5 * math.cos(a), 0.15 * math.sin(a) + 0.02 * math.sin(2 * a)) for a in t]
-    # Left wing (spread up).
-    lw: Path = []
-    for i in range(51):
-        f = i / 50
-        x = 0.0 - 1.0 * f
-        y = 0.05 + 0.45 * math.sin(math.pi * f) * (1 - 0.3 * f)
-        lw.append((x, y))
-    # Right wing (spread up).
-    rw: Path = []
-    for i in range(51):
-        f = i / 50
-        x = 0.0 + 1.0 * f
-        y = 0.05 + 0.45 * math.sin(math.pi * f) * (1 - 0.3 * f)
-        rw.append((x, y))
-    # Tail.
-    tail: Path = _lerp((-0.5, 0.0), (-0.85, 0.2), 10) + _lerp((-0.85, 0.2), (-0.85, -0.15), 8) + _lerp((-0.85, -0.15), (-0.5, 0.0), 10)
-    return ("bird", [body, lw, rw, tail], False)
+    """Top-view flying bird with a beak, tapered wings, and forked tail."""
+    return _outline(
+        "bird",
+        [
+            (0.0, 1.0), (-0.12, 0.72), (-0.30, 0.56),
+            (-1.0, 0.34), (-0.62, 0.08), (-0.88, -0.08),
+            (-0.42, -0.06), (-0.26, -0.48), (-0.40, -0.88),
+            (0.0, -0.70), (0.40, -0.88), (0.26, -0.48),
+            (0.42, -0.06), (0.88, -0.08), (0.62, 0.08),
+            (1.0, 0.34), (0.30, 0.56), (0.12, 0.72),
+        ],
+        3,
+    )
 
 
 def anchor() -> ShapeGen:
@@ -954,17 +929,20 @@ def elephant() -> ShapeGen:
 
 
 def bat() -> ShapeGen:
+    """Front-view bat with pointed ears, a body/tail axis, and wing scallops."""
     return _outline(
         "bat",
         [
-            (0.0, -0.16), (-0.16, -0.44), (-0.30, -0.14), (-0.50, -0.42),
-            (-0.58, -0.06), (-0.84, -0.30), (-0.78, 0.16), (-1.0, 0.42),
-            (-0.52, 0.52), (-0.20, 0.34), (-0.12, 0.72), (0.0, 0.50),
-            (0.12, 0.72), (0.20, 0.34), (0.52, 0.52), (1.0, 0.42),
-            (0.78, 0.16), (0.84, -0.30), (0.58, -0.06), (0.50, -0.42),
-            (0.30, -0.14), (0.16, -0.44),
+            (0.0, -0.90), (-0.18, -0.54), (-0.28, -0.14),
+            (-0.48, -0.46), (-0.58, -0.08), (-0.84, -0.34),
+            (-0.76, 0.12), (-1.0, 0.38), (-0.66, 0.52),
+            (-0.34, 0.58), (-0.18, 0.44), (-0.22, 0.84),
+            (0.0, 0.62), (0.22, 0.84), (0.18, 0.44),
+            (0.34, 0.58), (0.66, 0.52), (1.0, 0.38),
+            (0.76, 0.12), (0.84, -0.34), (0.58, -0.08),
+            (0.48, -0.46), (0.28, -0.14), (0.18, -0.54),
         ],
-        2,
+        3,
     )
 
 

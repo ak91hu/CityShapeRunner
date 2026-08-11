@@ -45,11 +45,11 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### IntentAgent
 - **Input:** raw user prompt.
 - **Output:** `Intent` (shape, city, sport, distance_km, text, style).
-- **Fast path:** complete known-template/text requests use local keyword, city,
-  sport, and distance rules without a network call.
-- **LLM:** ambiguous or unsupported requests use JSON extraction with a strict
-  schema + worked example. Fallback: the same deterministic rules
-  ("heart"→heart, "bike/cycle"→bike, `<n>km`→distance).
+- **Fast path:** complete known-template, text, and named custom requests use
+  local shape, city, sport, and distance rules without a network call.
+- **LLM:** ambiguous requests use JSON extraction with a strict schema. The
+  deterministic parser preserves named custom drawings and composite modifiers,
+  so their normal remote call is reserved for ShapeAgent geometry.
 
 ### PlanningAgent
 - **Input:** `Intent` + city geography (geocoded centre, bbox, coarse
@@ -67,8 +67,8 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   activity, and distance; three diverse continuous candidates proceed to live
   route measurement. The bbox-derived city-extent heading is only a coarse
   fallback.
-- **LLM:** unsupported free-form shapes use JSON per `prompts/plan.txt`, with
-  the same known geography in the prompt.
+- **LLM:** planning does not spend a separate model call for a named custom
+  drawing; curated geography commits its placement prior deterministically.
 - **Consumers:** ShapeAgent (strategy orders the tiers), PlacementAgent
   (resolved city geometry, rotation, scale_hint, and offsets).
 
@@ -80,6 +80,10 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   is selected from 73 deterministic templates or normalised (centroid → origin,
   max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
+- **Custom geometry:** model output is bounded, checked for finite coordinates,
+  usable extent, aspect ratio, and self-intersection, then repaired at most once.
+  Safe smoothing cannot introduce a crossing. Only successful model geometry is
+  stored in the 128-entry versioned cache; callers receive fresh path lists.
 
 ### PlacementAgent
 - **Input:** `Intent` + `Shape` + `Plan`.
@@ -172,9 +176,10 @@ provider is sticky for the rest of the run.
 
 ### Shape-generation fallback (ShapeAgent)
 Tier order is set by the plan; each tier only runs if the previous yielded
-nothing. The ultimate safety net is a star with `source="fallback"` and an
-explicit state error; it is never relabelled as the unsupported requested
-shape.
+nothing. The ultimate safety net is an idea-linked one-character vector label
+with `source="fallback"` and an explicit state error. If no usable ASCII glyph
+can be derived, the star remains the final emergency geometry; neither fallback
+is relabelled as the unsupported requested shape.
 
 ## State
 `WorkflowState` (dataclass) is the single shared object threaded through the

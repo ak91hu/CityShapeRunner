@@ -374,6 +374,14 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(86);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Number 42" })).toBeVisible();
+  const catalogGlyphs = await page
+    .locator('.idea-catalog .idea-chip span[aria-hidden="true"]')
+    .allTextContents();
+  expect(new Set(catalogGlyphs).size).toBe(catalogGlyphs.length);
+  await expect(page.getByRole("button", { name: "Cat", exact: true }).locator("span")).toHaveText("🐈");
+  await expect(page.getByRole("button", { name: "Dog", exact: true }).locator("span")).toHaveText("🐕");
+  await expect(page.getByRole("button", { name: "Bird", exact: true }).locator("span")).toHaveText("🐦");
+  await expect(page.getByRole("button", { name: "Bat", exact: true }).locator("span")).toHaveText("🦇");
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
