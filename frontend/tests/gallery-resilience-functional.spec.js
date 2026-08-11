@@ -75,7 +75,30 @@ test("gallery cards open a viewer with dimensions and an original-image link", a
   await expect(viewer).toBeVisible();
   await expect(viewer).toHaveAttribute("aria-modal", "true");
   await expect(viewer.getByText("Image 1 of 1")).toBeVisible();
-  await expect(viewer.getByRole("img")).toHaveAttribute("src", asset.image_url);
+  const viewerImage = viewer.getByRole("img");
+  await expect(viewerImage).toHaveAttribute("src", asset.image_url);
+  const fittedImage = await viewerImage.evaluate((element) => {
+    const imageBox = element.getBoundingClientRect();
+    const mediaBox = element.closest(".gallery-lightbox-media").getBoundingClientRect();
+    const stage = element.closest(".gallery-lightbox-stage");
+    const style = window.getComputedStyle(element);
+    return {
+      objectFit: style.objectFit,
+      objectPosition: style.objectPosition,
+      imageWidth: imageBox.width,
+      imageHeight: imageBox.height,
+      mediaWidth: mediaBox.width,
+      mediaHeight: mediaBox.height,
+      stageClipsHorizontally: stage.scrollWidth > stage.clientWidth,
+      stageClipsVertically: stage.scrollHeight > stage.clientHeight,
+    };
+  });
+  expect(fittedImage.objectFit).toBe("contain");
+  expect(fittedImage.objectPosition).toBe("50% 50%");
+  expect(fittedImage.imageWidth).toBeCloseTo(fittedImage.mediaWidth, 0);
+  expect(fittedImage.imageHeight).toBeCloseTo(fittedImage.mediaHeight, 0);
+  expect(fittedImage.stageClipsHorizontally).toBe(false);
+  expect(fittedImage.stageClipsVertically).toBe(false);
   const originalLink = viewer.getByRole("link", { name: "Open original" });
   await expect(originalLink).toHaveAttribute("href", asset.image_url);
   await expect(originalLink).toHaveAttribute("target", "_blank");

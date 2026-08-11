@@ -4,6 +4,7 @@ const PORT = 4173;
 
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "prod-gallery.spec.js",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

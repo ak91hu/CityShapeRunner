@@ -673,12 +673,14 @@ function GalleryLightbox({ assets, activeIndex, onClose, onMove }) {
               <span aria-hidden="true">←</span>
             </button>
           )}
-          <img
-            src={asset.image_url}
-            alt={`Anonymous GPS art route, gallery image ${activeIndex + 1} of ${assets.length}`}
-            width={asset.width || undefined}
-            height={asset.height || undefined}
-          />
+          <div className="gallery-lightbox-media">
+            <img
+              src={asset.image_url}
+              alt={`Anonymous GPS art route, gallery image ${activeIndex + 1} of ${assets.length}`}
+              width={asset.width || undefined}
+              height={asset.height || undefined}
+            />
+          </div>
           {hasMultipleAssets && (
             <button
               type="button"

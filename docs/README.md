@@ -330,6 +330,7 @@ docs/          project, architecture, deployment, and agent-skill documentation
 See [AGENTS.md](AGENTS.md), [architecture.md](architecture.md),
 [gps-art-research.md](gps-art-research.md),
 [gps-art-algorithm-audit-2026-08.md](gps-art-algorithm-audit-2026-08.md),
+[production-gallery-testing.md](production-gallery-testing.md),
 [city-shape-recommendations.md](city-shape-recommendations.md),
 [ui-ux-rationale.md](ui-ux-rationale.md),
 [deployment.md](deployment.md), and

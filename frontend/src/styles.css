@@ -3556,13 +3556,24 @@ footer {
   background: #0b100f;
 }
 
+.gallery-lightbox-media {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
 .gallery-lightbox-stage img {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: block;
   object-fit: contain;
+  object-position: center;
   border-radius: var(--radius-sm);
   background: #dedbd4;
 }
