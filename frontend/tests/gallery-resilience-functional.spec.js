@@ -51,7 +51,7 @@ test("a gallery loading error is shown inside the gallery region", async ({ page
   await expect(page.getByLabel("Drawing and location")).toBeEditable();
 });
 
-test("gallery cards link to the full image with dimensions and anonymous alt text", async ({
+test("gallery cards open a viewer with dimensions and an original-image link", async ({
   page,
 }) => {
   const asset = galleryAsset("a", "first-map");
@@ -69,10 +69,66 @@ test("gallery cards link to the full image with dimensions and anonymous alt tex
   });
   await expect(image).toHaveAttribute("width", "900");
   await expect(image).toHaveAttribute("height", "600");
-  const link = page.locator(".gallery-card a");
-  await expect(link).toHaveAttribute("href", asset.image_url);
-  await expect(link).toHaveAttribute("target", "_blank");
-  await expect(link).toHaveAttribute("rel", "noreferrer");
+  await page.getByRole("button", { name: "Open gallery image 1 of 1" }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Gallery viewer" });
+  await expect(viewer).toBeVisible();
+  await expect(viewer).toHaveAttribute("aria-modal", "true");
+  await expect(viewer.getByText("Image 1 of 1")).toBeVisible();
+  await expect(viewer.getByRole("img")).toHaveAttribute("src", asset.image_url);
+  const originalLink = viewer.getByRole("link", { name: "Open original" });
+  await expect(originalLink).toHaveAttribute("href", asset.image_url);
+  await expect(originalLink).toHaveAttribute("target", "_blank");
+  await expect(originalLink).toHaveAttribute("rel", "noreferrer");
+  await expect(viewer.getByRole("button", { name: "Previous gallery image" })).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "Next gallery image" })).toHaveCount(0);
+});
+
+test("gallery viewer navigates with controls and keyboard while preserving the list", async ({
+  page,
+}) => {
+  const assets = [
+    galleryAsset("a", "first-map"),
+    galleryAsset("b", "second-map"),
+    galleryAsset("c", "third-map"),
+  ];
+  await replaceGalleryRoute(page, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, assets, next_cursor: null }),
+    }),
+  );
+  await page.goto("/");
+
+  const cards = page.locator(".gallery-card");
+  const opener = page.getByRole("button", { name: "Open gallery image 1 of 3" });
+  await expect(cards).toHaveCount(3);
+  await opener.click();
+
+  const viewer = page.getByRole("dialog", { name: "Gallery viewer" });
+  const viewerImage = viewer.getByRole("img");
+  await expect(viewerImage).toHaveAttribute("src", assets[0].image_url);
+  await expect(viewer.getByRole("button", { name: "Close gallery viewer" })).toBeFocused();
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(viewer.getByRole("link", { name: "Open original" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(viewer.getByRole("button", { name: "Close gallery viewer" })).toBeFocused();
+
+  await viewer.getByRole("button", { name: "Next gallery image" }).click();
+  await expect(viewerImage).toHaveAttribute("src", assets[1].image_url);
+  await expect(viewer.getByText("Image 2 of 3")).toBeVisible();
+
+  await page.keyboard.press("ArrowLeft");
+  await expect(viewerImage).toHaveAttribute("src", assets[0].image_url);
+  await page.keyboard.press("ArrowLeft");
+  await expect(viewerImage).toHaveAttribute("src", assets[2].image_url);
+
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await expect(cards).toHaveCount(3);
 });
 
 test("gallery pagination shows a busy state and appends the next page", async ({ page }) => {

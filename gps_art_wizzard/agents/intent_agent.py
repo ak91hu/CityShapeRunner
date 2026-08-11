@@ -41,6 +41,8 @@ _CUSTOM_REQUEST_PREFIX = re.compile(
     r"""^\s*(?:
         (?:please\s+)?(?:draw|trace|make|create|sketch|plan|run|jog|cycle|ride)
             \s+(?:me\s+)?(?:(?:a|an|the)\s+)?
+        |(?:kérlek\s+)?(?:rajzolj|rajzoljon|készíts|készítsen|alkoss|tervezz|tervezzen)
+            \s+(?:nekem\s+)?(?:(?:egy|a|az)\s+)?
         |(?:a|an|the)\s+
         )
     """,
@@ -60,6 +62,8 @@ _SUGGESTION_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(r"\bany\s+(?:shape|drawing|route|idea)\b", re.IGNORECASE),
+    re.compile(r"\b(?:ajánlj|javasolj|válassz|inspirálj)\b", re.IGNORECASE),
+    re.compile(r"\blepj\s+meg\b", re.IGNORECASE),
 )
 
 
@@ -137,11 +141,18 @@ class IntentAgent(BaseAgent):
         cfg = get_settings().workflow
         low = text.lower()
 
-        sport = "bike" if any(w in low for w in ("bike", "cycle", "cycling", "bici")) else (
-            "run" if any(w in low for w in ("run", "jog", "marathon")) else cfg.sport_default
+        bike_request = re.search(
+            r"\b(?:bike|biking|cycle|cycling|bicycle|bici|bicikl\w*|"
+            r"kerékpár\w*|bringa\w*|teker\w*)\b",
+            low,
         )
-        dist_match = re.search(r"(\d+(?:\.\d+)?)\s*km", low)
-        dist = float(dist_match.group(1)) if dist_match else None
+        run_request = re.search(
+            r"\b(?:run|running|jog|jogging|marathon|fut\w*|kocog\w*)\b",
+            low,
+        )
+        sport = "bike" if bike_request else ("run" if run_request else cfg.sport_default)
+        dist_match = re.search(r"(\d+(?:[.,]\d+)?)\s*km", low)
+        dist = float(dist_match.group(1).replace(",", ".")) if dist_match else None
         city = next((c for c in _KNOWN_CITIES if c.lower() in low), None)
         if city is None:
             city = _extract_unlisted_city(text)
@@ -260,6 +271,19 @@ def _extract_custom_shape(text: str, *, city: str | None) -> str | None:
         match = city_clause.search(candidate)
         if match:
             candidate = candidate[: match.start()]
+        else:
+            # Hungarian location suffixes commonly attach directly to the
+            # settlement (Budapesten, Győrben, Pécsen). Handle both the usual
+            # drawing-first form and the equally natural city-first form.
+            locative = re.compile(
+                rf"\b{re.escape(city)}(?:en|on|ön|n|ban|ben)\b",
+                flags=re.IGNORECASE,
+            )
+            match = locative.search(candidate)
+            if match:
+                before = candidate[: match.start()].strip(" ,")
+                after = candidate[match.end() :].strip(" ,")
+                candidate = before if before else after
 
     # Comma-separated prompts conventionally put the drawing first.  Activity
     # and distance clauses that remain after city removal are not shape data.
@@ -279,6 +303,13 @@ def _extract_custom_shape(text: str, *, city: str | None) -> str | None:
     )
     candidate = re.sub(
         r"\s+\b(?:run|running|jog|jogging|biking|cycling)\s*$",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
+        r"\s+\b(?:futva|futás(?:sal|ként)?|kocog(?:va|ás(?:sal|ként)?)|"
+        r"kerékpárral|biciklivel|bringával|tekerve)\b.*$",
         "",
         candidate,
         flags=re.IGNORECASE,

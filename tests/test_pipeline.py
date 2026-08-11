@@ -67,13 +67,23 @@ def test_heart_template_closed():
     assert len(paths[0]) > 10
 
 
-def test_normalize_shape_scales_to_one():
+def test_normalize_shape_scales_to_one_and_centres_route_length():
     _, paths, _ = shape_library.star()
     norm = geo.normalize_shape(paths)
     pts = np.concatenate([np.asarray(p) for p in norm])
     extent = (pts.max(axis=0) - pts.min(axis=0)).max()
     assert abs(extent - 1.0) < 1e-6
-    assert abs(pts.mean(axis=0)).max() < 1e-6  # centroid at origin
+    weighted_midpoints = np.zeros(2)
+    total_length = 0.0
+    for path in norm:
+        path_points = np.asarray(path)
+        lengths = np.linalg.norm(np.diff(path_points, axis=0), axis=1)
+        weighted_midpoints += np.sum(
+            ((path_points[:-1] + path_points[1:]) / 2.0) * lengths[:, np.newaxis],
+            axis=0,
+        )
+        total_length += float(lengths.sum())
+    assert abs(weighted_midpoints / total_length).max() < 1e-6
 
 
 def test_text_shape_renders_letters():

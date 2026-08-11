@@ -42,6 +42,7 @@ class LLMProvider(Protocol):
         messages: list[Message],
         *,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,

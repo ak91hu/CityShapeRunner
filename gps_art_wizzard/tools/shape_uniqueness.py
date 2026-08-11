@@ -31,6 +31,14 @@ class ShapePairDistance:
 
 
 @dataclass(frozen=True)
+class CatalogShapeMatch:
+    """Closest registered template to an arbitrary generated contour."""
+
+    name: str
+    distance: float
+
+
+@dataclass(frozen=True)
 class _PreparedContour:
     points: np.ndarray
     closed: bool
@@ -126,11 +134,41 @@ def template_distance(first_name: str, second_name: str, *, sample_count: int = 
 
 
 @lru_cache(maxsize=8)
-def _cached_catalog_pair_distances(sample_count: int) -> tuple[ShapePairDistance, ...]:
-    prepared = {
-        name: _prepare_contour(shape_library.SHAPES[name]()[1], sample_count)
+def _cached_catalog_contours(sample_count: int) -> tuple[tuple[str, _PreparedContour], ...]:
+    return tuple(
+        (
+            name,
+            _prepare_contour(shape_library.SHAPES[name]()[1], sample_count),
+        )
         for name in sorted(shape_library.SHAPES)
-    }
+    )
+
+
+def nearest_catalog_shape(
+    paths: list[geo.Path],
+    *,
+    sample_count: int = 96,
+) -> CatalogShapeMatch:
+    """Return the registered route contour closest to ``paths``.
+
+    This applies the same placement-safe invariances used by the catalog audit,
+    so a generated contour cannot evade duplicate detection merely by rotating,
+    scaling, reversing, or choosing a different start along a closed outline.
+    """
+
+    prepared = _prepare_contour(paths, sample_count)
+    return min(
+        (
+            CatalogShapeMatch(name, _prepared_distance(prepared, catalog_contour))
+            for name, catalog_contour in _cached_catalog_contours(sample_count)
+        ),
+        key=lambda match: (match.distance, match.name),
+    )
+
+
+@lru_cache(maxsize=8)
+def _cached_catalog_pair_distances(sample_count: int) -> tuple[ShapePairDistance, ...]:
+    prepared = dict(_cached_catalog_contours(sample_count))
     distances = [
         ShapePairDistance(first, second, _prepared_distance(prepared[first], prepared[second]))
         for first, second in combinations(prepared, 2)

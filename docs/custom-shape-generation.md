@@ -46,6 +46,15 @@ Several adjacent research areas point to the same engineering pattern:
    records self-intersection as an evaluated failure mode and topology checks as
    its mitigation. The custom-shape smoother therefore cannot silently replace
    a simple control polygon with a crossed curve.
+7. OpenAI's [Structured Outputs](https://openai.com/index/introducing-structured-outputs-in-the-api/)
+   distinguishes ordinary JSON mode—which guarantees only parseable JSON—from
+   strict schema adherence. Anthropic documents the same constrained-decoding
+   approach for its [supported newer Claude models](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
+   and Ollama accepts a schema directly in its native
+   [`format` field](https://docs.ollama.com/capabilities/structured-outputs).
+   Provider-level constraints can prevent structural retries, but local
+   geometry checks remain necessary because a schema cannot prove topology or
+   recognisability.
 
 The practical conclusion is a staged pipeline with cheap deterministic checks
 around one normal generative call, rather than a chain of unconstrained model
@@ -64,6 +73,14 @@ template.
 Suggestion detection uses word-bounded task phrases. Object names such as
 “pickaxe” and “idea bulb” no longer trigger suggestion mode by substring.
 
+The fast path also understands common Hungarian route phrasing. It separates
+inflected settlement names (for example `Budapesten`, `Győrben`, and `Pécsen`),
+Hungarian running/cycling words, decimal-comma distances, request verbs, and
+recommendation phrases. The original object wording and its modifiers remain
+intact for generation, while route metadata is kept in structured intent
+fields. Requests that cannot be separated confidently still use intent-model
+inference rather than an aggressive local guess.
+
 ### 2. Spend inference only on geometry
 
 Known templates and text remain fully local. A locally parsed custom request
@@ -80,10 +97,20 @@ schema. The server never executes generated SVG, XML, Python, or JavaScript.
 
 ### 4. Generate route-oriented control geometry
 
-The model is asked for 24–72 meaningful control points, normally as one closed
-outer silhouette. It is told to omit eyes, shading, texture, and other details
-that would require disconnected transfer lines. Curves are densified locally;
-the model does not spend tokens on hundreds of nearly identical samples.
+The model first silently decomposes the request into three to six identifying
+silhouette cues, including modifiers and relationships, then gives each cue a
+meaningful interval of the actual route. It is asked for 24–72 meaningful
+control points, normally as one closed outer silhouette. It is told not to
+substitute a stock category icon and to omit eyes, shading, texture, and other
+details that would require disconnected transfer lines. Point density is
+reserved for meaningful curvature changes rather than tiny interpolated steps.
+
+The same point-list contract is also passed to capable providers as a JSON
+schema. OpenAI uses strict `json_schema`, local Ollama uses its schema-valued
+`format`, and documented Claude 4.5+ families use Anthropic's structured-output
+configuration. OpenCode gateways and older/custom Claude models retain portable
+JSON mode plus the full local validator, because silently assuming a gateway or
+model feature would turn compatibility errors into needless fallback routes.
 
 ### 5. Run executable geometry checks
 
@@ -96,7 +123,10 @@ Before placement, the parser enforces:
 - non-degenerate width and height;
 - a maximum 4:1 defensive aspect-ratio boundary;
 - coordinates in the documented `[-10, 10]` range; and
-- no self-intersection in any substantial stroke.
+- no self-intersection in any substantial stroke;
+- no multi-stroke design whose artificial connectors exceed 45% of its
+  authored drawing length; and
+- no placement-invariant duplicate of a registered catalog route.
 
 The prompt targets the stricter 2:1 design preference. The 4:1 executable limit
 allows naturally tall or wide subjects while still rejecting geometry that is
@@ -110,18 +140,30 @@ containing the validation reason. A fixed single retry prevents accidental
 latency and cost loops. If the repair also fails, deterministic fallback takes
 over.
 
-### 7. Smooth without changing topology
+### 7. Smooth without erasing identity or changing topology
 
-Custom control paths use a bounded Catmull–Rom interpolation. The smoothed path
-is accepted only if it remains simple; otherwise the original control polygon
-is retained. Later guide-point selection preserves important curvature while
-respecting the routing provider's waypoint budget.
+Custom control paths use the centripetal Catmull–Rom parameterisation described
+by [Yuksel, Schaefer, and Keyser](https://cemyuksel.com/research/catmullrom_param/).
+Unlike the former uniform formula, it cannot introduce a cusp or
+self-intersection inside one spline segment merely because controls are unevenly
+spaced. Turns of at least 70 degrees keep their adjacent segments linear so
+ears, tips, and notches survive smoothing. The whole smoothed stroke is still
+accepted only if it remains simple; otherwise the original control polygon is
+retained.
+
+Normalisation uses the route-length-weighted centroid rather than the raw mean
+of control points. Adding more controls around one detailed feature therefore
+cannot drag the whole drawing's placement off-centre. If multiple essential
+strokes remain, an exact bounded dynamic program chooses their order and
+direction to minimise connector length. Later guide-point selection preserves
+important curvature while respecting the routing provider's waypoint budget.
 
 ### 8. Cache only successful custom drawings
 
 A 128-entry process-local least-recently-used cache keys successful generated
 geometry by a SHA-256 digest of the normalized request and style plus a schema
-version. The raw custom wording is not retained in the cache key or value.
+version. Validation or prompt-contract changes bump that version. The raw
+custom wording is not retained in the cache key or value.
 Callers receive fresh path lists so one route cannot mutate another. Provider
 failures and deterministic fallbacks are never cached, so a short outage cannot
 poison later requests.

@@ -22,6 +22,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _clear_custom_shape_cache,
     _validated_paths,
 )
+from gps_art_wizzard.agents.snap_agent import _simplify_road_geometry
 from gps_art_wizzard.agents.validation_agent import ValidationAgent
 from gps_art_wizzard.api.routes import (
     EditedRouteRequest,
@@ -33,6 +34,7 @@ from gps_art_wizzard.config import RoutingConfig
 from gps_art_wizzard.llm import LLMResponse
 from gps_art_wizzard.llm import factory as llm_factory
 from gps_art_wizzard.orchestrator import Orchestrator
+from gps_art_wizzard.prompts import render
 from gps_art_wizzard.quality import quality_gate_report
 from gps_art_wizzard.state import (
     EvaluatedCandidate,
@@ -153,6 +155,72 @@ def test_custom_shape_intent_skips_redundant_intent_model_call(monkeypatch):
     assert state.intent.shape == "platypus"
 
 
+@pytest.mark.parametrize(
+    ("prompt", "expected_shape", "expected_city", "expected_sport", "expected_distance"),
+    [
+        (
+            "Rajzolj egy koronás polipot Budapesten, futva, 12 km",
+            "koronás polipot",
+            "Budapest",
+            "run",
+            12.0,
+        ),
+        (
+            "Budapesten rajzolj egy szárnyas oroszlánt futva 10,5 km",
+            "szárnyas oroszlánt",
+            "Budapest",
+            "run",
+            10.5,
+        ),
+        (
+            "Készíts egy robotot biciklin Győrben, 18 km",
+            "robotot biciklin",
+            "Győr",
+            "bike",
+            18.0,
+        ),
+    ],
+)
+def test_intent_fallback_separates_hungarian_shape_from_route_metadata(
+    prompt,
+    expected_shape,
+    expected_city,
+    expected_sport,
+    expected_distance,
+):
+    intent = IntentAgent()._parse(IntentAgent()._fallback(prompt).text)
+
+    assert intent.shape == expected_shape
+    assert intent.city == expected_city
+    assert intent.sport == expected_sport
+    assert intent.distance_km == expected_distance
+
+
+def test_hungarian_custom_shape_skips_redundant_intent_model_call(monkeypatch):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a locally parsed Hungarian request must skip intent inference")
+
+    monkeypatch.setattr("gps_art_wizzard.agents.intent_agent.try_complete", fail_if_called)
+    state = WorkflowState(
+        prompt="Rajzolj egy koronás polipot Budapesten, futva, 12 km"
+    )
+
+    IntentAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == "koronás polipot"
+
+
+def test_hungarian_suggestion_request_is_not_misread_as_a_custom_shape():
+    intent = IntentAgent()._parse(
+        IntentAgent()._fallback("Javasolj egy alakzatot Pécsen 8 km futással").text
+    )
+
+    assert intent.suggest is True
+    assert intent.shape is None
+    assert intent.city == "Pécs"
+
+
 @pytest.mark.parametrize("prompt", ["draw a pickaxe in Eger", "draw an idea bulb in Pécs"])
 def test_named_custom_objects_are_not_misread_as_suggestion_requests(prompt):
     agent = IntentAgent()
@@ -190,6 +258,79 @@ def test_stitch_paths_reverses_next_stroke_to_minimise_transfer():
         (8.0, 0.0),
     ]
     assert geo.unit_path_length(stitched) == pytest.approx(8.0)
+
+
+def test_normalize_shape_is_invariant_to_uneven_control_point_density():
+    sparse = [[(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0), (0.0, 0.0)]]
+    dense = [[
+        (0.0, 0.0), (2.0, 0.0), (2.0, 0.2), (2.0, 0.4),
+        (2.0, 0.6), (2.0, 0.8), (2.0, 1.0), (0.0, 1.0), (0.0, 0.0),
+    ]]
+
+    sparse_normalised = geo.normalize_shape(sparse)
+    dense_normalised = geo.normalize_shape(dense)
+
+    assert sparse_normalised[0][0] == pytest.approx((-0.5, -0.25))
+    assert dense_normalised[0][0] == pytest.approx(sparse_normalised[0][0])
+    assert dense_normalised[0][-1] == pytest.approx(sparse_normalised[0][-1])
+
+
+def test_stitch_paths_globally_optimises_multi_stroke_custom_geometry():
+    paths = [
+        [(-1.0, 0.0), (0.0, 0.0)],
+        [(1.0, 0.0), (100.0, 0.0)],
+        [(2.0, 0.0), (3.0, 0.0)],
+        [(101.0, 0.0), (102.0, 0.0)],
+    ]
+
+    stitched = geo.stitch_paths(paths)
+
+    assert stitched == [
+        (-1.0, 0.0),
+        (0.0, 0.0),
+        (2.0, 0.0),
+        (3.0, 0.0),
+        (1.0, 0.0),
+        (100.0, 0.0),
+        (101.0, 0.0),
+        (102.0, 0.0),
+    ]
+    assert geo.unit_path_length(stitched) == pytest.approx(107.0)
+
+
+def test_centripetal_smoothing_is_finite_simple_and_interpolates_uneven_controls():
+    controls = [(0.0, 0.0), (0.02, 0.0), (0.8, 0.08), (1.0, 0.9), (1.4, 1.0)]
+
+    smoothed = geo.catmull_rom_smooth(controls, subdivisions=5)
+
+    assert all(math.isfinite(value) for point in smoothed for value in point)
+    assert LineString(smoothed).is_simple
+    assert np.allclose(
+        [smoothed[index] for index in range(0, len(smoothed), 5)],
+        controls,
+    )
+
+
+def test_corner_aware_smoothing_keeps_semantic_right_angle_segments_linear():
+    controls = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (2.0, 1.0)]
+
+    smoothed = geo.catmull_rom_smooth(
+        controls,
+        subdivisions=4,
+        corner_threshold_deg=70.0,
+    )
+
+    assert controls[1] in smoothed and controls[2] in smoothed
+    assert all(
+        y == pytest.approx(0.0)
+        for x, y in smoothed
+        if 0.0 <= x < 1.0
+    )
+    assert all(
+        x == pytest.approx(1.0)
+        for x, y in smoothed
+        if 0.0 < y < 1.0
+    )
 
 
 def test_wave_and_helix_templates_keep_recognisable_proportions():
@@ -752,6 +893,36 @@ def test_subsample_adds_guidance_along_sparse_long_edges_and_keeps_corners():
         geo.haversine(*start, *end)
         for start, end in zip(sampled, sampled[1:], strict=False)
     ) <= 400.0
+
+
+def test_road_geometry_simplification_uses_same_metre_tolerance_at_high_latitude():
+    metre_shape = [
+        (0.0, 0.0),
+        (40.0, 2.0),
+        (80.0, 0.0),
+        (120.0, 14.0),
+        (160.0, 0.0),
+        (200.0, 0.0),
+    ]
+
+    simplified_counts = []
+    for latitude in (0.0, 70.0):
+        route = [
+            geo.unit_to_latlon(x, y, latitude, 19.0, 1.0)
+            for x, y in metre_shape
+        ]
+        simplified = _simplify_road_geometry(route, 5.0)
+        simplified_counts.append(len(simplified))
+        projected = [
+            geo.latlon_to_unit(lat, lon, latitude, 19.0, 1.0)
+            for lat, lon in simplified
+        ]
+
+        assert simplified[0] == route[0]
+        assert simplified[-1] == route[-1]
+        assert LineString(projected).is_simple
+
+    assert simplified_counts[0] == simplified_counts[1]
 
 
 def test_tree_is_a_single_closed_route_without_transfer_stroke():
@@ -2103,6 +2274,41 @@ def test_custom_shape_generation_keeps_requested_name_and_closes_outline(monkeyp
     assert LineString(state.shape.paths[0]).is_simple
 
 
+def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):
+    _clear_custom_shape_cache()
+    captured = {}
+    response = LLMResponse(
+        text=json.dumps(
+            {
+                "name": "platypus",
+                "paths": [
+                    [[0, 0], [1, 0], [1.1, 0.4], [0.8, 1], [0, 1], [-0.2, 0.4]]
+                ],
+                "closed": True,
+            }
+        ),
+        provider="test-provider",
+    )
+
+    def complete(*_args, **kwargs):
+        captured.update(kwargs)
+        return response
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(
+        prompt="draw a platypus in Budapest",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    schema = captured["json_schema"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {"name", "paths", "closed"}
+    assert schema["properties"]["paths"]["maxItems"] == 8
+
+
 def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
     _clear_custom_shape_cache()
     responses = iter(
@@ -2153,6 +2359,122 @@ def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
     assert state.shape is not None
     assert state.shape.name == "platypus"
     assert state.shape.source == "llm"
+
+
+def test_custom_shape_that_duplicates_catalog_gets_one_distinctive_repair(monkeypatch):
+    _clear_custom_shape_cache()
+    _, star_paths, star_closed = shape_library.star()
+    responses = iter(
+        [
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "stock star",
+                        "paths": star_paths,
+                        "closed": star_closed,
+                    }
+                ),
+                provider="test-provider",
+            ),
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "crowned platypus",
+                        "paths": [[
+                            [0, 0], [1, 0], [1.2, 0.4], [0.8, 1],
+                            [0.3, 0.8], [0, 1], [-0.3, 0.4], [0, 0],
+                        ]],
+                        "closed": True,
+                    }
+                ),
+                provider="test-provider",
+            ),
+        ]
+    )
+    prompts = []
+
+    def complete(*_args, **kwargs):
+        prompts.append(kwargs["messages"][0]["content"])
+        return next(responses)
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(
+        prompt="draw a crowned platypus in Budapest",
+        intent=Intent("crowned platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    assert len(prompts) == 2
+    assert "duplicates the built-in" in prompts[1]
+    assert state.shape is not None
+    assert state.shape.source == "llm"
+    assert (
+        shape_uniqueness.nearest_catalog_shape(state.shape.paths).distance
+        > shape_uniqueness.DUPLICATE_DISTANCE_THRESHOLD
+    )
+
+
+def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(monkeypatch):
+    _clear_custom_shape_cache()
+    responses = iter(
+        [
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "disconnected doodle",
+                        "paths": [
+                            [[-1, -0.6], [-0.8, -0.6], [-0.9, -0.4], [-1, -0.6]],
+                            [[0.8, 0.4], [1, 0.4], [0.9, 0.6], [0.8, 0.4]],
+                        ],
+                        "closed": True,
+                    }
+                ),
+                provider="test-provider",
+            ),
+            LLMResponse(
+                text=json.dumps(
+                    {
+                        "name": "platypus",
+                        "paths": [[
+                            [0, 0], [1, 0], [1.1, 0.4], [0.8, 1],
+                            [0, 1], [-0.2, 0.4], [0, 0],
+                        ]],
+                        "closed": True,
+                    }
+                ),
+                provider="test-provider",
+            ),
+        ]
+    )
+    prompts = []
+
+    def complete(*_args, **kwargs):
+        prompts.append(kwargs["messages"][0]["content"])
+        return next(responses)
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(
+        prompt="draw a platypus in Budapest",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    assert len(prompts) == 2
+    assert "artificial route transfer" in prompts[1]
+    assert state.shape is not None
+    assert len(state.shape.paths) == 1
+
+
+def test_custom_shape_prompt_requires_semantic_cues_and_non_stock_contours():
+    prompt = render("shape", shape='"platypus"', style='"none"').lower()
+
+    assert "silently decompose" in prompt
+    assert "3-6 identifying" in prompt
+    assert "stock symbol" in prompt
 
 
 def test_successful_custom_geometry_is_cached_without_sharing_mutable_paths(monkeypatch):

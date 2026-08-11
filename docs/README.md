@@ -122,6 +122,8 @@ against a labelled evaluation set in which independent reviewers identify the
 intended figure and rate route usability. Full citations, the production
 funnel, and the distinction between snapping and routing are documented in
 [gps-art-research.md](gps-art-research.md).
+The concrete method-by-method review and current geometry improvements are in
+the [August 2026 algorithm audit](gps-art-algorithm-audit-2026-08.md).
 
 | Agent | Responsibility |
 |-------|----------------|
@@ -327,6 +329,7 @@ docs/          project, architecture, deployment, and agent-skill documentation
 
 See [AGENTS.md](AGENTS.md), [architecture.md](architecture.md),
 [gps-art-research.md](gps-art-research.md),
+[gps-art-algorithm-audit-2026-08.md](gps-art-algorithm-audit-2026-08.md),
 [city-shape-recommendations.md](city-shape-recommendations.md),
 [ui-ux-rationale.md](ui-ux-rationale.md),
 [deployment.md](deployment.md), and

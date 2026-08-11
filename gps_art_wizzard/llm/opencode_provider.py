@@ -46,6 +46,7 @@ class OpenCodeProvider:
         messages: list[Message],
         *,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
@@ -60,7 +61,10 @@ class OpenCodeProvider:
             "temperature": self._temperature if temperature is None else temperature,
             "max_tokens": self._max_tokens if max_tokens is None else max_tokens,
         }
-        if json_mode:
+        # Zen is OpenAI-compatible, but schema support varies by upstream
+        # model. Keep its portable JSON mode and let the application perform
+        # the same executable validation used for every provider.
+        if json_mode or json_schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
         try:
             resp = self._client.chat.completions.create(**kwargs)

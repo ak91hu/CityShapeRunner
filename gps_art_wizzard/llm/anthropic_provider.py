@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+import re
+from typing import TYPE_CHECKING, Any, cast
 
 from .base import LLMError, LLMResponse, Message, to_dicts
 
@@ -35,6 +36,7 @@ class AnthropicProvider:
         messages: list[Message],
         *,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
@@ -44,13 +46,23 @@ class AnthropicProvider:
         msgs = cast("list[MessageParam]", to_dicts(messages))
         # Anthropic rejects a leading/standalone system role in messages; pass via system=.
         system_prompt = system or ""
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "system": system_prompt,
+            "messages": msgs,
+            "temperature": self._temperature if temperature is None else temperature,
+            "max_tokens": self._max_tokens if max_tokens is None else max_tokens,
+        }
+        # Anthropic structured outputs are available only on documented newer
+        # model families. Older/custom models retain prompt-level JSON plus the
+        # application's provider-independent parser and geometry validation.
+        if json_schema is not None and _supports_structured_outputs(self._model):
+            kwargs["output_config"] = {
+                "format": {"type": "json_schema", "schema": json_schema}
+            }
         try:
             resp = self._client.messages.create(
-                model=self._model,
-                system=system_prompt,
-                messages=msgs,
-                temperature=self._temperature if temperature is None else temperature,
-                max_tokens=self._max_tokens if max_tokens is None else max_tokens,
+                **kwargs,
             )
         except Exception as e:  # noqa: BLE001
             raise LLMError(f"Anthropic call failed: {e}") from e
@@ -60,3 +72,13 @@ class AnthropicProvider:
         if getattr(resp, "usage", None):
             usage = {"prompt": resp.usage.input_tokens, "completion": resp.usage.output_tokens}
         return LLMResponse(text=text, provider=self.name, model=self._model, usage=usage, raw=resp)
+
+
+def _supports_structured_outputs(model: str) -> bool:
+    """Conservatively gate Anthropic's model-specific JSON-schema feature."""
+    normalized = model.casefold()
+    if not normalized.startswith("claude-"):
+        return False
+    if re.search(r"-(?:opus|sonnet|haiku)-4-[5-9](?:-|$)", normalized):
+        return True
+    return bool(re.search(r"-(?:fable|mythos|opus|sonnet|haiku)-[5-9](?:-|$)", normalized))

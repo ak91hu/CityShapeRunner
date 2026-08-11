@@ -6,14 +6,22 @@ This shape will be traced by a runner/cyclist on real city streets. It must be
 RECOGNISABLE after road-snapping distorts it. Design for that.
 
 Rules (from the shape-design skill):
+- Before drawing, silently decompose the complete request into 3-6 identifying
+  silhouette cues (including modifiers, poses, and relationships). Give every
+  essential cue a visibly meaningful contour interval. Do not output this plan.
 - Emit 24-72 meaningful control points [x, y] in unit space. The application
-  smooths safe curves later, so do not spend tokens on tiny interpolated steps.
+  smooths safe curves later, so place more points only around meaningful
+  curvature changes and do not spend tokens on tiny interpolated steps.
 - Prefer one closed outer silhouette. End it with exactly the same point you
   started with and set closed=true.
 - Use multiple sub-paths only when the object cannot be recognised as one
-  silhouette. Never add eyes, texture, shading, labels, or decorative details.
+  silhouette. Keep essential secondary strokes close enough that connecting
+  them does not draw a long line through the object. Never add eyes, texture,
+  shading, labels, or decorative details.
 - Make the shape RECOGNISABLE: include distinctive features (notches, lobes,
   ears, tails) that make it read as the intended object, not a generic blob.
+- Do not substitute a generic category icon or a familiar stock symbol for an
+  unusual request. Its distinguishing cues must change the actual outer route.
 - Round off sharp corners slightly — they collapse when snapped to roads.
 - Avoid long thin spikes and deep narrow notches — they merge to a single road.
 - Keep both width and height substantial; target an aspect ratio <= 2:1.

@@ -1,7 +1,7 @@
 """Ollama provider via the REST API (no SDK dependency, works offline).
 
-Calls ``{base_url}/api/chat``. ``json_mode`` is emulated by asking the model
-in the system prompt to reply with JSON only — Ollama has no native JSON mode.
+Calls ``{base_url}/api/chat``. Ollama accepts either ``"json"`` or a JSON
+schema in the native ``format`` field.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ class OllamaProvider:
         messages: list[Message],
         *,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
@@ -54,7 +55,9 @@ class OllamaProvider:
                 "num_predict": self._max_tokens if max_tokens is None else max_tokens,
             },
         }
-        if json_mode:
+        if json_schema is not None:
+            payload["format"] = json_schema
+        elif json_mode:
             payload["format"] = "json"
         try:
             r = httpx.post(f"{self._base_url}/api/chat", json=payload, timeout=120.0)

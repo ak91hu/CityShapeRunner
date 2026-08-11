@@ -82,7 +82,9 @@ a generated route is recognisable, safe, legal, or optimal in every city.
 Thresholds remain engineering heuristics and should be calibrated with
 labelled human-recognition tests. See the
 [research notes](docs/gps-art-research.md) for the full evidence-to-algorithm
-mapping and production funnel.
+mapping and production funnel. The latest method-by-method review and the
+implemented geometry changes are recorded in the
+[August 2026 algorithm audit](docs/gps-art-algorithm-audit-2026-08.md).
 
 ## Understanding and editing results
 

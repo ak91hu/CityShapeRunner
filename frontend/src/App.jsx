@@ -567,6 +567,141 @@ function LoadingState({ onCancel }) {
   );
 }
 
+function GalleryLightbox({ assets, activeIndex, onClose, onMove }) {
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const asset = assets[activeIndex];
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        onMove(-1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        onMove(1);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = [...(dialogRef.current?.querySelectorAll(
+        'button:not(:disabled), a[href]',
+      ) ?? [])];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!dialogRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, onMove]);
+
+  if (!asset) return null;
+  const hasMultipleAssets = assets.length > 1;
+
+  return (
+    <div
+      className="gallery-lightbox-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="gallery-lightbox"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gallery-lightbox-title"
+        aria-describedby="gallery-lightbox-position"
+        ref={dialogRef}
+      >
+        <div className="gallery-lightbox-header">
+          <div>
+            <h2 id="gallery-lightbox-title">Gallery viewer</h2>
+            <p id="gallery-lightbox-position" aria-live="polite">
+              Image {activeIndex + 1} of {assets.length}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="gallery-lightbox-close"
+            onClick={onClose}
+            ref={closeButtonRef}
+            aria-label="Close gallery viewer"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        <div className="gallery-lightbox-stage">
+          {hasMultipleAssets && (
+            <button
+              type="button"
+              className="gallery-lightbox-nav gallery-lightbox-nav--previous"
+              onClick={() => onMove(-1)}
+              aria-label="Previous gallery image"
+            >
+              <span aria-hidden="true">←</span>
+            </button>
+          )}
+          <img
+            src={asset.image_url}
+            alt={`Anonymous GPS art route, gallery image ${activeIndex + 1} of ${assets.length}`}
+            width={asset.width || undefined}
+            height={asset.height || undefined}
+          />
+          {hasMultipleAssets && (
+            <button
+              type="button"
+              className="gallery-lightbox-nav gallery-lightbox-nav--next"
+              onClick={() => onMove(1)}
+              aria-label="Next gallery image"
+            >
+              <span aria-hidden="true">→</span>
+            </button>
+          )}
+        </div>
+
+        <div className="gallery-lightbox-footer">
+          <span>Use ← and → to browse. Press Esc to close.</span>
+          <a href={asset.image_url} target="_blank" rel="noreferrer">
+            Open original
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GallerySection({ refreshKey = 0, publishedAsset = null }) {
   const [assets, setAssets] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
@@ -575,7 +710,20 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [removalTokens, setRemovalTokens] = useState(readGalleryRemovalTokens);
+  const [activeAssetId, setActiveAssetId] = useState(null);
   const removedAssetIdsRef = useRef(new Set());
+
+  const activeAssetIndex = assets.findIndex((asset) => asset.id === activeAssetId);
+
+  const moveLightbox = useCallback((offset) => {
+    setActiveAssetId((currentId) => {
+      if (assets.length === 0) return null;
+      const currentIndex = assets.findIndex((asset) => asset.id === currentId);
+      const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = (safeIndex + offset + assets.length) % assets.length;
+      return assets[nextIndex].id;
+    });
+  }, [assets]);
 
   const loadGalleryPage = useCallback(async (cursor = null, replace = false) => {
     if (replace) setLoading(true);
@@ -613,6 +761,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       await removeGalleryImage({ public_id: asset.id, removal_token: token });
       removedAssetIdsRef.current.add(asset.id);
       setAssets((current) => current.filter((item) => item.id !== asset.id));
+      setActiveAssetId((currentId) => (currentId === asset.id ? null : currentId));
       setRemovalTokens(forgetGalleryRemovalToken(asset.id));
     } catch (removalError) {
       setError(removalError.message || "We couldn’t remove that map. Please try again.");
@@ -655,9 +804,14 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       )}
       {assets.length > 0 && (
         <div className="gallery-grid">
-          {assets.map((asset) => (
+          {assets.map((asset, index) => (
             <article className="gallery-card" key={asset.id}>
-              <a href={asset.image_url} target="_blank" rel="noreferrer">
+              <button
+                type="button"
+                className="gallery-thumbnail"
+                onClick={() => setActiveAssetId(asset.id)}
+                aria-label={`Open gallery image ${index + 1} of ${assets.length}`}
+              >
                 <img
                   src={asset.image_url}
                   alt="Anonymous GPS art route on an OpenStreetMap street map"
@@ -665,7 +819,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
                   width={asset.width || undefined}
                   height={asset.height || undefined}
                 />
-              </a>
+              </button>
               {removalTokens[asset.id] && (
                 <div>
                   <button type="button" onClick={() => removeAsset(asset)}>
@@ -676,6 +830,14 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
             </article>
           ))}
         </div>
+      )}
+      {activeAssetIndex >= 0 && (
+        <GalleryLightbox
+          assets={assets}
+          activeIndex={activeAssetIndex}
+          onClose={() => setActiveAssetId(null)}
+          onMove={moveLightbox}
+        />
       )}
       {nextCursor && (
         <button

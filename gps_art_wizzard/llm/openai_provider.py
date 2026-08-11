@@ -32,6 +32,7 @@ class OpenAIProvider:
         messages: list[Message],
         *,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
@@ -46,7 +47,16 @@ class OpenAIProvider:
             "temperature": self._temperature if temperature is None else temperature,
             "max_tokens": self._max_tokens if max_tokens is None else max_tokens,
         }
-        if json_mode:
+        if json_schema is not None and _supports_structured_outputs(self._model):
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "gps_art_structured_response",
+                    "strict": True,
+                    "schema": json_schema,
+                },
+            }
+        elif json_mode or json_schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
         try:
             resp = self._client.chat.completions.create(**kwargs)
@@ -57,3 +67,9 @@ class OpenAIProvider:
         if getattr(resp, "usage", None):
             usage = {"prompt": resp.usage.prompt_tokens, "completion": resp.usage.completion_tokens}
         return LLMResponse(text=choice, provider=self.name, model=self._model, usage=usage, raw=resp)
+
+
+def _supports_structured_outputs(model: str) -> bool:
+    """Use strict schemas only for documented modern OpenAI model families."""
+    normalized = model.casefold()
+    return normalized.startswith(("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"))

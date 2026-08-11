@@ -6,10 +6,8 @@ from shapely.geometry import LineString
 
 from ..config import get_settings
 from ..state import SnappedRoute, WorkflowState
-from ..tools import ors_client
+from ..tools import geo, ors_client
 from .base import BaseAgent
-
-_M_PER_DEG = 111_320.0
 
 
 class SnapAgent(BaseAgent):
@@ -32,17 +30,12 @@ class SnapAgent(BaseAgent):
         polyline, dist_m, snapped = ors_client.snap_route(
             waypoints, sport=state.intent.sport, closed=draft.closed
         )
-        # Apply the refinement-controlled simplify tolerance (metres -> degrees),
-        # but only on real road geometry — the straight-line fallback is already
-        # minimal and simplifying it just discards drawn vertices.
+        # Apply the refinement-controlled tolerance in local metre space, but
+        # only on real road geometry. Degree-space tolerance over-simplifies
+        # east/west detail increasingly toward the poles.
         tol = draft.simplify_tolerance
         if tol and tol > 0 and snapped and len(polyline) > 4:
-            tol_deg = tol / _M_PER_DEG
-            line = LineString([(lon, lat) for lat, lon in polyline])
-            simplified = line.simplify(tol_deg, preserve_topology=False)
-            poly = list(simplified.coords)
-            if len(poly) >= 2:
-                polyline = [(lat, lon) for lon, lat in poly]
+            polyline = _simplify_road_geometry(polyline, tol)
         state.snapped = SnappedRoute(points=polyline, total_distance_m=dist_m, snapped=snapped)
         if not snapped and get_settings().routing.ors_api_key:
             state.errors.append(
@@ -53,3 +46,35 @@ class SnapAgent(BaseAgent):
             f"snapped={snapped} pts={len(polyline)} dist={dist_m/1000:.2f}km tol={tol:.1f}m",
         )
         return state
+
+
+def _simplify_road_geometry(
+    polyline: list[geo.LatLon],
+    tolerance_m: float,
+) -> list[geo.LatLon]:
+    """Simplify routed geometry in metres without introducing a crossing."""
+
+    if len(polyline) < 3 or tolerance_m <= 0:
+        return list(polyline)
+    center_lat = sum(lat for lat, _ in polyline) / len(polyline)
+    center_lon = sum(lon for _, lon in polyline) / len(polyline)
+    try:
+        metre_points = [
+            geo.latlon_to_unit(lat, lon, center_lat, center_lon, 1.0)
+            for lat, lon in polyline
+        ]
+        original = LineString(metre_points)
+        simplified = original.simplify(tolerance_m, preserve_topology=True)
+        if original.is_simple and not simplified.is_simple:
+            return list(polyline)
+        simplified_points = [
+            geo.unit_to_latlon(x, y, center_lat, center_lon, 1.0)
+            for x, y in simplified.coords
+        ]
+    except (TypeError, ValueError):
+        return list(polyline)
+    if len(simplified_points) < 2:
+        return list(polyline)
+    simplified_points[0] = polyline[0]
+    simplified_points[-1] = polyline[-1]
+    return simplified_points

@@ -30,8 +30,9 @@ tags: [ors, roads, simplify]
   overall score remain visible for ranking and editing.
 - The `simplify_tolerance` (metres) denoises real road geometry. **Lower =
   more detail (better fidelity, longer GPX); higher = smoother (worse
-  fidelity, smaller GPX).** Never simplify the straight-line fallback — it
-  only discards drawn vertices.
+  fidelity, smaller GPX).** It is evaluated in a local metre projection and
+  must retain endpoints and simple-line topology. Never simplify the
+  straight-line fallback — it only discards drawn vertices.
 - If a waypoint lands in a park/river with no nearby road, ORS routes around
   it, creating a spike. The RefinementAgent should nudge an offset, not rescale.
 - Keep `continue_straight=false` for GPS art. Hearts, lettering, and other

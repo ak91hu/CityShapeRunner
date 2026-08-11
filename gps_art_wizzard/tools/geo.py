@@ -83,11 +83,30 @@ def _all_points(paths: list[Path]) -> np.ndarray:
 
 
 def normalize_shape(paths: list[Path]) -> list[Path]:
-    """Centre on centroid, scale so the larger bounding-box side == 1.0."""
+    """Centre on route-length centroid and scale the larger box side to 1.
+
+    Weighting segment midpoints by their length makes placement invariant to
+    uneven control-point density. This matters for model-generated contours,
+    where adding several controls around one ear or notch must not drag the
+    whole drawing away from the requested city centre.
+    """
     pts = _all_points(paths)
     if pts.size == 0:
         return [[(0.0, 0.0)]]
-    centroid = pts.mean(axis=0)
+    weighted_midpoints = np.zeros(2, dtype=float)
+    total_length = 0.0
+    for path in paths:
+        if len(path) < 2:
+            continue
+        path_points = np.asarray(path, dtype=float)
+        segments = np.diff(path_points, axis=0)
+        lengths = np.hypot(segments[:, 0], segments[:, 1])
+        weighted_midpoints += np.sum(
+            ((path_points[:-1] + path_points[1:]) / 2.0) * lengths[:, np.newaxis],
+            axis=0,
+        )
+        total_length += float(lengths.sum())
+    centroid = weighted_midpoints / total_length if total_length > 1e-12 else pts.mean(axis=0)
     shifted = pts - centroid
     extents = shifted.max(axis=0) - shifted.min(axis=0)
     scale = float(extents.max())
@@ -116,38 +135,96 @@ def offset_shape(paths: list[Path], dx: float, dy: float) -> list[Path]:
 # Multi-stroke route construction (unit space)
 # --------------------------------------------------------------------------- #
 def stitch_paths(paths: list[Path]) -> Path:
-    """Join separate strokes with short deterministic transfer segments.
+    """Join separate strokes with a globally minimal transfer sequence.
 
     A GPS route must be continuous even when a drawing contains separate
-    strokes (letters, eyes, rays, and similar details). The first, usually
-    dominant, stroke is kept as the start. Remaining strokes are greedily
-    selected by nearest endpoint and reversed when that shortens the transfer.
-    This preserves the authored strokes while avoiding arbitrary cross-shape
-    connectors and the unnecessary distance they introduce.
+    strokes. The first, usually dominant, stroke stays first. For the remaining
+    at-most-seven generated strokes, a small exact dynamic program chooses both
+    order and traversal direction. Internal stroke lengths are constant, so
+    minimising endpoint-to-endpoint transfers minimises all artificial lines
+    added by stitching without changing any authored stroke.
     """
     remaining = [list(path) for path in paths if path]
     if not remaining:
         return []
 
     route = remaining.pop(0)
-    while remaining:
-        current = route[-1]
-        best_index = 0
-        reverse = False
-        best_distance = float("inf")
-        for index, path in enumerate(remaining):
-            to_start = math.hypot(path[0][0] - current[0], path[0][1] - current[1])
-            to_end = math.hypot(path[-1][0] - current[0], path[-1][1] - current[1])
-            candidate_distance = min(to_start, to_end)
-            candidate_reverse = to_end < to_start
-            if candidate_distance < best_distance:
-                best_index = index
-                reverse = candidate_reverse
-                best_distance = candidate_distance
+    if not remaining:
+        return route
 
-        next_path = remaining.pop(best_index)
-        if reverse:
-            next_path.reverse()
+    def oriented(index: int, reverse: bool) -> Path:
+        path = remaining[index]
+        return list(reversed(path)) if reverse else path
+
+    # Custom generation is schema-bounded to eight strokes. Text outlines can
+    # contain many more, where exponential search would be inappropriate; use
+    # the former deterministic nearest-endpoint strategy for those inputs.
+    if len(remaining) > 9:
+        while remaining:
+            current = route[-1]
+            candidates = []
+            for index, path in enumerate(remaining):
+                for reverse in (False, True):
+                    start = path[-1] if reverse else path[0]
+                    candidates.append(
+                        (
+                            math.hypot(start[0] - current[0], start[1] - current[1]),
+                            index,
+                            reverse,
+                        )
+                    )
+            _, index, reverse = min(candidates)
+            next_path = remaining.pop(index)
+            if reverse:
+                next_path.reverse()
+            if route[-1] == next_path[0]:
+                route.extend(next_path[1:])
+            else:
+                route.extend(next_path)
+        return route
+
+    # (visited mask, final stroke, final orientation) ->
+    # (transfer length, deterministic ordered decisions)
+    states: dict[
+        tuple[int, int, bool],
+        tuple[float, tuple[tuple[int, bool], ...]],
+    ] = {}
+    for index in range(len(remaining)):
+        for reverse in (False, True):
+            path = oriented(index, reverse)
+            distance = math.hypot(path[0][0] - route[-1][0], path[0][1] - route[-1][1])
+            states[(1 << index, index, reverse)] = (distance, ((index, reverse),))
+
+    full_mask = (1 << len(remaining)) - 1
+    for mask in range(1, full_mask + 1):
+        current_states = [
+            (key, value)
+            for key, value in states.items()
+            if key[0] == mask
+        ]
+        for (_, last_index, last_reverse), (cost, decisions) in current_states:
+            last_endpoint = oriented(last_index, last_reverse)[-1]
+            for next_index in range(len(remaining)):
+                if mask & (1 << next_index):
+                    continue
+                for next_reverse in (False, True):
+                    next_path = oriented(next_index, next_reverse)
+                    transfer = math.hypot(
+                        next_path[0][0] - last_endpoint[0],
+                        next_path[0][1] - last_endpoint[1],
+                    )
+                    key = (mask | (1 << next_index), next_index, next_reverse)
+                    candidate = (cost + transfer, decisions + ((next_index, next_reverse),))
+                    incumbent = states.get(key)
+                    if incumbent is None or candidate < incumbent:
+                        states[key] = candidate
+
+    _, decisions = min(
+        (value for key, value in states.items() if key[0] == full_mask),
+        key=lambda value: value,
+    )
+    for index, reverse in decisions:
+        next_path = oriented(index, reverse)
         if route[-1] == next_path[0]:
             route.extend(next_path[1:])
         else:
@@ -177,16 +254,25 @@ def densify_path(path: Path, max_step: float = 0.01) -> Path:
     return out
 
 
-def catmull_rom_smooth(path: Path, *, closed: bool = False, subdivisions: int = 8) -> Path:
-    """Smooth a polyline via Catmull-Rom splines.
+def catmull_rom_smooth(
+    path: Path,
+    *,
+    closed: bool = False,
+    subdivisions: int = 8,
+    corner_threshold_deg: float | None = None,
+) -> Path:
+    """Smooth a polyline with a centripetal Catmull-Rom spline.
 
-    For each segment between consecutive control points, ``subdivisions``
-    interpolated points are generated, producing a C1-continuous curve that
-    passes through every original point. Closed paths wrap the control points
-    cyclically; open paths duplicate the endpoints.
+    Centripetal parameterisation is stable for unevenly spaced model-generated
+    controls and avoids the segment-local cusps and loops possible with the
+    uniform formula. When ``corner_threshold_deg`` is supplied, segments next
+    to stronger authored turns remain linear, preserving semantic tips,
+    notches, and ears while smoother contour regions are interpolated.
     """
     if subdivisions < 1:
         raise ValueError("subdivisions must be at least one")
+    if corner_threshold_deg is not None and not (0.0 < corner_threshold_deg < 180.0):
+        raise ValueError("corner_threshold_deg must be between zero and 180")
     pts = list(path)
     if closed and len(pts) > 1 and pts[0] == pts[-1]:
         pts.pop()
@@ -195,9 +281,33 @@ def catmull_rom_smooth(path: Path, *, closed: bool = False, subdivisions: int = 
         return list(pts) + ([pts[0]] if closed and pts else [])
 
     if closed:
-        control = [pts[-1]] + pts + [pts[0], pts[1]]
+        control = [pts[-1], *pts, pts[0], pts[1]]
     else:
-        control = [pts[0]] + pts + [pts[-1]]
+        # Extrapolated endpoint controls avoid the coincident knots produced
+        # by duplicating endpoints in a non-uniform parameterisation.
+        first_control = (2 * pts[0][0] - pts[1][0], 2 * pts[0][1] - pts[1][1])
+        last_control = (2 * pts[-1][0] - pts[-2][0], 2 * pts[-1][1] - pts[-2][1])
+        control = [first_control, *pts, last_control]
+
+    protected_corners: set[int] = set()
+    if corner_threshold_deg is not None:
+        threshold = math.radians(corner_threshold_deg)
+        indices = range(n) if closed else range(1, n - 1)
+        for index in indices:
+            previous = pts[(index - 1) % n]
+            current = pts[index]
+            following = pts[(index + 1) % n]
+            incoming = (current[0] - previous[0], current[1] - previous[1])
+            outgoing = (following[0] - current[0], following[1] - current[1])
+            incoming_length = math.hypot(*incoming)
+            outgoing_length = math.hypot(*outgoing)
+            if incoming_length <= 1e-12 or outgoing_length <= 1e-12:
+                continue
+            cosine = (
+                incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+            ) / (incoming_length * outgoing_length)
+            if math.acos(min(1.0, max(-1.0, cosine))) >= threshold:
+                protected_corners.add(index)
 
     out: Path = []
     segments = n if closed else n - 1
@@ -206,23 +316,37 @@ def catmull_rom_smooth(path: Path, *, closed: bool = False, subdivisions: int = 
         p1 = control[i + 1]
         p2 = control[i + 2]
         p3 = control[i + 3]
+        linear = i in protected_corners or ((i + 1) % n) in protected_corners
+        if linear:
+            for j in range(subdivisions):
+                fraction = j / subdivisions
+                out.append(
+                    (
+                        p1[0] + (p2[0] - p1[0]) * fraction,
+                        p1[1] + (p2[1] - p1[1]) * fraction,
+                    )
+                )
+            continue
+
+        t0 = 0.0
+        t1 = t0 + max(math.hypot(p1[0] - p0[0], p1[1] - p0[1]) ** 0.5, 1e-9)
+        t2 = t1 + max(math.hypot(p2[0] - p1[0], p2[1] - p1[1]) ** 0.5, 1e-9)
+        t3 = t2 + max(math.hypot(p3[0] - p2[0], p3[1] - p2[1]) ** 0.5, 1e-9)
+
+        def blend(a: Pt, b: Pt, ta: float, tb: float, t: float) -> Pt:
+            return (
+                ((tb - t) * a[0] + (t - ta) * b[0]) / (tb - ta),
+                ((tb - t) * a[1] + (t - ta) * b[1]) / (tb - ta),
+            )
+
         for j in range(subdivisions):
-            t = j / subdivisions
-            t2 = t * t
-            t3 = t2 * t
-            x = 0.5 * (
-                (2 * p1[0])
-                + (-p0[0] + p2[0]) * t
-                + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2
-                + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
-            )
-            y = 0.5 * (
-                (2 * p1[1])
-                + (-p0[1] + p2[1]) * t
-                + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2
-                + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
-            )
-            out.append((x, y))
+            t = t1 + (t2 - t1) * (j / subdivisions)
+            a1 = blend(p0, p1, t0, t1, t)
+            a2 = blend(p1, p2, t1, t2, t)
+            a3 = blend(p2, p3, t2, t3, t)
+            b1 = blend(a1, a2, t0, t2, t)
+            b2 = blend(a2, a3, t1, t3, t)
+            out.append(blend(b1, b2, t1, t2, t))
     out.append(pts[-1] if not closed else pts[0])
     return out
 

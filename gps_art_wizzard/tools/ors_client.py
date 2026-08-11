@@ -489,7 +489,11 @@ def _simplify_to_budget(
     best: list[LatLon] | None = None
     for _ in range(24):
         tolerance = (low + high) / 2.0
-        simplified = [to_latlon(point) for point in line.simplify(tolerance).coords]
+        simplified_line = line.simplify(tolerance, preserve_topology=True)
+        if line.is_simple and not simplified_line.is_simple:
+            low = tolerance
+            continue
+        simplified = [to_latlon(point) for point in simplified_line.coords]
         if len(simplified) <= max_points:
             best = simplified
             high = tolerance

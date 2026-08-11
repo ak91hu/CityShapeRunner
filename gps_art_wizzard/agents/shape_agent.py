@@ -25,13 +25,39 @@ from shapely.geometry import LineString
 from ..llm import LLMResponse, extract_json, try_complete
 from ..prompts import render
 from ..state import Shape, WorkflowState
-from ..tools import geo, shape_library, text_shapes
+from ..tools import geo, shape_library, shape_uniqueness, text_shapes
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v2"
+_CUSTOM_SHAPE_CACHE_VERSION = "v3"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
+
+_CUSTOM_SHAPE_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "maxLength": 80},
+        "paths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+                "type": "array",
+                "minItems": 6,
+                "maxItems": 240,
+                "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {"type": "number", "minimum": -10, "maximum": 10},
+                },
+            },
+        },
+        "closed": {"type": "boolean"},
+    },
+    "required": ["name", "paths", "closed"],
+    "additionalProperties": False,
+}
 
 
 class ShapeAgent(BaseAgent):
@@ -71,9 +97,11 @@ class ShapeAgent(BaseAgent):
                     path,
                     closed=shape.closed,
                     subdivisions=3,
+                    corner_threshold_deg=70.0,
                 )
-                # Catmull-Rom can overshoot around tight concavities.  Keep the
-                # authored control polygon when smoothing would add a crossing.
+                # Even the stable centripetal curve can cross a remote segment
+                # in a strongly concave whole outline. Keep the authored
+                # control polygon whenever that executable topology check fails.
                 smoothed.append(candidate if _is_simple_path(candidate) else list(path))
             return smoothed
         return shape.paths
@@ -137,6 +165,7 @@ class ShapeAgent(BaseAgent):
             messages=[{"role": "user", "content": user}],
             system=system,
             json_mode=True,
+            json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
             temperature=0.3,
         )
         try:
@@ -182,6 +211,7 @@ class ShapeAgent(BaseAgent):
             messages=[{"role": "user", "content": repair_prompt}],
             system=system,
             json_mode=True,
+            json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
             temperature=0.2,
         )
         try:
@@ -211,6 +241,7 @@ def _shape_from_response(resp: LLMResponse, idea: str) -> Shape:
     source = "fallback" if resp.provider == "fallback" else "llm"
     if source == "llm":
         _validate_route_friendly_geometry(paths)
+        _validate_distinct_custom_geometry(paths)
         name = " ".join(idea.split())[:80]
     else:
         raw_name = data.get("name")
@@ -295,6 +326,27 @@ def _validate_route_friendly_geometry(paths: list[geo.Path]) -> None:
     for path in normalised:
         if len(path) >= 4 and not _is_simple_path(path):
             raise ValueError("the outline crosses itself")
+
+    if len(normalised) > 1:
+        authored_length = geo.unit_perimeter(normalised)
+        stitched_length = geo.unit_path_length(geo.stitch_paths(normalised))
+        transfer_length = max(0.0, stitched_length - authored_length)
+        if authored_length <= 1e-9 or transfer_length / authored_length > 0.45:
+            raise ValueError(
+                "separate strokes require too much artificial route transfer; "
+                "use one silhouette or move essential strokes closer"
+            )
+
+
+def _validate_distinct_custom_geometry(paths: list[geo.Path]) -> None:
+    """Keep a free-text result from silently collapsing to a stock template."""
+
+    match = shape_uniqueness.nearest_catalog_shape(paths)
+    if match.distance <= shape_uniqueness.DUPLICATE_DISTANCE_THRESHOLD:
+        raise ValueError(
+            f"the custom outline duplicates the built-in {match.name!r} route; "
+            "represent the request's own distinguishing silhouette features"
+        )
 
 
 def _is_simple_path(path: geo.Path) -> bool:
