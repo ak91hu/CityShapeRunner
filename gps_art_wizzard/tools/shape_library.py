@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 from .extended_shape_catalog import AUTHORED_OUTLINES, SHAPE_ALIASES
 from .geo import Path
+from .hungarian_shape_catalog import HUNGARIAN_OUTLINES, HUNGARIAN_SHAPE_ALIASES
 
 ShapeGen = tuple[str, list[Path], bool]  # (name, paths, closed)
 
@@ -1132,7 +1133,8 @@ def _authored_generator(name: str) -> Callable[[], ShapeGen]:
     """Create a stable, inspectable generator for an authored silhouette."""
 
     def generate() -> ShapeGen:
-        return _outline(name, list(AUTHORED_OUTLINES[name]), 3)
+        outline = AUTHORED_OUTLINES.get(name) or HUNGARIAN_OUTLINES[name]
+        return _outline(name, list(outline), 3)
 
     generate.__name__ = name
     generate.__qualname__ = name
@@ -1154,6 +1156,7 @@ SHAPES: dict[str, Callable[[], ShapeGen]] = {g()[0]: g for g in [
     castle, speech_bubble, location_pin, trophy,
 ]}
 SHAPES.update({name: _authored_generator(name) for name in AUTHORED_OUTLINES})
+SHAPES.update({name: _authored_generator(name) for name in HUNGARIAN_OUTLINES})
 
 # Friendly keyword -> canonical name lookup (used by IntentAgent fallback).
 KEYWORDS: dict[str, str] = {
@@ -1235,6 +1238,10 @@ for _shape_name in AUTHORED_OUTLINES:
     KEYWORDS[_shape_name.replace("_", " ")] = _shape_name
     for _alias in SHAPE_ALIASES.get(_shape_name, ()):
         KEYWORDS[_alias] = _shape_name
+for _shape_name in HUNGARIAN_OUTLINES:
+    KEYWORDS[_shape_name.replace("_", " ")] = _shape_name
+    for _alias in HUNGARIAN_SHAPE_ALIASES.get(_shape_name, ()):
+        KEYWORDS[_alias] = _shape_name
 
 
 def get_shape(name: str) -> ShapeGen | None:
@@ -1277,6 +1284,8 @@ def template_match_covers_description(
         return True
     allowed_modifiers = {
         "a",
+        "alak",
+        "alakot",
         "an",
         "art",
         "big",
@@ -1287,9 +1296,17 @@ def template_match_covers_description(
         "large",
         "minimal",
         "minimalist",
+        "nagy",
         "outline",
+        "stilizált",
+        "stilizalt",
         "shape",
         "simple",
+        "egyszerű",
+        "egyszeru",
+        "egy",
+        "kis",
+        "kicsi",
         "small",
         "stylized",
         "stylised",

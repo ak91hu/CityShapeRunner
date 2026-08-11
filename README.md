@@ -9,12 +9,12 @@
 [![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
 [![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
-Turn a run or ride into a drawing. Describe an idea—or choose from 141 catalog
+Turn a run or ride into a drawing. Describe an idea—or choose from 157 catalog
 options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
-The project combines 128 deterministic shape templates, a complete A–Z/0–9
+The project combines 144 deterministic shape templates, a complete A–Z/0–9
 vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
 Balaton shore municipalities, and 136 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
@@ -29,13 +29,19 @@ profile for shoreline, terrain, rail, road, and wetland constraints. See
 [Lake Balaton coverage](docs/balaton-city-coverage.md) for the source, complete
 list, and recommendation policy.
 
+Sixteen additional one-stroke motifs—including paprika, puzzle cube, grey
+cattle, water tower, thermal bath, and folk gate—are paired with practical
+Hungarian-city starting points in the searchable catalog. Their research and
+geometry audit are documented in
+[Hungary-friendly GPS-art shapes](docs/hungarian-shape-catalog.md).
+
 Free-form prompts are not limited to the picker. Common phrases such as
 `draw a heart in Lyon, 8 km` can recover an unlisted settlement locally, then
 Nominatim is restricted to inhabited-place results and its administrative bbox
 is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
-Free-form drawings are not limited to the 141-option catalog either. A named
+Free-form drawings are not limited to the 157-option catalog either. A named
 custom idea is preserved locally, converted into two structured vector
 alternatives with an explicit recognition-feature brief, and checked for
 degenerate proportions, transfer lines, duplicates, and self-intersections.
@@ -147,9 +153,12 @@ queries, and the operational troubleshooting checklist.
 ## Quick ideas
 
 The web app keeps six common starters beside the prompt and places a searchable
-141-option catalog behind “More shapes, letters, and numbers”. It contains 128
+157-option catalog behind “More shapes, letters, and numbers”. It contains 144
 deterministic route templates plus 13 letter, number, and short-text presets:
 
+- **Hungarian ideas (16):** paprika, puzzle cube, moustache, grape cluster,
+  wine glass, cauldron, horseshoe, wheat, suspension bridge, water tower,
+  grey cattle, stag, pomegranate, chimney cake, thermal bath, and folk gate
 - **Simple shapes (19):** heart, star, circle, diamond, triangle, square,
   infinity, arrow, cross, lightning, wave, moon, hexagon, octagon, teardrop,
   shield, clover, spiral, and hourglass
@@ -164,13 +173,13 @@ deterministic route templates plus 13 letter, number, and short-text presets:
 - **Letters, numbers, and text:** A, C, L, M, N, S, U, V, Z, 2, 7, 42,
   and GPS
 
-The new complex templates are single continuous silhouettes wherever possible,
+The complex templates are single continuous silhouettes wherever possible,
 preserve recognisable high-curvature landmarks, and use longer cycling starts
 when their detail needs more road-network resolution. They are starting points,
 not guarantees: the result still depends on local connectivity, access rules,
 and route-provider coverage. Cat, dog, bird, and bat now have separate
 route-readable outlines and distinct catalog markers. A rotation-, scale-,
-start-, and direction-independent audit checks every pair in the 128-template
+start-, and direction-independent audit checks every pair in the 144-template
 registry; see the [shape-template research and uniqueness guard](docs/shape-template-uniqueness.md).
 
 The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
@@ -187,7 +196,7 @@ hill, or mountain recommendation profiles. These are planning priors, not a
 claim that every neighbourhood is suitable for every drawing.
 
 Smart suggestions no longer use a fixed city mascot. The planner measures all
-128 route templates, combines their continuity, turning complexity, directional
+144 route templates, combines their continuity, turning complexity, directional
 order, aspect ratio, and routeability with the selected city's street context,
 activity, and distance, then sends three diverse continuous shapes through the
 real placement and routing checks. The result explains why the winning shape

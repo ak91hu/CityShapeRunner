@@ -43,7 +43,10 @@ _CUSTOM_REQUEST_PREFIX = re.compile(
             \s+(?:me\s+)?(?:(?:a|an|the)\s+)?
         |(?:kérlek\s+)?(?:rajzolj|rajzoljon|készíts|készítsen|alkoss|tervezz|tervezzen)
             \s+(?:nekem\s+)?(?:(?:egy|a|az)\s+)?
+        |(?:fuss|fusson|kocogj|kocogjon|tekerj|tekerjen|biciklizz|kerékpározz)
+            \s+(?:(?:egy|a|az)\s+)?
         |(?:a|an|the)\s+
+        |(?:egy|az)\s+
         )
     """,
     flags=re.IGNORECASE | re.VERBOSE,

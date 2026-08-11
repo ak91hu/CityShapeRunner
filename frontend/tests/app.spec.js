@@ -372,9 +372,10 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByLabel("City").locator('option[value="Kraków"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Timișoara"]')).toHaveCount(1);
   await page.getByText("More shapes, letters, and numbers").click();
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(141);
+  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(157);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Robot" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Paprika" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Number 42" })).toBeVisible();
   const catalogGlyphs = await page
     .locator('.idea-catalog .idea-chip span[aria-hidden="true"]')

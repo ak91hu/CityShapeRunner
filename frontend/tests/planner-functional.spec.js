@@ -61,12 +61,13 @@ test("choosing a popular idea updates the prompt and selected state", async ({ p
   );
 });
 
-test("the full idea catalogue exposes every category and all 141 options", async ({ page }) => {
+test("the full idea catalogue exposes every category and all 157 options", async ({ page }) => {
   await page.goto("/");
   await page.getByText("More shapes, letters, and numbers").click();
 
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(141);
+  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(157);
   for (const category of [
+    "Hungarian ideas",
     "Simple shapes",
     "Nature",
     "Animals",

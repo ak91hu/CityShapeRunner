@@ -60,6 +60,10 @@ from gps_art_wizzard.tools import (
 )
 from gps_art_wizzard.tools.european_city_catalog import ADDITIONAL_EUROPEAN_CITIES
 from gps_art_wizzard.tools.extended_shape_catalog import AUTHORED_OUTLINES
+from gps_art_wizzard.tools.hungarian_shape_catalog import (
+    HUNGARIAN_OUTLINES,
+    HUNGARIAN_SHAPE_ALIASES,
+)
 
 EXTENDED_SHAPE_NAMES = frozenset(
     {
@@ -395,8 +399,12 @@ def test_shape_catalog_includes_both_expansion_sets():
     assert EXTENDED_SHAPE_NAMES <= shape_library.SHAPES.keys()
     assert len(AUTHORED_OUTLINES) == 55
     assert AUTHORED_OUTLINES.keys() <= shape_library.SHAPES.keys()
+    assert len(HUNGARIAN_OUTLINES) == 16
+    assert HUNGARIAN_OUTLINES.keys() <= shape_library.SHAPES.keys()
     assert EXTENDED_SHAPE_NAMES.isdisjoint(AUTHORED_OUTLINES)
-    assert len(shape_library.SHAPES) == 128
+    assert EXTENDED_SHAPE_NAMES.isdisjoint(HUNGARIAN_OUTLINES)
+    assert AUTHORED_OUTLINES.keys().isdisjoint(HUNGARIAN_OUTLINES)
+    assert len(shape_library.SHAPES) == 144
 
 
 def test_robot_template_keeps_large_robot_landmarks_after_road_snapping():
@@ -413,7 +421,7 @@ def test_robot_template_keeps_large_robot_landmarks_after_road_snapping():
 
 @pytest.mark.parametrize(
     "shape_name",
-    sorted(EXTENDED_SHAPE_NAMES | AUTHORED_OUTLINES.keys()),
+    sorted(EXTENDED_SHAPE_NAMES | AUTHORED_OUTLINES.keys() | HUNGARIAN_OUTLINES.keys()),
 )
 def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_name):
     generated = shape_library.get_shape(shape_name)
@@ -454,12 +462,56 @@ def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_n
         ("draw a robot in Budapest", "robot"),
         ("cycle a paper airplane in Bristol", "paper_plane"),
         ("make a watermelon in Valencia", "watermelon_slice"),
+        ("fuss egy paprika alakot Szegeden", "paprika"),
+        ("draw a Rubik-kocka in Budapest", "puzzle_cube"),
+        ("rajzolj szürkemarhát Debrecenben", "grey_cattle"),
+        ("a kürtőskalács run in Budapest", "chimney_cake"),
+        ("cycle a thermal bath in Hajdúszoboszló", "thermal_bath"),
     ],
 )
 def test_extended_shape_keywords_resolve_to_canonical_templates(prompt, expected):
     generated = shape_library.find_by_keyword(prompt)
     assert generated is not None
     assert generated[0] == expected
+
+
+def test_hungarian_shape_names_and_aliases_resolve_without_an_llm():
+    for canonical_name, aliases in HUNGARIAN_SHAPE_ALIASES.items():
+        probes = (canonical_name.replace("_", " "), *aliases)
+        for probe in probes:
+            generated = shape_library.find_by_keyword(f"rajzolj egy {probe} alakot")
+            assert generated is not None, (canonical_name, probe)
+            assert generated[0] == canonical_name, (canonical_name, probe, generated[0])
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_shape", "expected_city", "expected_sport"),
+    [
+        ("Fuss egy paprika alakot Szegeden, 12 km", "paprika", "Szeged", "run"),
+        ("Egy kürtőskalács Budapesten biciklivel, 24 km", "chimney_cake", "Budapest", "bike"),
+        ("Rajzolj szürkemarhát Debrecenben kerékpárral, 28 km", "grey_cattle", "Debrecen", "bike"),
+        ("Rajzolj egy Rubik-kockát Budapesten, 14 km", "puzzle_cube", "Budapest", "run"),
+    ],
+)
+def test_hungarian_catalog_prompts_take_the_local_template_fast_path(
+    monkeypatch,
+    prompt,
+    expected_shape,
+    expected_city,
+    expected_sport,
+):
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("a Hungarian catalog request must not call an LLM")
+
+    monkeypatch.setattr("gps_art_wizzard.agents.intent_agent.try_complete", fail_if_called)
+    state = WorkflowState(prompt=prompt)
+
+    IntentAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == expected_shape
+    assert state.intent.city == expected_city
+    assert state.intent.sport == expected_sport
 
 
 @pytest.mark.parametrize(
@@ -1699,7 +1751,7 @@ def test_shape_recommender_profiles_every_registered_template():
     profiles = shape_recommender.shape_catalog_profiles()
 
     assert profiles.keys() == shape_library.SHAPES.keys()
-    assert len(profiles) == 128
+    assert len(profiles) == 144
     assert all(profile.path_count >= 1 for profile in profiles.values())
     assert all(0.0 <= profile.complexity <= 1.0 for profile in profiles.values())
     assert all(0.0 <= profile.routeability <= 1.0 for profile in profiles.values())

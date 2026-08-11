@@ -1,6 +1,6 @@
 # GPS Art Wizard
 
-Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 141 catalog
+Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 157 catalog
 options, or enter a city, activity, and distance. The planner creates and places
 the outline, routes it over streets, measures the match, and retains every fully
 routed candidate. Candidates that pass all independent shape, street, distance,
@@ -23,13 +23,15 @@ For a city-based suggestion, enter:
 context to choose a template, placement, and orientation likely to fit the
 street network.
 
-The choice is computed from the full 128-template registry rather than a fixed
+The choice is computed from the full 144-template registry rather than a fixed
 city-to-symbol table. Shape continuity, turns, directional order, proportions,
 and detail are scored against city grid/connectivity, barriers, terrain,
 activity, and requested distance. Up to three diverse continuous templates are
 then measured on the actual route graph. The result includes a concise reason;
 the full method and coverage groups are in
 [City-aware shape recommendations](city-shape-recommendations.md).
+The research and route-design rationale for the 16 locally themed additions is
+in [Hungary-friendly GPS-art shapes](hungarian-shape-catalog.md).
 
 The city picker exposes 230 unique destinations. This includes every one of the
 45 shore municipalities in the current Lake Balaton statutory list; Siófok is
@@ -40,12 +42,13 @@ are documented in [Lake Balaton city coverage](balaton-city-coverage.md).
 ## Quick-idea catalog
 
 The planner shows six common shapes first and keeps the full searchable
-141-option catalog behind “More shapes, letters, and numbers” so the prompt
-remains the primary control. The catalog combines 128 deterministic route
+157-option catalog behind “More shapes, letters, and numbers” so the prompt
+remains the primary control. The catalog combines 144 deterministic route
 templates with 13 built-in vector-font presets:
 
 | Group | Ideas |
 |---|---|
+| Hungarian ideas | Paprika, puzzle cube, moustache, grape cluster, wine glass, cauldron, horseshoe, wheat, suspension bridge, water tower, grey cattle, stag, pomegranate, chimney cake, thermal bath, folk gate |
 | Simple shapes | Heart, star, circle, diamond, triangle, square, infinity, arrow, cross, lightning, wave, moon, hexagon, octagon, teardrop, shield, clover, spiral, hourglass |
 | Nature | Original nature set plus acorn, banana, broccoli, feather, ice cream, volcano, and watermelon slice |
 | Animals | Original animal set plus ant, crab, dinosaur, frog, hedgehog, koala, octopus, paw print, seahorse, snake, spider, squid, and swan |
@@ -129,7 +132,7 @@ the [August 2026 algorithm audit](gps-art-algorithm-audit-2026-08.md).
 |-------|----------------|
 | **IntentAgent** | Parse the natural-language prompt into a structured intent (shape, city, sport, distance, text, suggest). Known template/text requests take a deterministic no-network fast path. |
 | **PlanningAgent** | Resolve supported cities from the local route database, study curated geography, and commit street-grid rotation, safe offsets, and a distinct city/activity suggestion. |
-| **ShapeAgent** | Turn the intent into a 2D polyline — 128 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
+| **ShapeAgent** | Turn the intent into a 2D polyline — 144 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
 | **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |

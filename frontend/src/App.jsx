@@ -161,9 +161,36 @@ const ADDITIONAL_SHAPE_IDEAS = [
   { glyph: "🌬️", label: "Windmill", category: "Objects", prompt: "a windmill bike route in Rotterdam, about 22 km" },
 ];
 
-const QUICK_IDEAS = [...CORE_IDEAS, ...ADDITIONAL_SHAPE_IDEAS];
+const HUNGARIAN_SHAPE_IDEAS = [
+  { glyph: "🌶️", label: "Paprika", category: "Hungarian ideas", prompt: "a paprika run in Szeged, about 12 km" },
+  { glyph: "🧊", label: "Puzzle cube", category: "Hungarian ideas", prompt: "a Rubik's cube bike route in Budapest, about 24 km" },
+  { glyph: "🥸", label: "Moustache", category: "Hungarian ideas", prompt: "a moustache run in Kecskemét, about 18 km" },
+  { glyph: "🍇", label: "Grape cluster", category: "Hungarian ideas", prompt: "a grape cluster bike route in Eger, about 24 km" },
+  { glyph: "🍷", label: "Wine glass", category: "Hungarian ideas", prompt: "a wine glass run in Sopron, about 18 km" },
+  { glyph: "🥘", label: "Cauldron", category: "Hungarian ideas", prompt: "a cauldron run in Békéscsaba, about 18 km" },
+  { glyph: "🧲", label: "Horseshoe", category: "Hungarian ideas", prompt: "a horseshoe run in Debrecen, about 16 km" },
+  { glyph: "🌾", label: "Wheat", category: "Hungarian ideas", prompt: "a wheat bike route in Békéscsaba, about 28 km" },
+  { glyph: "🌉", label: "Suspension bridge", category: "Hungarian ideas", prompt: "a suspension bridge bike route in Budapest, about 30 km" },
+  { glyph: "🗼", label: "Water tower", category: "Hungarian ideas", prompt: "a water tower bike route in Szeged, about 22 km" },
+  { glyph: "🐂", label: "Grey cattle", category: "Hungarian ideas", prompt: "Hungarian grey cattle GPS art in Debrecen, cycling about 28 km" },
+  { glyph: "🦌", label: "Stag", category: "Hungarian ideas", prompt: "a stag bike route in Gyöngyös, about 30 km" },
+  { glyph: "🔴", label: "Pomegranate", category: "Hungarian ideas", prompt: "a pomegranate run in Pécs, about 12 km" },
+  { glyph: "🧁", label: "Chimney cake", category: "Hungarian ideas", prompt: "a chimney cake bike route in Budapest, about 24 km" },
+  { glyph: "♨️", label: "Thermal bath", category: "Hungarian ideas", prompt: "a thermal bath bike route in Hajdúszoboszló, about 28 km" },
+  { glyph: "⛩️", label: "Folk gate", category: "Hungarian ideas", prompt: "a folk gate bike route in Szentendre, about 30 km" },
+];
 
-const IDEA_CATEGORIES = ["Simple shapes", "Nature", "Animals", "Objects", "Symbols", "Letters, numbers & text"];
+const QUICK_IDEAS = [...CORE_IDEAS, ...ADDITIONAL_SHAPE_IDEAS, ...HUNGARIAN_SHAPE_IDEAS];
+
+const IDEA_CATEGORIES = [
+  "Hungarian ideas",
+  "Simple shapes",
+  "Nature",
+  "Animals",
+  "Objects",
+  "Symbols",
+  "Letters, numbers & text",
+];
 const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
 const DISTINCT_IDEA_GLYPHS = Object.freeze({
   Bat: "🦇",
