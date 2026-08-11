@@ -11,7 +11,7 @@ Alsópáhok, Cserszegtomaj, Felsőörs, Felsőpáhok, Hévíz, Kőröshegy, and 
 
 Siófok is also one of the 50 major Hungarian cities already present in the
 application. It stays in the Hungary option group and is not duplicated in the
-Lake Balaton group. The result is 44 new options and 124 unique destinations in
+Lake Balaton group. The result is 44 new options and 230 unique destinations in
 the picker.
 
 ## Included municipalities
@@ -52,58 +52,58 @@ requires map review where a result does not pass automatically.
 
 ## Baseline recommendation list
 
-The following audit is produced by the same 73-template ranker used at runtime.
+The following audit is produced by the same 128-template ranker used at runtime.
 It shows three starting candidates for a typical 8 km run and 25 km ride.
 These are not fixed city mascots: changing distance or activity changes the
 detail budget, and live placement and routing can change the final winner.
 
 | Municipality | 8 km run | 25 km ride |
 |---|---|---|
-| Alsóörs | square, diamond, arrow | square, diamond, clover |
-| Aszófő | square, diamond, arrow | square, diamond, clover |
-| Ábrahámhegy | square, diamond, arrow | square, diamond, clover |
+| Alsóörs | square, paper_plane, diamond | square, diamond, clover |
+| Aszófő | square, paper_plane, diamond | square, diamond, clover |
+| Ábrahámhegy | square, paper_plane, diamond | square, diamond, clover |
 | Badacsonytomaj | square, clover, diamond | square, clover, diamond |
 | Badacsonytördemic | square, clover, diamond | square, clover, diamond |
-| Balatonakali | square, diamond, arrow | square, diamond, clover |
-| Balatonakarattya | square, diamond, arrow | square, diamond, clover |
-| Balatonalmádi | square, diamond, arrow | square, diamond, clover |
-| Balatonberény | square, diamond, lightning | lightning, fox, square |
-| Balatonboglár | square, lightning, diamond | lightning, hourglass, square |
-| Balatonederics | square, diamond, octagon | square, diamond, octagon |
-| Balatonfenyves | square, diamond, lightning | lightning, fox, square |
-| Balatonfőkajár | lightning, square, arrow | lightning, hourglass, square |
-| Balatonföldvár | square, lightning, diamond | lightning, hourglass, square |
-| Balatonfüred | square, lightning, diamond | lightning, hourglass, square |
-| Balatonfűzfő | square, diamond, arrow | square, diamond, clover |
-| Balatongyörök | square, diamond, octagon | square, diamond, octagon |
-| Balatonkenese | square, diamond, arrow | square, diamond, clover |
-| Balatonkeresztúr | square, diamond, lightning | lightning, fox, square |
-| Balatonlelle | square, lightning, diamond | lightning, hourglass, square |
-| Balatonmáriafürdő | square, diamond, lightning | lightning, fox, square |
-| Balatonőszöd | square, diamond, lightning | lightning, fox, square |
+| Balatonakali | square, paper_plane, diamond | square, diamond, clover |
+| Balatonakarattya | square, paper_plane, diamond | square, diamond, clover |
+| Balatonalmádi | square, paper_plane, diamond | square, diamond, clover |
+| Balatonberény | square, drum, diamond | drum, lightning, square |
+| Balatonboglár | square, drum, lightning | drum, lightning, square |
+| Balatonederics | banana, square, diamond | square, paper_plane, diamond |
+| Balatonfenyves | square, drum, diamond | drum, lightning, square |
+| Balatonfőkajár | banana, lightning, square | lightning, drum, square |
+| Balatonföldvár | square, drum, lightning | drum, lightning, square |
+| Balatonfüred | square, drum, lightning | drum, lightning, square |
+| Balatonfűzfő | square, paper_plane, diamond | square, diamond, clover |
+| Balatongyörök | banana, square, diamond | square, paper_plane, diamond |
+| Balatonkenese | square, paper_plane, diamond | square, diamond, clover |
+| Balatonkeresztúr | square, drum, diamond | drum, lightning, square |
+| Balatonlelle | square, drum, lightning | drum, lightning, square |
+| Balatonmáriafürdő | square, drum, diamond | drum, lightning, square |
+| Balatonőszöd | square, drum, diamond | drum, lightning, square |
 | Balatonrendes | square, clover, diamond | square, clover, diamond |
-| Balatonszabadi | square, lightning, diamond | lightning, hourglass, square |
-| Balatonszárszó | square, diamond, lightning | lightning, fox, square |
-| Balatonszemes | square, lightning, diamond | lightning, hourglass, square |
-| Balatonszentgyörgy | square, diamond, lightning | lightning, fox, square |
-| Balatonszepezd | square, diamond, arrow | square, diamond, clover |
-| Balatonudvari | square, diamond, arrow | square, diamond, clover |
-| Balatonvilágos | square, diamond, lightning | lightning, fox, square |
-| Csopak | square, diamond, arrow | square, diamond, clover |
-| Fonyód | square, diamond, octagon | square, diamond, octagon |
-| Gyenesdiás | square, lightning, diamond | lightning, hourglass, square |
-| Keszthely | square, lightning, diamond | lightning, square, hourglass |
-| Kővágóörs | square, diamond, arrow | square, diamond, clover |
+| Balatonszabadi | square, drum, lightning | drum, lightning, square |
+| Balatonszárszó | square, drum, diamond | drum, lightning, square |
+| Balatonszemes | square, drum, lightning | drum, lightning, square |
+| Balatonszentgyörgy | square, drum, diamond | drum, lightning, square |
+| Balatonszepezd | square, paper_plane, diamond | square, diamond, clover |
+| Balatonudvari | square, paper_plane, diamond | square, diamond, clover |
+| Balatonvilágos | square, drum, diamond | drum, lightning, square |
+| Csopak | square, paper_plane, diamond | square, diamond, clover |
+| Fonyód | banana, square, diamond | square, paper_plane, diamond |
+| Gyenesdiás | square, drum, lightning | drum, lightning, square |
+| Keszthely | square, drum, lightning | lightning, drum, square |
+| Kővágóörs | square, paper_plane, diamond | square, diamond, clover |
 | Örvényes | square, clover, diamond | square, clover, diamond |
 | Paloznak | square, clover, diamond | square, clover, diamond |
-| Révfülöp | square, diamond, arrow | square, diamond, clover |
-| Siófok | square, lightning, diamond | lightning, square, hourglass |
-| Szántód | square, diamond, lightning | lightning, fox, square |
+| Révfülöp | square, paper_plane, diamond | square, diamond, clover |
+| Siófok | square, drum, lightning | lightning, drum, square |
+| Szántód | square, drum, diamond | drum, lightning, square |
 | Szigliget | square, clover, diamond | square, clover, diamond |
 | Tihany | square, clover, diamond | square, clover, diamond |
-| Vonyarcvashegy | square, diamond, octagon | square, diamond, octagon |
-| Zamárdi | square, lightning, diamond | lightning, hourglass, square |
-| Zánka | square, diamond, arrow | square, diamond, clover |
+| Vonyarcvashegy | banana, square, diamond | square, paper_plane, diamond |
+| Zamárdi | square, drum, lightning | drum, lightning, square |
+| Zánka | square, paper_plane, diamond | square, diamond, clover |
 
 The shortlist stays deliberately conservative in small shore settlements.
 [Li and Fu's road-graphic retrieval study](https://doi.org/10.3390/ijgi15030098)
@@ -118,7 +118,7 @@ without graph evidence.
 
 Backend tests require all 45 names to be unique, locally geocodable, individually
 profiled, backed by explicit numeric route priors, and available to deterministic
-intent parsing. The recommendation audit includes all 124 unique destinations.
+intent parsing. The recommendation audit includes all 230 unique destinations.
 Playwright verifies the three
 labelled picker groups, the single Siófok option, accented Balaton selection,
 and the exact generated request.

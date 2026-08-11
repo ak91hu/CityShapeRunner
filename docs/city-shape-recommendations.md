@@ -4,7 +4,7 @@
 
 A recommendation is a shortlist for measurement, not a claim that a shape is
 guaranteed to work throughout a city. The application scores every one of its
-73 route templates, shortlists the best three continuous and geometrically
+128 route templates, shortlists the best three continuous and geometrically
 diverse candidates for the existing placement/routing pipeline, and keeps the best
 candidate actually measured on the activity-specific street graph. A primary
 candidate that already passes every gate can end the search early.
@@ -47,11 +47,13 @@ distance profile instead of contaminating the cache.
 
 ## City coverage and useful starting families
 
-The first table accounts for the original 80 selectable cities. The Balaton
-table below adds the complete 45-municipality shore set; Siófok occurs in both
-coverage sets, producing 124 unique picker options. These groups describe the
-starting prior used before live placement and routing. The numeric traits are
-continuous, so cities inside a group can still receive a different order.
+The picker combines 50 Hungarian cities, 136 other European cities, and the
+complete 45-municipality Balaton shore set. Siófok occurs in two coverage sets,
+producing 230 unique options. The first table summarises the original curated
+profiles. The additional 106 European cities use explicit grid, radial, river,
+canal, coast, lake, hill, or mountain profile tags with compact urban search
+boxes. These groups describe the starting prior before live placement and
+routing; the measured street result remains authoritative.
 
 | Street context | Cities | Shapes commonly worth measuring first |
 |---|---|---|
@@ -83,7 +85,7 @@ receive a bear merely because of its symbolism: the bear must compete on the
 same geometric and routing evidence as every other template. The actual
 shortlist also changes with distance and activity.
 
-## Audit of all 73 route templates
+## Audit of all 128 route templates
 
 The registry audit below is generated from geometry. “Disconnected” shapes
 remain available when the user explicitly requests them, but they are not used
@@ -93,17 +95,17 @@ unwanted transfer lines.
 | Measured family | Templates | Recommendation policy |
 |---|---|---|
 | Simple smooth | circle, clover, heart, infinity, leaf, moon, triangle | Strong short-route candidates, especially where bearing order is low or radial. |
-| Simple orthogonal/outline | diamond, square, hexagon, shield | Strong short-route candidates on ordered grids; compact shapes also survive moderate barriers. |
+| Simple orthogonal/outline | diamond, square, hexagon, shield, watermelon slice | Strong short-route candidates on ordered grids; compact shapes also survive moderate barriers. |
 | Simple open | spiral, wave | Useful only when an open route and corridor-like placement fit the request. |
-| Moderate open/orthogonal | arrow, lightning | Useful on constrained or elongated street fabrics; lightning benefits from an ordered axis. |
-| Moderate continuous outline | bell, cat, crown, flower, fox, hourglass, location pin, mushroom, octagon, owl, pear, rocket, speech bubble, star, teardrop, whale | Main medium-distance pool. Ranking depends heavily on grid/radial order, terrain, barriers, and activity. |
-| Detailed orthogonal | cactus, castle, cross | Reserved for longer routes with ordered, connected streets. |
-| Detailed continuous outline | airplane, apple, bat, bear, bird, butterfly, car, cloud, dog, duck, elephant, flame, guitar, house, maple leaf, mountain, penguin, pine tree, shark, snail, snowflake, tree, trophy, tulip, turtle, umbrella | Considered for long routes when city detail capacity is high; otherwise the overshoot penalty keeps them out of the expensive shortlist. |
+| Moderate open/orthogonal | arrow, kite, lightning | Useful on constrained or elongated street fabrics; lightning benefits from an ordered axis. |
+| Moderate continuous outline | acorn, balloon, banana, bell, candle, crown, drum, flower, fox, ghost, helmet, hourglass, location pin, mushroom, octagon, owl, paper plane, pear, pizza slice, rocket, speech bubble, star, teardrop, tent, whale | Main medium-distance pool. Ranking depends heavily on grid/radial order, terrain, barriers, and activity. |
+| Detailed orthogonal | bus, cactus, castle, cross, hammer, ladder, lock, robot, scissors | Reserved for longer routes with ordered, connected streets. |
+| Detailed continuous outline | The remaining 68 one-path templates, including ant, dinosaur, octopus, snake, stethoscope, submarine, swan, tractor, train, volcano, and windmill | Considered for long routes when city detail capacity is high; otherwise the overshoot penalty keeps them out of the expensive shortlist. |
 | Disconnected | anchor, dolphin, dragon, fish, helix, horse, key, mug, note, rabbit, sailboat, skull, sun | Analysed but excluded from automatic top-three selection. Still usable as an explicit user choice with normal routing and review gates. |
 
 ## Runtime decision sequence
 
-1. Analyse the complete 73-template registry; cached immutable geometry
+1. Analyse the complete 128-template registry; cached immutable geometry
    profiles make later requests inexpensive.
 2. Derive continuous city traits from the curated local geography profile.
 3. Cap supported detail using activity and distance.

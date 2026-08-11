@@ -61,8 +61,8 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Fast path:** known templates, text, and suggestions use curated city
   context deterministically, including a documented street-grid rotation and
   conservative obstacle-avoidance offset. Hungary's KSH top 50 settlements and
-  30 regionally balanced European cities have local centres, bounded urban
-  search areas, and geography profiles. Suggestions score all 73 templates by
+  136 regionally balanced European cities have local centres, bounded urban
+  search areas, and geography profiles. Suggestions score all 128 templates by
   continuity, turns, directional order, aspect, complexity, city street traits,
   activity, and distance; three diverse continuous candidates proceed to live
   route measurement. The bbox-derived city-extent heading is only a coarse
@@ -77,7 +77,7 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Output:** `Shape` — sub-paths of (x, y) in unit space + `closed`.
 - **Strategy:** the plan's `shape_strategy` reorders the three tiers
   (template / text / llm). Default (no plan): template → text → llm. The shape
-  is selected from 73 deterministic templates or normalised (centroid → origin,
+  is selected from 128 deterministic templates or normalised (centroid → origin,
   max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
 - **Custom geometry:** model output is bounded, checked for finite coordinates,

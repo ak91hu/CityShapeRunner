@@ -110,7 +110,7 @@ explicit without coupling the current runtime to one.
   measured scale correction and damped square-root bracket are tried. Tested
   scale/rotation/offset/tolerance signatures are remembered, so an already measured
   candidate cannot consume the remaining iteration budget repeatedly.
-- Smart suggestions score the complete 73-template registry against continuous
+- Smart suggestions score the complete 128-template registry against continuous
   city traits, activity, and distance. Up to three high-scoring continuous
   shapes from different geometry families are measured on the real road
   network. A primary route that already passes both quality gates is accepted
@@ -156,8 +156,8 @@ explicit without coupling the current runtime to one.
   tampering/expiry, PNG sanitisation, Cloudinary response filtering, and
   deletion authorization without contacting Cloudinary.
 - Playwright functional tests exercise the built user interface with explicit
-  desktop/mobile/tablet assertions, including the searchable 86-option catalog,
-  grouped 50-city Hungary and 30-city Europe structured picker,
+  desktop/mobile/tablet assertions, including the searchable 141-option catalog,
+  grouped 50-city Hungary and 136-city Europe structured picker,
   generator focus, prompt limits and keyboard submission, cancellation,
   responsive containment, result wording, candidate switching, editor success
   and failure recovery, safe download gates, gallery storage failures,

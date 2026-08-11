@@ -115,12 +115,12 @@ covered.
 |---|---|
 | Configuration, current HeiGIT ORS endpoint, legacy-host compatibility, and provider selection | `tests/test_config.py`, `tests/test_route_engine.py` |
 | FastAPI validation and safe errors | `tests/test_api_contracts.py`, `tests/test_logging.py` |
-| Shape catalog, complete 73-template recommendation profiling, bounded ranking cache, unexpected-value normalization, all 124 unique destination contexts (including 45 explicit Balaton route priors), geometry, routing, quality, and export | `tests/test_route_engine.py`, `tests/test_pipeline.py` |
+| Shape catalog, complete 128-template recommendation profiling, bounded ranking cache, unexpected-value normalization, all 230 unique destination contexts (including 45 explicit Balaton route priors), geometry, routing, quality, and export | `tests/test_route_engine.py`, `tests/test_pipeline.py` |
 | Gallery tokens, PNG safety, and Cloudinary boundaries | `tests/test_gallery.py` |
 | Skill discovery and prompt injection | `tests/test_skills.py` |
 | Main route creation, structured-action placement, and responsive result UI | `frontend/tests/app.spec.js` |
 | Validation, activity limits, cancellation, keyboard flow, candidate switching, edit/export safety, reviewed-route telemetry resilience, GPX/TCX downloads, and gallery failure/pagination/removal | `frontend/tests/workflows.spec.js` |
-| Planner navigation, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 86-option catalog, and grouped 124-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
+| Planner navigation, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 141-option catalog, and grouped 230-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
 | Result focus, route options, metrics, verification, route facts, history, and audit disclosures | `frontend/tests/results-functional.spec.js` |
 | Keyboard editing, closed-loop synchronization, reset/busy states, edited routes, and scoped approval | `frontend/tests/editor-export-functional.spec.js` |
 | Gallery empty/error/configuration states, pagination, ownership/removal, consent, PNG capture, and mocked publishing | `frontend/tests/gallery-resilience-functional.spec.js` |

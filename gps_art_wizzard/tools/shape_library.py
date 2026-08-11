@@ -15,6 +15,7 @@ import math
 import re
 from collections.abc import Callable
 
+from .extended_shape_catalog import AUTHORED_OUTLINES, SHAPE_ALIASES
 from .geo import Path
 
 ShapeGen = tuple[str, list[Path], bool]  # (name, paths, closed)
@@ -1127,6 +1128,17 @@ def trophy() -> ShapeGen:
     )
 
 
+def _authored_generator(name: str) -> Callable[[], ShapeGen]:
+    """Create a stable, inspectable generator for an authored silhouette."""
+
+    def generate() -> ShapeGen:
+        return _outline(name, list(AUTHORED_OUTLINES[name]), 3)
+
+    generate.__name__ = name
+    generate.__qualname__ = name
+    return generate
+
+
 # --------------------------------------------------------------------------- #
 # Registry
 # --------------------------------------------------------------------------- #
@@ -1141,6 +1153,7 @@ SHAPES: dict[str, Callable[[], ShapeGen]] = {g()[0]: g for g in [
     bat, bear, penguin, house, rocket, airplane, car, umbrella, bell, guitar,
     castle, speech_bubble, location_pin, trophy,
 ]}
+SHAPES.update({name: _authored_generator(name) for name in AUTHORED_OUTLINES})
 
 # Friendly keyword -> canonical name lookup (used by IntentAgent fallback).
 KEYWORDS: dict[str, str] = {
@@ -1218,6 +1231,10 @@ KEYWORDS: dict[str, str] = {
     "location pin": "location_pin", "map marker": "location_pin",
     "trophy": "trophy", "cup trophy": "trophy",
 }
+for _shape_name in AUTHORED_OUTLINES:
+    KEYWORDS[_shape_name.replace("_", " ")] = _shape_name
+    for _alias in SHAPE_ALIASES.get(_shape_name, ()):
+        KEYWORDS[_alias] = _shape_name
 
 
 def get_shape(name: str) -> ShapeGen | None:

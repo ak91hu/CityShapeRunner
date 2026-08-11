@@ -9,20 +9,20 @@
 [![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
 [![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
-Turn a run or ride into a drawing. Describe an idea—or choose from 86 catalog
+Turn a run or ride into a drawing. Describe an idea—or choose from 141 catalog
 options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
-The project combines 73 deterministic shape templates, a complete A–Z/0–9
+The project combines 128 deterministic shape templates, a complete A–Z/0–9
 vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
-Balaton shore municipalities, and 30 other European cities, optional LLM planning,
+Balaton shore municipalities, and 136 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
 GPX/TCX export. Every fully routed result is retained as a selectable candidate.
 Quality thresholds rank and warn instead of deleting a route, so lower-scoring
 results remain available for comparison, manual correction, and export.
 
-The structured planner contains 124 unique destinations: Siófok belongs to both
+The structured planner contains 230 unique destinations: Siófok belongs to both
 the Hungarian top-50 and official Balaton coverage, but appears only once in the
 picker. Every Balaton destination resolves locally and has its own placement
 profile for shoreline, terrain, rail, road, and wetland constraints. See
@@ -35,7 +35,7 @@ Nominatim is restricted to inhabited-place results and its administrative bbox
 is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
-Free-form drawings are not limited to the 86-option catalog either. A named
+Free-form drawings are not limited to the 141-option catalog either. A named
 custom idea is preserved locally, converted to bounded vector control geometry
 with one normal model call, checked for degenerate proportions and
 self-intersections, and repaired at most once before it reaches placement. Only
@@ -138,19 +138,20 @@ queries, and the operational troubleshooting checklist.
 ## Quick ideas
 
 The web app keeps six common starters beside the prompt and places a searchable
-86-option catalog behind “More shapes, letters, and numbers”. It contains 73
+141-option catalog behind “More shapes, letters, and numbers”. It contains 128
 deterministic route templates plus 13 letter, number, and short-text presets:
 
 - **Simple shapes (19):** heart, star, circle, diamond, triangle, square,
   infinity, arrow, cross, lightning, wave, moon, hexagon, octagon, teardrop,
   shield, clover, spiral, and hourglass
-- **Nature (16):** flower, tree, mountain, butterfly, sun, leaf, pine tree,
-  mushroom, cloud, snowflake, cactus, apple, pear, tulip, flame, and maple leaf
-- **Animals (19):** cat, dog, fish, bird, rabbit, horse, dolphin, dragon,
-  turtle, whale, shark, fox, owl, duck, snail, elephant, bat, bear, and penguin
-- **Objects (14):** anchor, key, mug, musical note, sailboat, house, rocket,
-  airplane, car, umbrella, bell, guitar, castle, and trophy
-- **Symbols (5):** crown, skull, DNA helix, speech bubble, and location pin
+- **Nature (23):** the original 16 plus acorn, banana, broccoli, feather,
+  ice cream, volcano, and watermelon slice
+- **Animals (32):** the original 19 plus ant, crab, dinosaur, frog, hedgehog,
+  koala, octopus, paw print, seahorse, snake, spider, squid, and swan
+- **Objects (44):** the original 14 plus 30 route-authored everyday objects,
+  including robot, lighthouse, camera, paper plane, train, and windmill
+- **Symbols (10):** crown, skull, DNA helix, speech bubble, location pin,
+  chess pawn, compass, ghost, lock, and medal
 - **Letters, numbers, and text:** A, C, L, M, N, S, U, V, Z, 2, 7, 42,
   and GPS
 
@@ -160,7 +161,7 @@ when their detail needs more road-network resolution. They are starting points,
 not guarantees: the result still depends on local connectivity, access rules,
 and route-provider coverage. Cat, dog, bird, and bat now have separate
 route-readable outlines and distinct catalog markers. A rotation-, scale-,
-start-, and direction-independent audit checks every pair in the 73-template
+start-, and direction-independent audit checks every pair in the 128-template
 registry; see the [shape-template research and uniqueness guard](docs/shape-template-uniqueness.md).
 
 The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
@@ -168,16 +169,16 @@ settlements](https://www.ksh.hu/stadat_files/fol/en/fol0014.html). Each resolves
 bounded urban search area; obstacle descriptions guide the first placement,
 while measured preflight and Directions routing remain authoritative.
 
-An additional Europe group contains 30 regionally balanced cities covered by
-the [Eurostat city-statistics framework](https://ec.europa.eu/eurostat/web/cities/methodology):
-London, Paris, Berlin, Madrid, Rome, Barcelona, Vienna, Amsterdam, Prague,
-Brussels, Copenhagen, Stockholm, Oslo, Helsinki, Warsaw, Kraków, Bratislava,
-Ljubljana, Zagreb, Bucharest, Sofia, Athens, Dublin, Munich, Milan, Lisbon,
-Porto, Zurich, Tallinn, and Riga. These are locally resolved profiles, not a
+The Europe group now contains 136 regionally balanced cities guided by the
+[Eurostat city-statistics framework](https://ec.europa.eu/eurostat/web/cities/methodology).
+The original 30 are joined by 106 cities across western, northern, central,
+eastern, and south-eastern Europe. Every entry resolves offline to a compact
+urban search box and one of the documented grid, radial, river, coast, lake,
+hill, or mountain recommendation profiles. These are planning priors, not a
 claim that every neighbourhood is suitable for every drawing.
 
 Smart suggestions no longer use a fixed city mascot. The planner measures all
-73 route templates, combines their continuity, turning complexity, directional
+128 route templates, combines their continuity, turning complexity, directional
 order, aspect ratio, and routeability with the selected city's street context,
 activity, and distance, then sends three diverse continuous shapes through the
 real placement and routing checks. The result explains why the winning shape

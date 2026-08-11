@@ -1249,17 +1249,18 @@ does not prove that a city or neighbourhood has enough connected, legal roads
 for a particular drawing. Preflight and full activity-specific routing still
 measure that question per request.
 
-The European extension adds 30 cities spanning western, northern, central,
+The European catalogue contains 136 cities spanning western, northern, central,
 southern, and eastern Europe. Selection uses the harmonised city concept and
 territorial coverage documented by [Eurostat City Statistics](https://ec.europa.eu/eurostat/web/cities/methodology),
 then deliberately balances regions instead of presenting a misleading
 cross-country population ranking. [Boeing's street-network study](https://doi.org/10.1007/s41109-019-0189-1)
 shows why one generic “European city” heuristic would be unsound: orientation
 order, circuity, intersection structure, and segment lengths differ
-substantially between cities. Accordingly, every selected city has local
-search bounds and context for water, terrain, parks, historic cores, and major
-infrastructure. These descriptions seed the transform search; they do not
-replace activity-specific graph measurements.
+substantially between cities. Accordingly, every selected city has bounded
+urban search coordinates and a deterministic profile for its dominant grid,
+radial, river, canal, coast, lake, hill, or mountain constraints. These
+descriptions seed the transform search; they do not replace activity-specific
+graph measurements.
 
 ### 12.1 City–shape recommendation model
 
@@ -1267,7 +1268,7 @@ The previous recommender attached one running and one cycling symbol to each
 city name. That produced variety but did not establish that the nominated
 geometry matched the route distance or street fabric. It could also recommend
 a culturally associated but fragile outline—for example a multi-stroke animal—
-without comparing it with the other 72 templates.
+without comparing it with the other 127 templates.
 
 The replacement performs a complete deterministic registry audit. For every
 template it measures stroke count, closure, normalized drawn length, sharp
@@ -1279,7 +1280,7 @@ activity/distance capacity; cycling is modelled separately because walkable and
 drivable networks can differ in circuity and connectivity
 ([Boeing, 2017](https://arxiv.org/abs/1708.00836)).
 
-All 73 templates receive a score. Automatic suggestions choose three
+All 128 templates receive a score. Automatic suggestions choose three
 high-scoring, continuous candidates from different geometry families. Templates
 with disconnected strokes remain available for explicit requests, but they do
 not enter the automatic shortlist because their transfer legs can create lines

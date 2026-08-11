@@ -17,6 +17,7 @@ import re
 import httpx
 
 from ..config import get_settings
+from .european_city_catalog import ADDITIONAL_EUROPEAN_CITIES, city_profile_text
 
 log = logging.getLogger(__name__)
 
@@ -265,6 +266,25 @@ _DEFAULTS = {
     "Riga": GeoResult("Riga", 56.9494, 24.1052, (56.85, 57.09, 23.93, 24.33)),
 }
 
+
+def _catalog_city_result(name: str) -> GeoResult:
+    """Build a route-oriented urban bbox for an expanded catalogue city."""
+
+    seed = ADDITIONAL_EUROPEAN_CITIES[name]
+    half_lat = {"compact": 0.035, "medium": 0.050, "large": 0.070}[seed.scale]
+    # Keep comparable ground width at northern latitudes without allowing a
+    # regional/administrative bbox to leak into the placement search.
+    half_lon = min(0.11, half_lat / max(0.55, math.cos(math.radians(seed.lat))))
+    return GeoResult(
+        name,
+        seed.lat,
+        seed.lon,
+        (seed.lat - half_lat, seed.lat + half_lat, seed.lon - half_lon, seed.lon + half_lon),
+    )
+
+
+_DEFAULTS.update({name: _catalog_city_result(name) for name in ADDITIONAL_EUROPEAN_CITIES})
+
 # The 50 largest Hungarian settlements by KSH resident population on
 # 2025-01-01.  Keeping this public, ordered tuple lets deterministic intent
 # parsing and the UI share a clearly defined coverage target.
@@ -309,6 +329,7 @@ MAJOR_EUROPEAN_CITIES = (
     "Helsinki", "Warsaw", "Kraków", "Bratislava", "Ljubljana", "Zagreb",
     "Bucharest", "Sofia", "Athens", "Dublin", "Munich", "Milan", "Lisbon",
     "Porto", "Zurich", "Tallinn", "Riga",
+    *ADDITIONAL_EUROPEAN_CITIES,
 )
 
 # Natural-language geography per city — fed to the PlanningAgent so it can
@@ -767,6 +788,11 @@ _CITY_GEOGRAPHY: dict[str, str] = {
         "roughly N-S/E-W. Old town streets are too irregular for clean shapes."
     ),
 }
+
+_CITY_GEOGRAPHY.update({
+    city.casefold(): city_profile_text(city, seed)
+    for city, seed in ADDITIONAL_EUROPEAN_CITIES.items()
+})
 
 # Lake Balaton needs more specific placement guidance than an ordinary city
 # bbox: the lake, the shore railway/road corridors, hills on the north shore,

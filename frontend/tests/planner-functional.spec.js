@@ -61,11 +61,11 @@ test("choosing a popular idea updates the prompt and selected state", async ({ p
   );
 });
 
-test("the full idea catalogue exposes every category and all 86 options", async ({ page }) => {
+test("the full idea catalogue exposes every category and all 141 options", async ({ page }) => {
   await page.goto("/");
   await page.getByText("More shapes, letters, and numbers").click();
 
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(86);
+  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(141);
   for (const category of [
     "Simple shapes",
     "Nature",
@@ -209,7 +209,7 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City");
-  await expect(city.locator("option")).toHaveCount(124);
+  await expect(city.locator("option")).toHaveCount(230);
   await city.selectOption("Szolnok");
   await page.getByRole("radio", { name: "Cycling" }).check();
   await page.getByLabel("Distance").fill("24");
@@ -223,24 +223,24 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
   );
 });
 
-test("the Europe city group submits an accented European destination", async ({ page }) => {
+test("the expanded Europe group submits a newly catalogued accented destination", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City");
-  await expect(city.locator('optgroup[label="Europe"] option')).toHaveCount(30);
+  await expect(city.locator('optgroup[label="Europe"] option')).toHaveCount(136);
   await expect(page.locator("#suggest-city-help")).toHaveCount(0);
-  await city.selectOption("Kraków");
+  await city.selectOption("Timișoara");
   await page.getByRole("radio", { name: "Running" }).check();
   await page.getByLabel("Distance").fill("14");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
-    prompt: "suggest a run route in Kraków, about 14 km",
+    prompt: "suggest a run route in Timișoara, about 14 km",
   });
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
-    "suggest a run route in Kraków, about 14 km",
+    "suggest a run route in Timișoara, about 14 km",
   );
 });
 

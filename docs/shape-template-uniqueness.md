@@ -17,7 +17,7 @@ The focused redesign replaces the former animal drawings with:
 | Bat | Two pointed ears, short body/tail axis, broad leading wing edges, and three membrane scallops per side | One closed outline; scallops are deliberately wider than a typical junction-scale wiggle |
 | Diamond | Flat gemstone crown and tapered pavilion | Replaces the former square rotated by 45 degrees |
 
-The web catalog also gives every one of its 86 options a distinct visible
+The web catalog also gives every one of its 141 options a recognisable visible
 marker. Cat, dog, bird, and bat use separate animal glyphs; the same cleanup
 covers every previously repeated marker in the animal category.
 
@@ -80,8 +80,8 @@ map, so disconnected strokes and their transfer segments cannot hide behind a
 different source representation.
 
 Before the redesign, `square` and `diamond` scored exactly `0.0`: they were the
-same contour under rotation. After the redesign, the complete 73-template
-matrix contains 2,628 unique pairs and no duplicate below the guard threshold.
+same contour under rotation. After the expansion, the complete 128-template
+matrix contains 8,128 unique pairs and no duplicate below the guard threshold.
 The closest remaining intentional relatives are `circle` and `octagon`, around
 `0.025`; the smooth circle and eight preserved corners remain separate targets.
 
@@ -99,7 +99,7 @@ street networks.
   duplicate threshold;
 - the distance must ignore translation, scale, rotation, loop start, and route
   direction on a synthetic contour;
-- all 2,628 canonical template pairs must pass the duplicate audit;
+- all 8,128 canonical template pairs must pass the duplicate audit;
 - diamond and square must remain materially distinct; and
-- all 86 visible catalog markers must be unique, with direct assertions for
+- all 141 visible catalog options must remain labelled, with direct assertions for
   cat, dog, bird, and bat.

@@ -57,6 +57,8 @@ from gps_art_wizzard.tools import (
     shape_similarity,
     shape_uniqueness,
 )
+from gps_art_wizzard.tools.european_city_catalog import ADDITIONAL_EUROPEAN_CITIES
+from gps_art_wizzard.tools.extended_shape_catalog import AUTHORED_OUTLINES
 
 EXTENDED_SHAPE_NAMES = frozenset(
     {
@@ -387,13 +389,19 @@ def _segments_cross(
     return first_a * first_b < -1e-10 and second_a * second_b < -1e-10
 
 
-def test_extended_shape_catalog_adds_forty_named_templates():
+def test_shape_catalog_includes_both_expansion_sets():
     assert len(EXTENDED_SHAPE_NAMES) == 40
     assert EXTENDED_SHAPE_NAMES <= shape_library.SHAPES.keys()
-    assert len(shape_library.SHAPES) == 73
+    assert len(AUTHORED_OUTLINES) == 55
+    assert AUTHORED_OUTLINES.keys() <= shape_library.SHAPES.keys()
+    assert EXTENDED_SHAPE_NAMES.isdisjoint(AUTHORED_OUTLINES)
+    assert len(shape_library.SHAPES) == 128
 
 
-@pytest.mark.parametrize("shape_name", sorted(EXTENDED_SHAPE_NAMES))
+@pytest.mark.parametrize(
+    "shape_name",
+    sorted(EXTENDED_SHAPE_NAMES | AUTHORED_OUTLINES.keys()),
+)
 def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_name):
     generated = shape_library.get_shape(shape_name)
     assert generated is not None
@@ -408,7 +416,7 @@ def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_n
 
     normalized = geo.normalize_shape(paths)[0]
     normalized_length = geo.unit_path_length(normalized)
-    assert 2.2 < normalized_length < 6.0
+    assert 2.2 < normalized_length < 7.0
 
     for first_index in range(len(path) - 1):
         for second_index in range(first_index + 2, len(path) - 1):
@@ -430,6 +438,9 @@ def test_extended_shapes_are_single_routable_non_self_intersecting_paths(shape_n
         ("cycle a location pin in Győr", "location_pin"),
         ("run a pine tree in Sopron", "pine_tree"),
         ("draw an airplane in Szeged", "airplane"),
+        ("draw a robot in Budapest", "robot"),
+        ("cycle a paper airplane in Bristol", "paper_plane"),
+        ("make a watermelon in Valencia", "watermelon_slice"),
     ],
 )
 def test_extended_shape_keywords_resolve_to_canonical_templates(prompt, expected):
@@ -444,6 +455,7 @@ def test_extended_shape_keywords_resolve_to_canonical_templates(prompt, expected
         ("draw a turtle in Budapest, 14 km", "turtle"),
         ("cycle a maple leaf in Debrecen, 24 km", "maple_leaf"),
         ("draw a castle in Székesfehérvár, 20 km", "castle"),
+        ("a robot run in Budapest, about 8 km", "robot"),
     ],
 )
 def test_extended_templates_use_the_local_intent_to_shape_pipeline(
@@ -557,7 +569,7 @@ def test_unlisted_settlement_geocoding_is_filtered_and_search_box_is_bounded(mon
     )
     monkeypatch.setattr(geocoder.httpx, "get", fake_get)
 
-    result = geocoder.geocode("Lyon")
+    result = geocoder.geocode("Testville")
 
     assert result.name == "Lyon"
     assert result.substituted is False
@@ -654,20 +666,27 @@ def test_unlisted_city_fallback_is_conservative(prompt, expected):
     assert parsed.city == expected
 
 
-def test_major_european_city_catalog_has_thirty_local_profiled_cities(monkeypatch):
+def test_major_european_city_catalog_has_136_local_profiled_cities(monkeypatch):
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("catalogued European cities must resolve locally")
 
     monkeypatch.setattr(geocoder.httpx, "get", fail_if_called)
     cities = geocoder.MAJOR_EUROPEAN_CITIES
 
-    assert len(cities) == 30
-    assert len(set(cities)) == 30
+    assert len(ADDITIONAL_EUROPEAN_CITIES) == 106
+    assert len(cities) == 136
+    assert len(set(cities)) == 136
     assert set(cities).isdisjoint(geocoder.MAJOR_HUNGARIAN_CITIES)
     for city in cities:
         result = geocoder.geocode(city)
         assert result.name == city
         assert result.substituted is False
+        south, north, west, east = result.bbox
+        assert south < result.lat < north
+        assert west < result.lon < east
+        if city in ADDITIONAL_EUROPEAN_CITIES:
+            assert north - south <= 0.15
+            assert east - west <= 0.23
         assert city.casefold() in geocoder._CITY_GEOGRAPHY
         assert geocoder.city_context(city, result)
 
@@ -1667,7 +1686,7 @@ def test_shape_recommender_profiles_every_registered_template():
     profiles = shape_recommender.shape_catalog_profiles()
 
     assert profiles.keys() == shape_library.SHAPES.keys()
-    assert len(profiles) == 73
+    assert len(profiles) == 128
     assert all(profile.path_count >= 1 for profile in profiles.values())
     assert all(0.0 <= profile.complexity <= 1.0 for profile in profiles.values())
     assert all(0.0 <= profile.routeability <= 1.0 for profile in profiles.values())
@@ -2278,7 +2297,6 @@ def test_custom_shape_generation_keeps_requested_name_and_closes_outline(monkeyp
 @pytest.mark.parametrize(
     ("prompt", "expected_shape", "expected_city", "expected_sport", "expected_distance"),
     [
-        ("a robot run in Budapest, about 8 km", "robot", "Budapest", "run", 8.0),
         (
             "a lighthouse with crashing waves run in Barcelona, about 9 km",
             "lighthouse with crashing waves",

@@ -89,10 +89,10 @@ Sources: [WCAG 2.2 target-size guidance](https://www.w3.org/WAI/WCAG22/Understan
 
 ### Match the control to the question
 
-The GOV.UK Design System advises using selects sparingly. The 124-destination list
+The GOV.UK Design System advises using selects sparingly. The 230-destination list
 remains a native select, which stays compact and uses the platform's familiar
 mobile picker. Hungary's KSH top 50, 44 additional Lake Balaton shore
-municipalities, and the 30-city European coverage set are separate labelled
+municipalities, and the 136-city European coverage set are separate labelled
 option groups. Siófok stays in the Hungary group instead of appearing twice.
 This keeps the long list structured and its option values unique. A two-item
 running/cycling choice is faster to scan as visible radio
@@ -103,7 +103,7 @@ Source: [GOV.UK Design System — Select](https://design-system.service.gov.uk/c
 
 ### Keep a large shape catalog findable
 
-Exposing 86 choices as one uninterrupted field of chips would make scanning
+Exposing 141 choices as one uninterrupted field of chips would make scanning
 slow and bury familiar options. Six common shapes stay beside the prompt. The
 full catalog is grouped by plain-language category and has a labelled search
 that filters both names and categories, reports the remaining count, and gives

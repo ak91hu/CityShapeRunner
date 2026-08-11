@@ -50,5 +50,5 @@ and cuts corners. Design for that, not for a perfect vector outline.
 - When drawing freely, align the shape's long axis with the X axis —
   PlacementAgent rotates it to the street grid afterwards.
 
-The focused evidence and the automated 73-template comparison are documented
+The focused evidence and the automated 128-template comparison are documented
 in [Recognisable and unique GPS-art templates](shape-template-uniqueness.md).
