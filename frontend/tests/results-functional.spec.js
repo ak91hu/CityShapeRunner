@@ -17,6 +17,31 @@ test("a completed generation moves focus to the result region", async ({ page })
   await expect(page.locator(".result")).toHaveAttribute("aria-labelledby", "result-title");
 });
 
+test("the complete street map can be rotated and reset by hand", async ({ page }) => {
+  await openGeneratedRoute(page);
+  await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
+
+  const angle = page.getByLabel("Map rotation angle");
+  const rotatePane = page.locator(".route-map .leaflet-rotate-pane");
+  const northUp = page.getByRole("button", { name: "North up" });
+
+  await expect(angle).toHaveValue("0");
+  await expect(northUp).toBeDisabled();
+  await page.getByRole("button", { name: "Rotate map 15 degrees right" }).click();
+
+  await expect(angle).toHaveValue("15");
+  await expect(page.locator(".map-rotation-value")).toHaveText("15°");
+  await expect(northUp).toBeEnabled();
+  await expect
+    .poll(() => rotatePane.evaluate((element) => element.style.transform))
+    .toContain("rotate(");
+
+  await northUp.click();
+  await expect(angle).toHaveValue("0");
+  await expect(page.locator(".map-rotation-value")).toHaveText("0°");
+  await expect(northUp).toBeDisabled();
+});
+
 test("the result identifies the route and its request ID", async ({ page }) => {
   await openGeneratedRoute(page);
 

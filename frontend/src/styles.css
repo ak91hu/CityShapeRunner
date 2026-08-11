@@ -1173,6 +1173,113 @@ input:disabled {
   color: var(--ink);
 }
 
+.route-map-shell {
+  width: 100%;
+}
+
+.map-rotation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  margin-top: 0.65rem;
+  padding: 0.7rem;
+  border: 1px solid #b9d1c8;
+  border-radius: var(--radius-md);
+  background: var(--surface-tint);
+}
+
+.map-rotation-copy {
+  min-width: 11rem;
+  flex: 1 1 13rem;
+}
+
+.map-rotation-copy strong,
+.map-rotation-copy span {
+  display: block;
+}
+
+.map-rotation-copy strong {
+  color: var(--brand-dark);
+  font-size: 0.8rem;
+}
+
+.map-rotation-copy span {
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.map-rotation-step,
+.map-rotation-reset {
+  min-height: 2.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.map-rotation-step {
+  min-width: 3.4rem;
+  padding: 0.45rem 0.55rem;
+  color: var(--brand-dark);
+  font-size: 1rem;
+}
+
+.map-rotation-step span {
+  font-size: 0.66rem;
+}
+
+.map-rotation-reset {
+  padding: 0.45rem 0.7rem;
+}
+
+.map-rotation-step:hover,
+.map-rotation-reset:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: #fff;
+}
+
+.map-rotation-reset:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.map-rotation-slider {
+  min-width: 8rem;
+  flex: 1 1 10rem;
+  display: flex;
+  align-items: center;
+}
+
+.map-rotation-slider input {
+  width: 100%;
+  min-height: 2.5rem;
+  margin: 0;
+  accent-color: var(--brand);
+  cursor: ew-resize;
+}
+
+.map-rotation-value {
+  min-width: 3.25rem;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 760;
+  text-align: center;
+}
+
+.map-rotation-step:focus-visible,
+.map-rotation-reset:focus-visible,
+.map-rotation-slider input:focus-visible {
+  outline: 3px solid rgb(37 99 235 / 35%);
+  outline-offset: 2px;
+}
+
 .route-edit-marker {
   display: grid;
   place-items: center;

@@ -774,6 +774,9 @@ test("a verified route map can be published anonymously with streets and attribu
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect(page.getByText("Publish map image")).toBeVisible();
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
+  await page.getByRole("button", { name: "Rotate map 15 degrees right" }).click();
+  await page.getByRole("button", { name: "Rotate map 15 degrees right" }).click();
+  await expect(page.locator(".map-rotation-value")).toHaveText("30°");
   await page
     .getByLabel("I understand that this location and its street names will be public.")
     .check();

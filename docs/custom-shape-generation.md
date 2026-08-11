@@ -46,7 +46,7 @@ Several adjacent research areas point to the same engineering pattern:
    records self-intersection as an evaluated failure mode and topology checks as
    its mitigation. The custom-shape smoother therefore cannot silently replace
    a simple control polygon with a crossed curve.
-7. OpenAI's [Structured Outputs](https://openai.com/index/introducing-structured-outputs-in-the-api/)
+7. OpenAI's [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
    distinguishes ordinary JSON mode—which guarantees only parseable JSON—from
    strict schema adherence. Anthropic documents the same constrained-decoding
    approach for its [supported newer Claude models](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
@@ -57,8 +57,9 @@ Several adjacent research areas point to the same engineering pattern:
    recognisability.
 
 The practical conclusion is a staged pipeline with cheap deterministic checks
-around one normal generative call, rather than a chain of unconstrained model
-calls.
+around one structured generative call, rather than a chain of unconstrained
+model calls. The single response carries two alternatives so topology failure
+in the preferred drawing does not immediately spend a repair request.
 
 ## Implemented decision pipeline
 
@@ -97,19 +98,33 @@ schema. The server never executes generated SVG, XML, Python, or JavaScript.
 
 ### 4. Generate route-oriented control geometry
 
-The model first silently decomposes the request into three to six identifying
-silhouette cues, including modifiers and relationships, then gives each cue a
-meaningful interval of the actual route. It is asked for 24–72 meaningful
-control points, normally as one closed outer silhouette. It is told not to
-substitute a stock category icon and to omit eyes, shading, texture, and other
-details that would require disconnected transfer lines. Point density is
-reserved for meaningful curvature changes rather than tiny interpolated steps.
+The model first emits three to six identifying silhouette cues, including
+modifiers and relationships, then creates two meaningfully different route
+scaffolds and marks the one it expects to remain clearest at thumbnail size.
+Each alternative uses 20–48 meaningful control points, normally as one closed
+outer silhouette. ShapeAgent tries the preferred alternative first and then
+the other one, but accepts either only after the same executable geometry
+checks. This separates a semantic preference from authoritative topology.
+
+When a compound request contains a catalogued base subject—such as “a robot
+holding an umbrella”—the prompt also receives a compact trusted copy of that
+base contour. The model must preserve its major masses, proportions,
+concavities, and part hierarchy while changing the contour for the requested
+pose or accessory. The earliest named subject is used, so a held object does
+not accidentally replace the main subject as the geometry anchor. Uncatalogued
+subjects continue without an anchor.
+
+The model is told not to substitute a stock category icon and to omit eyes,
+shading, texture, and other details that would require disconnected transfer
+lines. Point density is reserved for meaningful curvature changes rather than
+tiny interpolated steps.
 
 The same point-list contract is also passed to capable providers as a JSON
-schema. OpenAI uses strict `json_schema`, local Ollama uses its schema-valued
-`format`, and documented Claude 4.5+ families use Anthropic's structured-output
-configuration. OpenCode gateways and older/custom Claude models retain portable
-JSON mode plus the full local validator, because silently assuming a gateway or
+schema. OpenAI uses strict `json_schema`, OpenCode Zen sends this job to its
+configured GPT-5.4 mini Responses model with strict `text.format`, local Ollama
+uses its schema-valued `format`, and documented Claude 4.5+ families use
+Anthropic's structured-output configuration. Older or custom models retain
+portable JSON mode plus the full local validator, because silently assuming a
 model feature would turn compatibility errors into needless fallback routes.
 
 ### 5. Run executable geometry checks
@@ -117,7 +132,9 @@ model feature would turn compatibility errors into needless fallback routes.
 Before placement, the parser enforces:
 
 - JSON list structure and finite numeric coordinate pairs;
-- at most eight strokes, 240 points per stroke, and 800 points in total;
+- a strict response contract of at most eight strokes and 96 points per stroke
+  in each of exactly two alternatives; the defensive legacy parser remains
+  capped at 240 points per stroke and 800 points in total;
 - exact closure when the response declares a closed drawing;
 - at least six control points for generated geometry;
 - non-degenerate width and height;
@@ -134,11 +151,12 @@ not a useful city-scale scaffold.
 
 ### 6. Repair once, then stop
 
-If a real provider returns malformed, collapsed, extremely stretched, or
-self-crossing geometry, ShapeAgent sends one low-temperature repair request
-containing the validation reason. A fixed single retry prevents accidental
-latency and cost loops. If the repair also fails, deterministic fallback takes
-over.
+If the preferred alternative is invalid, ShapeAgent tries the second one from
+the same response before making another network call. If both are malformed,
+collapsed, extremely stretched, duplicated, or self-crossing, it sends one
+low-temperature repair request containing both validation reasons. A fixed
+single retry prevents accidental latency and cost loops. If the repair also
+fails, deterministic fallback takes over.
 
 ### 7. Smooth without erasing identity or changing topology
 
@@ -188,9 +206,9 @@ credit merely because its JSON was valid.
 |---|---|---|
 | Text-to-raster image, then vector tracing | Can use strong image generators and visual conditioning | Adds another provider, raster artefacts, tracing ambiguity, more latency, and far too many vertices for street routing. |
 | Full SVG generation | Bézier paths are compact and expressive | Safely parsing every SVG feature is a much larger attack and compatibility surface; most SVG semantics are irrelevant to a one-line route. |
-| Three generated candidates on every request | Better chance of one strong silhouette | Triples output size or inference work before any street evidence exists. One candidate plus a repair-on-failure gives a better default cost profile. |
+| Three or more generated candidates on every request | Better chance of one strong silhouette | Output and validation cost rises quickly. Two alternatives in one structured response cover the common topology-failure case without tripling inference output. |
 | Always substitute the nearest catalog shape | Fast and deterministic | Violates the named request and fails precisely where custom support matters. It remains only an explicitly disclosed last-resort route option. |
-| Ask the model to judge its own drawing | Cheap semantic opinion | It is not independent evidence. Executable geometry checks and routed measurements are more reliable for the properties this application can verify. |
+| Treat the model's preferred alternative as proof | Cheap semantic opinion | It is not independent evidence. The preference only controls trial order; executable geometry checks and routed measurements remain authoritative. |
 
 ## Remaining limitations and next experiments
 
@@ -201,11 +219,10 @@ prompt-injection attempts, and deliberately impossible route ideas. Human raters
 should score the intended outline before routing and the final line after
 routing separately.
 
-If that evaluation shows semantic generation is the main bottleneck, test a
-vision-language verifier on rendered outline thumbnails or request several
-scaffolds in one structured response and route only the best geometry-diverse
-candidate. Neither should be described as a recognisability guarantee without
-labelled human agreement data.
+If that evaluation shows semantic generation is still the main bottleneck,
+test a vision-language verifier on rendered outline thumbnails before routing.
+The current two-scaffold response improves resilience and recognisability but
+must not be described as a guarantee without labelled human agreement data.
 
 User-supplied sketches or images are a separate feature. They require file
 validation, foreground extraction, vectorisation, topology repair, and explicit

@@ -9,8 +9,10 @@ explicit review and acceptance. Attempts for a different suggested shape remain
 available in the audit summary.
 
 The free-text field is not limited to the catalog. Named custom drawings keep
-their full description, use a bounded model-generated vector scaffold when a
-provider is available, and pass executable topology checks before routing. A
+their full description, use two bounded model-generated vector alternatives
+plus explicit recognition features when a provider is available, and pass
+executable topology checks before routing. Compound descriptions receive a
+related catalog contour as a structure anchor. A
 failed or unavailable generator produces an explicitly labelled, idea-linked
 fallback instead of pretending that a stock icon is the requested object. See
 [Custom free-text shape generation](custom-shape-generation.md) for the research,
@@ -127,7 +129,7 @@ the [August 2026 algorithm audit](gps-art-algorithm-audit-2026-08.md).
 |-------|----------------|
 | **IntentAgent** | Parse the natural-language prompt into a structured intent (shape, city, sport, distance, text, suggest). Known template/text requests take a deterministic no-network fast path. |
 | **PlanningAgent** | Resolve supported cities from the local route database, study curated geography, and commit street-grid rotation, safe offsets, and a distinct city/activity suggestion. |
-| **ShapeAgent** | Turn the intent into a 2D polyline — 128 templates, a complete A–Z/0–9 vector font, short text outlines, or bounded LLM-drawn geometry. |
+| **ShapeAgent** | Turn the intent into a 2D polyline — 128 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
 | **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
@@ -159,6 +161,10 @@ guarantee. The compact screen explains the 0–100 indices and shows every gate,
 measured value, threshold, route/guide point count, distance error, detour ratio,
 closure gap, mean outline deviation, and placement transform. Below-target and
 non-road-routed guides remain exportable only after explicit acceptance.
+
+The map has an accessible −180°…180° rotation slider, 15° step controls, and a
+north-up reset. The entire geographic view rotates together, and gallery PNG
+capture preserves the chosen bearing.
 
 Numbered control points can be dragged and submitted to `POST /edit-route`;
 the backend re-routes them with the selected activity profile, revalidates the
@@ -251,7 +257,7 @@ with the OpenAI provider).
 ## Web frontend
 
 A Vite + React SPA lives in `frontend/`. It calls `/generate` and renders the
-route on a Leaflet map, shows the validation score / refinement history, and
+route on a rotatable Leaflet map, shows the validation score / refinement history, and
 offers immediate GPX/TCX downloads for routes that pass every automatic check.
 Review routes and non-road-routed guides use the explicit acceptance flow.
 

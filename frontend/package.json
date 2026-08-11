@@ -12,7 +12,7 @@
     "test:prod-gallery": "playwright test --config=playwright.prod.config.js"
   },
   "dependencies": {
-    "leaflet": "1.9.4",
+    "leaflet-rotate-map": "0.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

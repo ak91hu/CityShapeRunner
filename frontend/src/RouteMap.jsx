@@ -1,7 +1,22 @@
-import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef } from "react";
-import L from "leaflet";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import L from "leaflet-rotate-map";
 
 const DEFAULT_CENTER = [47.4979, 19.0402];
+
+function normaliseBearing(value) {
+  if (!Number.isFinite(value)) return 0;
+  const wrapped = ((value + 180) % 360 + 360) % 360 - 180;
+  return Math.abs(wrapped) < 0.5 ? 0 : Math.round(wrapped * 10) / 10;
+}
 
 function isCoordinate(point) {
   return (
@@ -41,6 +56,55 @@ function waitForVisibleTiles(container, timeoutMs = 6_000) {
       }
     }, timeoutMs);
   });
+}
+
+function drawMapTiles(context, map, tileLayer, container, containerRect) {
+  let drawn = 0;
+  const tiles = Object.values(tileLayer?._tiles ?? {});
+  tiles.forEach((record) => {
+    const tile = record?.el;
+    if (
+      !record?.coords ||
+      record.current === false ||
+      !tile?.complete ||
+      tile.naturalWidth < 1 ||
+      tile.naturalHeight < 1
+    ) {
+      return;
+    }
+    const bounds = tileLayer._tileCoordsToBounds?.(record.coords);
+    if (!bounds) return;
+    const northWest = map.latLngToContainerPoint(bounds.getNorthWest());
+    const northEast = map.latLngToContainerPoint(bounds.getNorthEast());
+    const southWest = map.latLngToContainerPoint(bounds.getSouthWest());
+    const width = tile.naturalWidth;
+    const height = tile.naturalHeight;
+    context.save();
+    context.transform(
+      (northEast.x - northWest.x) / width,
+      (northEast.y - northWest.y) / width,
+      (southWest.x - northWest.x) / height,
+      (southWest.y - northWest.y) / height,
+      northWest.x,
+      northWest.y,
+    );
+    context.drawImage(tile, 0, 0, width, height);
+    context.restore();
+    drawn += 1;
+  });
+  if (drawn > 0) return drawn;
+
+  // Defensive fallback for a future Leaflet build that changes its tile cache.
+  [...container.querySelectorAll("img.leaflet-tile")]
+    .filter((tile) => tile.complete && tile.naturalWidth > 0)
+    .forEach((tile) => {
+      const tileRect = tile.getBoundingClientRect();
+      const x = tileRect.left - containerRect.left;
+      const y = tileRect.top - containerRect.top;
+      context.drawImage(tile, x, y, tileRect.width, tileRect.height);
+      drawn += 1;
+    });
+  return drawn;
 }
 
 function drawCoordinatePath(context, map, coordinates, options) {
@@ -89,6 +153,16 @@ const RouteMap = forwardRef(function RouteMap({
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const routeLayerRef = useRef(null);
+  const tileLayerRef = useRef(null);
+  const [bearing, setBearing] = useState(0);
+
+  const applyBearing = useCallback((value) => {
+    const next = normaliseBearing(Number(value));
+    setBearing(next);
+    // This rotating Leaflet build internally uses a near-zero value to keep
+    // every SVG renderer mounted, while the UI still presents it as north-up.
+    mapRef.current?.setBearing(next === 0 ? 0.0001 : next);
+  }, []);
 
   const coordinates = useMemo(
     () =>
@@ -127,16 +201,21 @@ const RouteMap = forwardRef(function RouteMap({
       zoom: 12,
       scrollWheelZoom: false,
       zoomControl: true,
+      rotate: true,
     });
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tileLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
       crossOrigin: "anonymous",
       maxZoom: 19,
     }).addTo(map);
 
     mapRef.current = map;
+    tileLayerRef.current = tileLayer;
     routeLayerRef.current = L.layerGroup().addTo(map);
+
+    const syncBearing = () => setBearing(normaliseBearing(map.getBearing()));
+    map.on("rotate", syncBearing);
 
     let disposed = false;
     const resizeObserver = new ResizeObserver(() => {
@@ -149,9 +228,11 @@ const RouteMap = forwardRef(function RouteMap({
     return () => {
       disposed = true;
       resizeObserver.disconnect();
+      map.off("rotate", syncBearing);
       map.remove();
       mapRef.current = null;
       routeLayerRef.current = null;
+      tileLayerRef.current = null;
     };
   }, []);
 
@@ -334,27 +415,19 @@ const RouteMap = forwardRef(function RouteMap({
         context.fillStyle = "#e7e3dc";
         context.fillRect(0, 0, cssWidth, cssHeight);
 
-        const visibleTiles = [...container.querySelectorAll("img.leaflet-tile")].filter(
-          (tile) => tile.complete && tile.naturalWidth > 0,
-        );
-        if (visibleTiles.length === 0) {
-          throw new Error("The street map is still loading. Try again in a moment.");
-        }
         try {
-          visibleTiles.forEach((tile) => {
-            const tileRect = tile.getBoundingClientRect();
-            const x = tileRect.left - containerRect.left;
-            const y = tileRect.top - containerRect.top;
-            if (
-              x < cssWidth &&
-              y < cssHeight &&
-              x + tileRect.width > 0 &&
-              y + tileRect.height > 0
-            ) {
-              context.drawImage(tile, x, y, tileRect.width, tileRect.height);
-            }
-          });
+          const drawnTiles = drawMapTiles(
+            context,
+            map,
+            tileLayerRef.current,
+            container,
+            containerRect,
+          );
+          if (drawnTiles === 0) {
+            throw new Error("The street map is still loading. Try again in a moment.");
+          }
         } catch (error) {
+          if (error?.message?.includes("still loading")) throw error;
           throw new Error(
             "This browser couldn’t capture the street map.",
             { cause: error },
@@ -406,20 +479,68 @@ const RouteMap = forwardRef(function RouteMap({
   );
 
   return (
-    <div
-      ref={containerRef}
-      className="route-map"
-      role="region"
-      aria-label={
-        roadRouted
-          ? `${shapeName} street-route map. ${
-              editing
-                ? "Drag the numbered blue control points or use their arrow keys to edit the route."
-                : "Use the map controls to pan and zoom."
-            }`
-          : `${shapeName} preview only. This line is not matched to streets.`
-      }
-    />
+    <div className="route-map-shell">
+      <div
+        ref={containerRef}
+        className="route-map"
+        role="region"
+        aria-label={
+          roadRouted
+            ? `${shapeName} street-route map. ${
+                editing
+                  ? "Drag the numbered blue control points or use their arrow keys to edit the route."
+                  : "Use the controls to pan, zoom, and rotate the complete map."
+              }`
+            : `${shapeName} preview only. This line is not matched to streets.`
+        }
+      />
+      <div className="map-rotation-toolbar" aria-label="Map rotation controls">
+        <div className="map-rotation-copy">
+          <strong>Rotate the view</strong>
+          <span>Turn the map until the drawing reads best.</span>
+        </div>
+        <button
+          type="button"
+          className="map-rotation-step"
+          onClick={() => applyBearing(bearing - 15)}
+          aria-label="Rotate map 15 degrees left"
+          title="Rotate 15° left"
+        >
+          ↺ <span>15°</span>
+        </button>
+        <label className="map-rotation-slider">
+          <input
+            aria-label="Map rotation angle"
+            type="range"
+            min="-180"
+            max="180"
+            step="1"
+            value={bearing}
+            onChange={(event) => applyBearing(event.target.value)}
+          />
+        </label>
+        <output className="map-rotation-value" aria-live="polite">
+          {Math.round(bearing)}°
+        </output>
+        <button
+          type="button"
+          className="map-rotation-step"
+          onClick={() => applyBearing(bearing + 15)}
+          aria-label="Rotate map 15 degrees right"
+          title="Rotate 15° right"
+        >
+          ↻ <span>15°</span>
+        </button>
+        <button
+          type="button"
+          className="map-rotation-reset"
+          onClick={() => applyBearing(0)}
+          disabled={bearing === 0}
+        >
+          North up
+        </button>
+      </div>
+    </div>
   );
 });
 

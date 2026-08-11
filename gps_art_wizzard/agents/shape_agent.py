@@ -29,33 +29,84 @@ from ..tools import geo, shape_library, shape_uniqueness, text_shapes
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v3"
+_CUSTOM_SHAPE_CACHE_VERSION = "v4"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
 
-_CUSTOM_SHAPE_JSON_SCHEMA = {
+_CUSTOM_PATHS_JSON_SCHEMA = {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": 8,
+    "description": (
+        "Ordered route strokes. Prefer one closed outer silhouette and reserve "
+        "extra strokes for recognition-critical features that cannot be part of it."
+    ),
+    "items": {
+        "type": "array",
+        "minItems": 6,
+        "maxItems": 96,
+        "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"type": "number", "minimum": -10, "maximum": 10},
+        },
+    },
+}
+
+_CUSTOM_SHAPE_VARIANT_JSON_SCHEMA = {
     "type": "object",
     "properties": {
-        "name": {"type": "string", "maxLength": 80},
-        "paths": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 8,
-            "items": {
-                "type": "array",
-                "minItems": 6,
-                "maxItems": 240,
-                "items": {
-                    "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "items": {"type": "number", "minimum": -10, "maximum": 10},
-                },
-            },
+        "paths": _CUSTOM_PATHS_JSON_SCHEMA,
+        "closed": {
+            "type": "boolean",
+            "description": "Whether every stroke should close back to its exact first point.",
         },
-        "closed": {"type": "boolean"},
     },
-    "required": ["name", "paths", "closed"],
+    "required": ["paths", "closed"],
+    "additionalProperties": False,
+}
+
+_CUSTOM_SHAPE_JSON_SCHEMA = {
+    "type": "object",
+    "description": "Two competing, route-friendly silhouettes for the requested GPS art.",
+    "properties": {
+        "name": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "A short literal name for the object or scene that was requested.",
+        },
+        "recognition_features": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 6,
+            "description": (
+                "The large silhouette landmarks that make this exact request recognisable "
+                "without labels, colour, eyes, texture, or other tiny detail."
+            ),
+            "items": {"type": "string", "minLength": 4, "maxLength": 120},
+        },
+        "variants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "description": (
+                "Exactly two meaningfully different silhouettes, ordered independently "
+                "from the preferred_variant field."
+            ),
+            "items": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA,
+        },
+        "preferred_variant": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1,
+            "description": (
+                "Zero-based index of the silhouette that remains most recognisable at "
+                "thumbnail size after mentally checking every recognition feature."
+            ),
+        },
+    },
+    "required": ["name", "recognition_features", "variants", "preferred_variant"],
     "additionalProperties": False,
 }
 
@@ -162,10 +213,12 @@ class ShapeAgent(BaseAgent):
             return cached
 
         system = self.system_prompt
+        reference = _reference_shape_payload(idea)
         user = render(
             "shape",
             shape=json.dumps(idea, ensure_ascii=False),
             style=json.dumps(style, ensure_ascii=False),
+            reference=json.dumps(reference, ensure_ascii=False, separators=(",", ":")),
         )
         resp = try_complete(
             lambda: self._llm_fallback(idea),
@@ -209,9 +262,10 @@ class ShapeAgent(BaseAgent):
         )
         repair_prompt = (
             f"{user}\n\n"
-            "The previous geometry failed an executable validation check: "
-            f"{safe_reason}. Regenerate it from scratch. Keep one simple, "
-            "continuous silhouette, close it exactly, and return only the JSON schema."
+            "The previous candidate set failed an executable validation check: "
+            f"{safe_reason}. Regenerate both alternatives from scratch. Preserve every "
+            "recognition feature as a large contour interval, prefer one simple continuous "
+            "silhouette, close it exactly, and return only the requested JSON schema."
         )
         repaired = try_complete(
             lambda: self._llm_fallback(idea),
@@ -230,8 +284,22 @@ class ShapeAgent(BaseAgent):
         fallback = _label_fallback_shape(idea)
         payload = {
             "name": fallback.name,
-            "paths": [[[x, y] for x, y in path] for path in fallback.paths],
-            "closed": fallback.closed,
+            "recognition_features": [
+                "large readable label outline",
+                "balanced width and height",
+                "continuous route-friendly stroke",
+            ],
+            "variants": [
+                {
+                    "paths": [[[x, y] for x, y in path] for path in fallback.paths],
+                    "closed": fallback.closed,
+                },
+                {
+                    "paths": [[[x, y] for x, y in path] for path in fallback.paths],
+                    "closed": fallback.closed,
+                },
+            ],
+            "preferred_variant": 0,
         }
         return LLMResponse(text=json.dumps(payload), provider="fallback", model="rules")
 
@@ -243,9 +311,42 @@ def _shape_from_response(resp: LLMResponse, idea: str) -> Shape:
     data = extract_json(resp.text)
     if not isinstance(data, dict):
         raise ValueError("response must be a JSON object")
+    source = "fallback" if resp.provider == "fallback" else "llm"
+    if isinstance(data.get("variants"), list):
+        return _best_shape_variant(data, idea=idea, source=source)
+
+    # Backwards-compatible parsing for cached/test responses and providers that
+    # briefly return the pre-v4 object despite receiving the strict schema.
+    return _shape_from_geometry(data, idea=idea, source=source)
+
+
+def _best_shape_variant(data: dict, *, idea: str, source: str) -> Shape:
+    _validated_recognition_features(data.get("recognition_features"))
+    variants = data.get("variants")
+    if not isinstance(variants, list) or len(variants) != 2:
+        raise ValueError("exactly two alternative silhouettes are required")
+
+    preferred = data.get("preferred_variant")
+    if isinstance(preferred, bool) or not isinstance(preferred, int) or preferred not in {0, 1}:
+        raise ValueError("preferred_variant must select alternative 0 or 1")
+
+    reasons: list[str] = []
+    for index in (preferred, 1 - preferred):
+        raw_variant = variants[index]
+        if not isinstance(raw_variant, dict):
+            reasons.append(f"alternative {index + 1} is not an object")
+            continue
+        try:
+            return _shape_from_geometry(raw_variant, idea=idea, source=source)
+        except (KeyError, TypeError, ValueError) as exc:
+            reasons.append(f"alternative {index + 1}: {exc}")
+
+    raise ValueError("; ".join(reasons)[:480] or "no valid alternative silhouette")
+
+
+def _shape_from_geometry(data: dict, *, idea: str, source: str) -> Shape:
     closed = _parse_bool(data.get("closed", False))
     paths = _validated_paths(data.get("paths"), closed=closed)
-    source = "fallback" if resp.provider == "fallback" else "llm"
     if source == "llm":
         _validate_route_friendly_geometry(paths)
         _validate_distinct_custom_geometry(paths)
@@ -258,6 +359,25 @@ def _shape_from_response(resp: LLMResponse, idea: str) -> Shape:
             else _label_fallback_shape(idea).name
         )
     return Shape(name=name, paths=paths, closed=closed, source=source)
+
+
+def _validated_recognition_features(value: object) -> list[str]:
+    """Require a compact, non-duplicated semantic brief before accepting variants."""
+
+    if not isinstance(value, list) or not 3 <= len(value) <= 6:
+        raise ValueError("the silhouette needs three to six recognition features")
+    features: list[str] = []
+    seen: set[str] = set()
+    for raw_feature in value:
+        if not isinstance(raw_feature, str):
+            raise ValueError("every recognition feature must be text")
+        feature = " ".join(raw_feature.split())[:120]
+        key = feature.casefold()
+        if len(feature) < 4 or key in seen:
+            raise ValueError("recognition features must be meaningful and distinct")
+        seen.add(key)
+        features.append(feature)
+    return features
 
 
 def _validated_paths(value: object, *, closed: bool = False) -> list[geo.Path]:
@@ -383,6 +503,56 @@ def _label_fallback_shape(idea: str) -> Shape:
 
     name, paths, closed = shape_library.star()
     return Shape(name=name, paths=[list(path) for path in paths], closed=closed, source="fallback")
+
+
+def _reference_shape_payload(idea: str) -> dict[str, object] | None:
+    """Find the earliest catalogued subject in a compound free-text request.
+
+    The reference is prompt context, not the result: the AI still has to make
+    requested poses, accessories, and relationships visible. Giving it a
+    recognisable base contour prevents a known subject from losing its anatomy
+    while those custom details are added.
+    """
+
+    low = idea.casefold()
+    matches: list[tuple[int, int, str]] = []
+    for keyword, canonical_name in shape_library.KEYWORDS.items():
+        match = re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
+        if match:
+            matches.append((match.start(), -len(keyword), canonical_name))
+    if not matches:
+        return None
+
+    canonical_name = min(matches)[2]
+    hit = shape_library.get_shape(canonical_name)
+    if hit is None:
+        return None
+    name, generated_paths, closed = hit
+    authored = shape_library.AUTHORED_OUTLINES.get(name)
+    if authored:
+        reference_paths = [list(authored)]
+    else:
+        reference_paths = [_sample_reference_path(path) for path in generated_paths[:4]]
+    return {
+        "name": name,
+        "paths": reference_paths,
+        "closed": closed,
+    }
+
+
+def _sample_reference_path(path: geo.Path, max_points: int = 48) -> geo.Path:
+    """Keep prompt reference geometry compact without losing its endpoints."""
+
+    if len(path) <= max_points:
+        return list(path)
+    is_closed = len(path) >= 3 and path[0] == path[-1]
+    core = path[:-1] if is_closed else path
+    target = max_points - 1 if is_closed else max_points
+    indices = [round(index * (len(core) - 1) / (target - 1)) for index in range(target)]
+    sampled = [core[index] for index in indices]
+    if is_closed:
+        sampled.append(sampled[0])
+    return sampled
 
 
 def _custom_shape_cache_key(idea: str, style: str) -> tuple[str, str]:

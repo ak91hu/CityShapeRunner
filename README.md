@@ -36,11 +36,14 @@ is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
 Free-form drawings are not limited to the 141-option catalog either. A named
-custom idea is preserved locally, converted to bounded vector control geometry
-with one normal model call, checked for degenerate proportions and
-self-intersections, and repaired at most once before it reaches placement. Only
-successful generated shapes enter the 128-entry cache. If no model is available,
-the result uses an explicit idea-linked letter fallback instead of relabelling a
+custom idea is preserved locally, converted into two structured vector
+alternatives with an explicit recognition-feature brief, and checked for
+degenerate proportions, transfer lines, duplicates, and self-intersections.
+Compound requests reuse a related catalog contour as an anatomy/proportion
+anchor without copying it unchanged. The preferred valid alternative wins;
+both invalid alternatives trigger at most one bounded repair. Only successful
+generated shapes enter the 128-entry cache. If no model is available, the
+result uses an explicit idea-linked letter fallback instead of relabelling a
 stock icon as the requested object. See the
 [custom-shape research and decision record](docs/custom-shape-generation.md).
 
@@ -109,6 +112,12 @@ still exportable with a prominent manual-review warning. Moving a point marks
 the editor as having pending changes and disables downloads until the user
 updates the street route or discards those changes; closing an unchanged editor
 does not imply that anything was discarded.
+
+The complete map can also be rotated manually from −180° to 180°, in 1° slider
+steps or 15° buttons, with a one-click north-up reset. Tiles, intended outline,
+street route, and markers share the same bearing. Gallery capture uses the same
+geographic tile transform, so a published image keeps the orientation chosen
+in the result viewer.
 
 Structured JSON logs are written to the console and, by default, to the
 rotating `logs/gps-art-wizard.log`. Every HTTP request receives an

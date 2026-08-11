@@ -24,6 +24,15 @@ and cuts corners. Design for that, not for a perfect vector outline.
   a tail fin; a heart needs two lobes and a V-bottom. For animals, spend the
   limited landmark budget on the head profile and lower-body stance before
   decorative detail.
+- **Plan before coordinates.** For custom geometry, name three to six large
+  recognition features, draw two different silhouette strategies, and mark the
+  stronger thumbnail-sized result. The preferred result is tried first, but it
+  still has to pass executable topology checks.
+- **Preserve known anatomy.** When trusted catalog reference geometry is
+  supplied for a compound request, retain its major masses, proportions,
+  concavities, and part order while making the requested modifier visible.
+  Do not detach an outer-contour feature merely to make coordinate authoring
+  easier.
 - **Round off sharp corners slightly** — they collapse when snapped to roads.
 - **Avoid long thin spikes** and deep narrow notches — they collapse to a single
   road.
@@ -47,8 +56,9 @@ and cuts corners. Design for that, not for a perfect vector outline.
 - **Normalisation is automatic** (route-length centroid → origin, max side →
   1.0). Emit raw proportions; do not pre-normalise or cluster throwaway points
   to influence placement.
-- When drawing freely, align the shape's long axis with the X axis —
-  PlacementAgent rotates it to the street grid afterwards.
+- When drawing freely, keep the intended subject upright with +Y as up.
+  PlacementAgent rotates it to the street grid, and the result viewer lets the
+  user rotate the complete map afterwards.
 
 The focused evidence and the automated 128-template comparison are documented
 in [Recognisable and unique GPS-art templates](shape-template-uniqueness.md).

@@ -80,9 +80,13 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   is selected from 128 deterministic templates or normalised (centroid → origin,
   max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
-- **Custom geometry:** model output is bounded, checked for finite coordinates,
-  usable extent, aspect ratio, self-intersection, excessive multi-stroke transfer,
-  and placement-invariant catalog duplication, then repaired at most once.
+- **Custom geometry:** one strict response contains an explicit 3–6 feature
+  brief and two silhouette alternatives. Compound requests use the earliest
+  related catalog subject as a compact structure/proportion anchor. The model's
+  preferred valid alternative wins; otherwise the second is tried before one
+  bounded repair. Output is checked for finite coordinates, usable extent,
+  aspect ratio, self-intersection, excessive multi-stroke transfer, and
+  placement-invariant catalog duplication.
   Route-length-centred normalisation is insensitive to uneven control density;
   bounded multi-stroke requests receive globally minimal connector ordering.
   Centripetal, corner-protecting smoothing cannot introduce a crossing. Only

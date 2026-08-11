@@ -21,6 +21,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _CUSTOM_SHAPE_JSON_SCHEMA,
     ShapeAgent,
     _clear_custom_shape_cache,
+    _reference_shape_payload,
     _validated_paths,
 )
 from gps_art_wizzard.agents.snap_agent import _simplify_road_geometry
@@ -396,6 +397,18 @@ def test_shape_catalog_includes_both_expansion_sets():
     assert AUTHORED_OUTLINES.keys() <= shape_library.SHAPES.keys()
     assert EXTENDED_SHAPE_NAMES.isdisjoint(AUTHORED_OUTLINES)
     assert len(shape_library.SHAPES) == 128
+
+
+def test_robot_template_keeps_large_robot_landmarks_after_road_snapping():
+    path = AUTHORED_OUTLINES["robot"]
+
+    assert len(path) >= 40
+    assert max(y for _, y in path) >= 1.5  # bold antenna above the head
+    assert any(abs(x) >= 1.1 and y >= 0.3 for x, y in path)  # broad arms
+    assert any(abs(x) <= 0.3 and y >= 1.25 for x, y in path)  # antenna stem/cap
+    assert any(x < -0.5 and y <= -0.95 for x, y in path)  # left leg
+    assert any(x > 0.5 and y <= -0.95 for x, y in path)  # right leg
+    assert any(abs(x) <= 0.16 and -0.7 <= y <= -0.6 for x, y in path)  # leg gap
 
 
 @pytest.mark.parametrize(
@@ -2404,8 +2417,70 @@ def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):
 
     schema = captured["json_schema"]
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == {"name", "paths", "closed"}
-    assert schema["properties"]["paths"]["maxItems"] == 8
+    assert set(schema["required"]) == {
+        "name",
+        "recognition_features",
+        "variants",
+        "preferred_variant",
+    }
+    assert schema["properties"]["recognition_features"]["minItems"] == 3
+    variants = schema["properties"]["variants"]
+    assert variants["minItems"] == variants["maxItems"] == 2
+    assert variants["items"]["additionalProperties"] is False
+    assert variants["items"]["properties"]["paths"]["maxItems"] == 8
+
+
+def test_custom_shape_uses_valid_alternative_when_ai_preference_crosses_itself(monkeypatch):
+    _clear_custom_shape_cache()
+    calls = 0
+    response = LLMResponse(
+        text=json.dumps(
+            {
+                "name": "platypus",
+                "recognition_features": [
+                    "wide duck bill",
+                    "low rounded body",
+                    "broad beaver tail",
+                ],
+                "variants": [
+                    {
+                        "paths": [
+                            [[0, 0], [1, 1], [0, 1], [1, 0], [0.5, -0.2], [0, 0]]
+                        ],
+                        "closed": True,
+                    },
+                    {
+                        "paths": [[
+                            [0, 0], [1, 0], [1.1, 0.4], [0.8, 1],
+                            [0, 1], [-0.2, 0.4], [0, 0],
+                        ]],
+                        "closed": True,
+                    },
+                ],
+                "preferred_variant": 0,
+            }
+        ),
+        provider="test-provider",
+    )
+
+    def complete(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return response
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    state = WorkflowState(
+        prompt="draw a platypus in Budapest",
+        intent=Intent("platypus", None, "Budapest", "run", 8.0, None),
+        plan=Plan(shape_strategy="llm"),
+    )
+
+    ShapeAgent().run(state)
+
+    assert calls == 1
+    assert state.shape is not None
+    assert state.shape.source == "llm"
+    assert state.errors == []
 
 
 def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
@@ -2569,11 +2644,25 @@ def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(mon
 
 
 def test_custom_shape_prompt_requires_semantic_cues_and_non_stock_contours():
-    prompt = render("shape", shape='"platypus"', style='"none"').lower()
+    prompt = render("shape", shape='"platypus"', style='"none"', reference="null").lower()
 
-    assert "silently decompose" in prompt
-    assert "3-6 identifying" in prompt
+    assert "3-6 concrete recognition features" in prompt
+    assert "two meaningfully different silhouette alternatives" in prompt
+    assert "thumbnail size" in prompt
+    assert "preferred_variant" in prompt
+    assert "recognisability anchor" in prompt
     assert "stock symbol" in prompt
+
+
+def test_compound_custom_shape_uses_its_first_known_subject_as_reference():
+    reference = _reference_shape_payload("a robot holding an umbrella")
+
+    assert reference is not None
+    assert reference["name"] == "robot"
+    assert reference["closed"] is True
+    assert len(reference["paths"]) == 1
+    assert len(reference["paths"][0]) >= 40
+    assert _reference_shape_payload("a completely unknown frobnicator") is None
 
 
 def test_successful_custom_geometry_is_cached_without_sharing_mutable_paths(monkeypatch):
