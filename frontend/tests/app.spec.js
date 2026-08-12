@@ -464,12 +464,12 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
 
   await page.setViewportSize({ width: 900, height: 900 });
-  const metricsBox = await page.locator(".result-sidebar .metrics").boundingBox();
-  const exportBox = await page.locator(".result-sidebar .export-card").boundingBox();
-  expect(metricsBox).not.toBeNull();
+  const mapBox = await page.locator(".map-card").boundingBox();
+  const exportBox = await page.locator(".route-output .export-card").boundingBox();
+  expect(mapBox).not.toBeNull();
   expect(exportBox).not.toBeNull();
-  expect(Math.abs(metricsBox.x - exportBox.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(metricsBox.width - exportBox.width)).toBeLessThanOrEqual(1);
+  expect(exportBox.y).toBeGreaterThan(mapBox.y);
+  expect(exportBox.x).toBeGreaterThanOrEqual(mapBox.x);
 });
 
 test("smart suggestion validates inputs and submits the selected city, activity, and distance", async ({

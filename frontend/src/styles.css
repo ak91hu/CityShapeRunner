@@ -4449,6 +4449,7 @@ input,
 .route-output {
   order: 2;
   width: 100%;
+  box-sizing: border-box;
   grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.82fr);
   margin: 0;
   padding: 0 clamp(0.75rem, 2vw, 1rem);

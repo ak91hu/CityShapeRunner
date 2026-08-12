@@ -1516,6 +1516,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
           ),
         gpx: response.gpx,
         tcx: response.tcx,
+        allow_gallery_share: false,
         warnings: response.warnings,
       });
       setControlPoints(sampleControlPoints(response.points_preview));
@@ -1585,6 +1586,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
         snapped: response.snapped,
         details: { ...routeDetails, readiness: response.readiness },
         gpx: response.gpx,
+        allow_gallery_share: true,
       });
       setRepairNotice(`${response.message} Recognition score: ${formatPercent(response.recognition_score)}.`);
     } catch (repairError) {
@@ -2140,7 +2142,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 Apply or discard your changes before downloading.
               </p>
             )}
-            {activeRoute.gallery_publish_token && (
+            {activeRoute.gallery_publish_token && (!editedRoute || editedRoute.allow_gallery_share) && (
               <div className="gallery-publish">
                 <div>
                   <strong>Publish map image</strong>
