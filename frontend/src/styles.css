@@ -4434,6 +4434,46 @@ input,
   margin: 0;
 }
 
+/* The result is a single, deliberate reading path: inspect the drawing,
+   take the route action, then explore optional planning tools. */
+.result-layout {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.9rem, 2vw, 1.35rem);
+}
+
+.map-card {
+  order: 1;
+}
+
+.route-output {
+  order: 2;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.82fr);
+  margin: 0;
+  padding: 0 clamp(0.75rem, 2vw, 1rem);
+}
+
+.result-sidebar {
+  order: 3;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0 clamp(0.75rem, 2vw, 1rem) 1rem;
+}
+
+.result-sidebar .metrics {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.result-sidebar .notice,
+.result-sidebar .verification-card,
+.result-sidebar .ai-recognition-card {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 38rem) {
   .timed-readiness-controls,
   .mural-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -4442,17 +4482,22 @@ input,
 }
 
 @media (max-width: 68rem) {
-  .result-layout {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .map-card { order: 1; }
-  .route-output { order: 2; }
-  .result-sidebar { order: 3; }
-
   .route-output {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .result-sidebar .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48rem) {
+  .result-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .result-sidebar .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
