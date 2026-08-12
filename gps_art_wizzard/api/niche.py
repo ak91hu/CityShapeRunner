@@ -52,10 +52,12 @@ def completion_feedback(request: CompletionFeedbackRequest) -> dict:
     likeness = shape_similarity.fidelity_between_routes(planned, completed, n=96)
     planned_km = geo.path_distance_m(planned) / 1000
     completed_km = geo.path_distance_m(completed) / 1000
+    shape_name = request.shape_name.strip()
+    city = request.city.strip() if request.city else None
     summary = {
-        "shape_name": request.shape_name.strip(),
+        "shape_name": shape_name,
         "sport": request.sport,
-        "city": request.city.strip() if request.city else None,
+        "city": city,
         "planned_km": round(planned_km, 3),
         "completed_km": round(completed_km, 3),
         "likeness": round(likeness, 4),
@@ -64,7 +66,7 @@ def completion_feedback(request: CompletionFeedbackRequest) -> dict:
     }
     if request.consent_to_learn:
         record_completion(summary)
-    aggregate = evidence_summary(city=summary["city"], shape_name=summary["shape_name"])
+    aggregate = evidence_summary(city=city, shape_name=shape_name)
     return {
         "completion": summary,
         "saved_for_learning": request.consent_to_learn,
@@ -172,7 +174,7 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
     guide = _points(request.reference_points)
     landmarks = shape_similarity.salient_route_landmarks(guide)
     anchors = [guide[0], *landmarks, guide[-1]]
-    deduped = []
+    deduped: list[tuple[float, float]] = []
     for point in anchors:
         if not deduped or point != deduped[-1]:
             deduped.append(point)

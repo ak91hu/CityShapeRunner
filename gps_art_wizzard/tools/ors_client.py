@@ -555,6 +555,8 @@ def _simplify_to_budget(
 
 
 def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -577,8 +579,11 @@ def _extra_summary(section: dict, route_distance_m: float) -> list[dict]:
     for item in section.get("summary") or []:
         if not isinstance(item, dict):
             continue
+        raw_code = item.get("value")
+        if isinstance(raw_code, bool) or not isinstance(raw_code, (int, float, str)):
+            continue
         try:
-            code = int(item.get("value"))
+            code = int(raw_code)
         except (TypeError, ValueError):
             continue
         distance = _finite_number(item.get("distance"))
