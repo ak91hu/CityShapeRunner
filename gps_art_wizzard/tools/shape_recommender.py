@@ -17,6 +17,10 @@ from functools import cache, lru_cache
 
 from . import geo, shape_library
 
+# These templates remain available when a user asks for them directly, but are
+# too generic to represent a city-specific automatic suggestion.
+AUTOMATIC_RECOMMENDATION_EXCLUSIONS = frozenset({"lightning"})
+
 
 @dataclass(frozen=True)
 class ShapeRouteProfile:
@@ -427,8 +431,12 @@ def recommend_shapes(
     # A disconnected drawing can require invisible transfer legs.  It is still
     # analysed and ranked, but automatic recommendations use continuous shapes
     # unless no such template exists.
-    continuous = [item for item in ranked if item.shape.path_count == 1]
-    pool = continuous or ranked
+    eligible = [
+        item for item in ranked
+        if item.name not in AUTOMATIC_RECOMMENDATION_EXCLUSIONS
+    ]
+    continuous = [item for item in eligible if item.shape.path_count == 1]
+    pool = continuous or eligible
     for item in pool:
         if item.shape.family in used_families:
             continue

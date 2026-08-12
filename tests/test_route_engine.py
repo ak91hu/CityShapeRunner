@@ -43,7 +43,10 @@ from gps_art_wizzard.state import (
     EvaluatedCandidate,
     Intent,
     Plan,
+    RouteConcern,
     RouteDraft,
+    RouteReadiness,
+    RouteSurface,
     Shape,
     SnappedRoute,
     Validation,
@@ -1161,6 +1164,108 @@ def test_ors_request_uses_boolean_and_sums_all_segment_distances():
     assert len(route) == 3
     assert distance == pytest.approx(220.0)
     assert client.payload["continue_straight"] is True
+    assert client.payload["elevation"] is True
+    assert client.payload["extra_info"] == [
+        "surface",
+        "steepness",
+        "waytype",
+        "suitability",
+    ]
+
+
+class _ReadinessResponse:
+    status_code = 200
+    text = ""
+
+    def json(self):
+        return {
+            "features": [
+                {
+                    "geometry": {
+                        "coordinates": [
+                            [19.0, 47.0, 100.0],
+                            [19.001, 47.0, 104.0],
+                            [19.002, 47.0, 112.0],
+                            [19.003, 47.0, 106.0],
+                        ]
+                    },
+                    "properties": {
+                        "summary": {
+                            "distance": 300.0,
+                            "ascent": 15.0,
+                            "descent": 9.0,
+                        },
+                        "extras": {
+                            "surface": {
+                                "values": [[0, 2, 3], [2, 3, 0]],
+                                "summary": [
+                                    {"value": 3, "distance": 240.0, "amount": 80.0},
+                                    {"value": 0, "distance": 60.0, "amount": 20.0},
+                                ],
+                            },
+                            "steepness": {
+                                "values": [[0, 2, 1], [2, 3, 4]],
+                                "summary": [
+                                    {"value": 1, "distance": 240.0, "amount": 80.0},
+                                    {"value": 4, "distance": 60.0, "amount": 20.0},
+                                ],
+                            },
+                            "waytypes": {
+                                "values": [[0, 2, 6], [2, 3, 8]],
+                                "summary": [
+                                    {"value": 6, "distance": 270.0, "amount": 90.0},
+                                    {"value": 8, "distance": 30.0, "amount": 10.0},
+                                ],
+                            },
+                            "suitability": {
+                                "values": [[0, 1, 2], [1, 3, 8]],
+                                "summary": [
+                                    {"value": 2, "distance": 40.0, "amount": 13.33},
+                                    {"value": 8, "distance": 260.0, "amount": 86.67},
+                                ],
+                            },
+                        },
+                    },
+                }
+            ]
+        }
+
+
+class _ReadinessClient:
+    def post(self, _url, *, json, headers, timeout):
+        return _ReadinessResponse()
+
+
+def test_ors_readiness_reports_elevation_surfaces_and_concern_segments():
+    result = ors_client._ors_request(
+        "https://example.test/route",
+        {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0], [19.003, 47.0]],
+        preference="recommended",
+        continue_straight=False,
+        radius=120,
+        sport="bike",
+        client=_ReadinessClient(),
+    )
+
+    assert isinstance(result, ors_client._ORSRouteResult)
+    readiness = result.readiness
+    assert readiness.status == "review"
+    assert readiness.data_quality == "good"
+    assert readiness.elevation_gain_m == pytest.approx(15.0)
+    assert readiness.elevation_loss_m == pytest.approx(9.0)
+    assert readiness.max_grade_percent == pytest.approx(10.55, abs=0.02)
+    assert readiness.max_grade_is_lower_bound is False
+    assert readiness.surface_known_share == pytest.approx(0.8)
+    assert readiness.unpaved_share == pytest.approx(0.0)
+    assert [surface.label for surface in readiness.surfaces] == ["Asphalt", "Unknown"]
+    concern_codes = {concern.code for concern in readiness.concerns}
+    assert {"low_suitability", "steep_climb", "steps", "unknown_surface"} <= concern_codes
+    assert all(
+        segment
+        for concern in readiness.concerns
+        for segment in concern.segments_preview
+    )
 
 
 class _FakeErrorResponse:
@@ -1885,11 +1990,20 @@ def test_every_catalogued_city_gets_three_measurable_recommendations():
             primary_shapes.add(names[0])
             assert len(names) == 3
             assert len(set(names)) == 3
+            assert "lightning" not in names
             assert all(item.shape.path_count == 1 for item in recommendations)
             assert all(item.reason.startswith("For ") for item in recommendations)
 
     assert len(primary_shapes) >= 4
     assert primary_shapes & EXTENDED_SHAPE_NAMES
+
+
+def test_web_copy_does_not_use_long_dash_characters():
+    root = Path(__file__).resolve().parents[1]
+    for relative_path in ("frontend/index.html", "frontend/src/App.jsx"):
+        copy = (root / relative_path).read_text(encoding="utf-8")
+        assert "—" not in copy
+        assert "–" not in copy
 
 
 def test_distance_and_activity_change_supported_shape_detail():
@@ -2782,6 +2896,30 @@ def test_preview_sampler_never_exceeds_limit_and_keeps_endpoints():
 
 def test_candidate_download_keeps_full_geometry_beyond_the_map_preview():
     points = [(47.0 + index * 0.00001, 19.0) for index in range(600)]
+    readiness = RouteReadiness(
+        status="ready",
+        data_quality="good",
+        elevation_available=True,
+        elevation_gain_m=42.0,
+        elevation_loss_m=38.0,
+        max_grade_percent=4.2,
+        surface_available=True,
+        surface_known_share=1.0,
+        unpaved_share=0.0,
+        surfaces=[RouteSurface(3, "Asphalt", 650.0, 1.0, "paved")],
+        concerns=[
+            RouteConcern(
+                "unknown_waytype",
+                "Road type data gap",
+                "Check this mapped section.",
+                "info",
+                12.0,
+                0.02,
+                1,
+                [points[:2]],
+            )
+        ],
+    )
     validation = Validation(
         score=0.9,
         closure=1.0,
@@ -2811,12 +2949,18 @@ def test_candidate_download_keeps_full_geometry_beyond_the_map_preview():
         scale_m=1_000.0,
         lat_offset_m=0.0,
         lon_offset_m=0.0,
+        readiness=readiness,
     )
     state = WorkflowState(
         prompt="line route",
         intent=Intent("line", None, "Budapest", "run", None, None),
         shape=Shape("line", [[(0.0, 0.0), (1.0, 0.0)]], False, "test"),
-        snapped=SnappedRoute(points, candidate.total_distance_m, snapped=True),
+        snapped=SnappedRoute(
+            points,
+            candidate.total_distance_m,
+            snapped=True,
+            readiness=readiness,
+        ),
         validation=validation,
         candidates=[candidate],
     )
@@ -2825,6 +2969,11 @@ def test_candidate_download_keeps_full_geometry_beyond_the_map_preview():
 
     assert len(response["candidates"][0]["points_preview"]) == 500
     assert response["candidates"][0]["gpx"].count("<trkpt") == 600
+    candidate_readiness = response["candidates"][0]["details"]["readiness"]
+    assert candidate_readiness["elevation_gain_m"] == 42.0
+    assert candidate_readiness["surfaces"][0]["label"] == "Asphalt"
+    assert candidate_readiness["concerns"][0]["segments_preview"]
+    assert response["route_details"]["readiness"]["status"] == "ready"
 
 
 def test_export_is_stateless_for_a_valid_road_route(monkeypatch):
@@ -3073,9 +3222,14 @@ def test_edit_route_reroutes_control_points_and_builds_verified_shape_gpx(monkey
         assert sport == "run"
         assert closed is False
         assert len(waypoints) == 3
-        return routed, geo.path_distance_m(routed), True
+        return (
+            routed,
+            geo.path_distance_m(routed),
+            True,
+            RouteReadiness(status="ready", data_quality="good"),
+        )
 
-    monkeypatch.setattr(ors_client, "snap_route", fake_snap)
+    monkeypatch.setattr(ors_client, "snap_route_detailed", fake_snap)
     response = edit_route(
         EditedRouteRequest(
             control_points=[[lat, lon] for lat, lon in routed],
@@ -3093,6 +3247,7 @@ def test_edit_route_reroutes_control_points_and_builds_verified_shape_gpx(monkey
     assert "<gpx" in response["gpx"]
     assert "Edited route" in response["gpx"]
     assert response["route_details"]["shape"]["name"] == "heart"
+    assert response["route_details"]["readiness"]["status"] == "ready"
     assert response["route_verification"]["gates"][0]["value"] == "heart"
 
 

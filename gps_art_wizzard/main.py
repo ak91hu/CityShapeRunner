@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .api.gallery import router as gallery_router
+from .api.niche import router as niche_router
 from .api.routes import router
 from .logging_config import (
     bind_request_id,
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(gallery_router)
+    app.include_router(niche_router)
 
     # Serve the built SPA (frontend/dist) at / when present. Routes registered
     # above (/health, /generate, /docs) take precedence over this catch-all.

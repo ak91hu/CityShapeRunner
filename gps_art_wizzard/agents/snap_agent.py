@@ -16,7 +16,7 @@ class SnapAgent(BaseAgent):
     def run(self, state: WorkflowState) -> WorkflowState:
         if state.route_draft is None or state.intent is None:
             raise RuntimeError("road snapping requires route draft and intent")
-        # Clear stale snap errors from previous iterations — if this snap
+        # Clear stale snap errors from previous iterations. If this snap
         # succeeds, any prior "ORS routing failed" error is obsolete.
         state.errors = [e for e in state.errors if not e.startswith("snap:")]
         draft = state.route_draft
@@ -27,7 +27,7 @@ class SnapAgent(BaseAgent):
             state.snapped = SnappedRoute(points=list(waypoints), total_distance_m=0.0, snapped=False)
             return state
 
-        polyline, dist_m, snapped = ors_client.snap_route(
+        polyline, dist_m, snapped, readiness = ors_client.snap_route_detailed(
             waypoints, sport=state.intent.sport, closed=draft.closed
         )
         # Apply the refinement-controlled tolerance in local metre space, but
@@ -36,7 +36,12 @@ class SnapAgent(BaseAgent):
         tol = draft.simplify_tolerance
         if tol and tol > 0 and snapped and len(polyline) > 4:
             polyline = _simplify_road_geometry(polyline, tol)
-        state.snapped = SnappedRoute(points=polyline, total_distance_m=dist_m, snapped=snapped)
+        state.snapped = SnappedRoute(
+            points=polyline,
+            total_distance_m=dist_m,
+            snapped=snapped,
+            readiness=readiness,
+        )
         if not snapped and get_settings().routing.ors_api_key:
             state.errors.append(
                 "snap: ORS routing failed; route is straight-line, not on roads"

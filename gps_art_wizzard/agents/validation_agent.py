@@ -59,7 +59,7 @@ class ValidationAgent(BaseAgent):
 
         # --- road-following guard ------------------------------------------ #
         # A straight-line fallback (snapped=False) cuts through buildings,
-        # rivers, and parks — it is NOT a runnable route. Shape fidelity is
+        # rivers, and parks. It is NOT a runnable route. Shape fidelity is
         # meaningless in that mode (~1.0, the drawing compared to itself), so
         # cap the overall score below the threshold and flag it prominently.
         on_roads = snapped.snapped
@@ -92,7 +92,10 @@ class ValidationAgent(BaseAgent):
 
         issues: list[str] = []
         if not on_roads:
-            issues.append("route is NOT on roads (straight-line fallback) — cuts through buildings/obstacles")
+            issues.append(
+                "route is NOT on roads (straight-line fallback); "
+                "cuts through buildings/obstacles"
+            )
         if closure_applicable and closure_score < 0.6:
             issues.append(f"loop not closed (gap {gap_m:.0f} m)")
         if distance_fit < 0.6:
@@ -173,6 +176,7 @@ class ValidationAgent(BaseAgent):
                 lat_offset_m=state.route_draft.lat_offset_m,
                 lon_offset_m=state.route_draft.lon_offset_m,
                 preflight_score=state.route_draft.preflight_score,
+                readiness=snapped.readiness,
             )
         )
         report = quality_gate_report(

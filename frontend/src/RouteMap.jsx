@@ -143,6 +143,8 @@ const RouteMap = forwardRef(function RouteMap({
   points = [],
   idealPoints = [],
   landmarkPoints = [],
+  readinessConcerns = [],
+  streetCanvasCandidates = [],
   editPoints = [],
   shapeName = "GPS art",
   roadRouted = false,
@@ -191,6 +193,29 @@ const RouteMap = forwardRef(function RouteMap({
         .filter(isCoordinate)
         .map(([latitude, longitude]) => [latitude, longitude]),
     [landmarkPoints],
+  );
+  const concernSegments = useMemo(() => {
+    if (!Array.isArray(readinessConcerns)) return [];
+    return readinessConcerns.flatMap((concern) =>
+      (Array.isArray(concern?.segments_preview) ? concern.segments_preview : [])
+        .map((segment) =>
+          (Array.isArray(segment) ? segment : [])
+            .filter(isCoordinate)
+            .map(([latitude, longitude]) => [latitude, longitude]),
+        )
+        .filter((segment) => segment.length > 1)
+        .map((segment) => ({
+          coordinates: segment,
+          label: String(concern.label || "Section to review"),
+          severity: concern.severity === "warning" ? "warning" : "info",
+        })),
+    );
+  }, [readinessConcerns]);
+  const canvasCoordinates = useMemo(
+    () => (Array.isArray(streetCanvasCandidates) ? streetCanvasCandidates : [])
+      .filter((candidate) => Number.isFinite(candidate?.latitude) && Number.isFinite(candidate?.longitude))
+      .slice(0, 4),
+    [streetCanvasCandidates],
   );
 
   useEffect(() => {
@@ -269,6 +294,33 @@ const RouteMap = forwardRef(function RouteMap({
       dashArray: roadRouted ? undefined : "10 10",
       interactive: false,
     }).addTo(routeLayer);
+
+    concernSegments.forEach((segment) => {
+      L.polyline(segment.coordinates, {
+        color: segment.severity === "warning" ? "#c2412d" : "#9a6700",
+        weight: 8,
+        opacity: 0.92,
+        dashArray: "4 8",
+        lineCap: "round",
+        lineJoin: "round",
+        className: `route-concern-segment route-concern-segment--${segment.severity}`,
+      })
+        .bindTooltip(segment.label)
+        .addTo(routeLayer);
+    });
+
+    canvasCoordinates.forEach((candidate) => {
+      L.circleMarker([candidate.latitude, candidate.longitude], {
+        radius: candidate.rank === 1 ? 8 : 6,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: candidate.rank === 1 ? "#245f9f" : "#6b8db8",
+        fillOpacity: 0.95,
+        className: "street-canvas-marker",
+      })
+        .bindTooltip(`Street Canvas area ${candidate.rank}: ${Math.round((candidate.readability_score ?? 0) * 100)}% fit`)
+        .addTo(routeLayer);
+    });
 
     landmarkCoordinates.forEach((coordinate, index) => {
       L.circleMarker(coordinate, {
@@ -378,6 +430,8 @@ const RouteMap = forwardRef(function RouteMap({
     }
   }, [
     accepted,
+    concernSegments,
+    canvasCoordinates,
     coordinates,
     editableCoordinates,
     editing,
@@ -446,6 +500,14 @@ const RouteMap = forwardRef(function RouteMap({
           opacity: roadRouted ? 0.95 : 0.8,
           dash: roadRouted ? [] : [10, 10],
         });
+        concernSegments.forEach((segment) => {
+          drawCoordinatePath(context, map, segment.coordinates, {
+            color: segment.severity === "warning" ? "#c2412d" : "#9a6700",
+            width: 8,
+            opacity: 0.92,
+            dash: [4, 8],
+          });
+        });
         drawEndpoint(context, map, coordinates[0], "#0b6b57");
         drawEndpoint(context, map, coordinates.at(-1), "#e4542f");
 
@@ -475,7 +537,7 @@ const RouteMap = forwardRef(function RouteMap({
         }
       },
     }),
-    [accepted, coordinates, idealCoordinates, roadRouted],
+    [accepted, concernSegments, coordinates, idealCoordinates, roadRouted],
   );
 
   return (

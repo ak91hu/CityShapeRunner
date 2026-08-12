@@ -87,6 +87,7 @@ class GenerateResponse(BaseModel):
     candidate_audit: list[dict] = Field(default_factory=list)
     candidate_summary: dict = Field(default_factory=dict)
     preflight_candidates: list[dict] = Field(default_factory=list)
+    street_canvas: list[dict] = Field(default_factory=list)
     route_verification: dict | None = None
     route_details: dict | None = None
     gallery_publish_token: str | None = None
@@ -236,6 +237,7 @@ def _route_details(
     route_point_count: int,
     guide_point_count: int,
     transform: dict | None = None,
+    readiness=None,
 ) -> dict:
     difference_km = (
         distance_km - target_distance_km
@@ -271,6 +273,7 @@ def _route_details(
             "mean_outline_deviation_ratio": validation.mean_deviation_ratio,
         },
         "placement": transform or {},
+        "readiness": asdict(readiness) if readiness is not None else None,
     }
 
 
@@ -329,6 +332,7 @@ def _state_to_response(state) -> dict:
             route_point_count=len(candidate.points),
             guide_point_count=len(candidate.ideal_points),
             transform=transform,
+            readiness=candidate.readiness,
         )
         candidate_id = f"candidate-{original_index}"
         selected_shape_match = bool(
@@ -495,6 +499,7 @@ def _state_to_response(state) -> dict:
                 if state.route_draft
                 else {}
             ),
+            readiness=snapped.readiness if snapped else None,
         )
         if state.validation
         else None
@@ -511,6 +516,37 @@ def _state_to_response(state) -> dict:
         "full_route_attempt_count": state.candidate_count,
         "preflight_count": state.preflight_count,
     }
+    street_canvas = []
+    if state.route_draft:
+        for rank, item in enumerate(
+            sorted(
+                state.preflight_candidates,
+                key=lambda candidate: candidate.get("score", 0.0),
+                reverse=True,
+            )[:12],
+            start=1,
+        ):
+            lat, lon = geo.unit_to_latlon(
+                float(item.get("lon_offset_m", 0.0)),
+                float(item.get("lat_offset_m", 0.0)),
+                state.route_draft.center_lat,
+                state.route_draft.center_lon,
+                1.0,
+            )
+            street_canvas.append(
+                {
+                    **item,
+                    "rank": rank,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "readability_score": round(
+                        0.55 * float(item.get("score", 0.0))
+                        + 0.25 * float(item.get("shape_proxy", 0.0))
+                        + 0.20 * float(item.get("landmark_proxy", 0.0)),
+                        4,
+                    ),
+                }
+            )
     log.info(
         (
             "Route response prepared for selected shape %s: showing %d route(s), "
@@ -591,6 +627,7 @@ def _state_to_response(state) -> dict:
         candidate_audit=candidate_audit,
         candidate_summary=candidate_summary,
         preflight_candidates=state.preflight_candidates,
+        street_canvas=street_canvas,
         route_verification=route_verification,
         route_details=route_details,
         gallery_publish_token=(
@@ -695,7 +732,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
             detail="Edited route guides must stay within a 1,000 km total span.",
         )
 
-    points, distance_m, snapped = ors_client.snap_route(
+    points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
         control_points,
         sport=req.sport,
         closed=req.closed,
@@ -733,6 +770,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
             points=points,
             total_distance_m=distance_m,
             snapped=snapped,
+            readiness=readiness,
         ),
     )
     ValidationAgent().run(temporary)
@@ -823,6 +861,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
         target_distance_km=req.target_distance_km,
         route_point_count=len(points),
         guide_point_count=len(reference_points),
+        readiness=readiness,
     )
     return {
         "request_id": temporary.request_id,

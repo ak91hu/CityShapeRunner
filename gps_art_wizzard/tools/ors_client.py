@@ -19,6 +19,7 @@ import httpx
 from shapely.geometry import LineString
 
 from ..config import get_settings
+from ..state import RouteConcern, RouteReadiness, RouteSurface
 from . import geo, shape_similarity
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,30 @@ _PROFILE_MAP = {
     "bike-mtb": "cycling-mountain",
 }
 
+_SURFACE_LABELS = {
+    0: "Unknown",
+    1: "Paved",
+    2: "Unpaved",
+    3: "Asphalt",
+    4: "Concrete",
+    6: "Metal",
+    7: "Wood",
+    8: "Compacted gravel",
+    10: "Gravel",
+    11: "Dirt",
+    12: "Ground or mud",
+    13: "Ice or snow",
+    14: "Paving stones",
+    15: "Sand",
+    17: "Grass",
+    18: "Grass paver",
+}
+_PAVED_SURFACES = {1, 3, 4, 6, 7, 14, 18}
+_UNPAVED_SURFACES = {2, 8, 10, 11, 12, 13, 15, 17}
+_STEEPNESS_LOWER_BOUNDS = {0: 0.0, 1: 1.0, 2: 4.0, 3: 7.0, 4: 10.0, 5: 16.0}
+_MAX_CONCERN_SEGMENTS = 6
+_MAX_CONCERN_POINTS = 36
+
 
 @dataclass(frozen=True)
 class _ORSFailure:
@@ -63,6 +88,21 @@ class _ORSFailure:
     status_code: int | None
     error_code: int | None
     message: str
+
+
+@dataclass(frozen=True)
+class _ORSRouteResult:
+    """Successful ORS response with its route-readiness evidence."""
+
+    polyline: list[LatLon]
+    distance_m: float
+    readiness: RouteReadiness
+
+    def __iter__(self):
+        """Keep existing internal callers that unpack route and distance working."""
+
+        yield self.polyline
+        yield self.distance_m
 
 
 @dataclass(frozen=True)
@@ -514,10 +554,407 @@ def _simplify_to_budget(
     return _prepare_waypoints(best, closed=closed)
 
 
+def _finite_number(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _extra_section(extras: dict, *names: str) -> dict:
+    for name in names:
+        section = extras.get(name)
+        if isinstance(section, dict):
+            return section
+    return {}
+
+
+def _extra_summary(section: dict, route_distance_m: float) -> list[dict]:
+    """Normalise an ORS extra summary and recover distance from amount."""
+
+    normalised = []
+    for item in section.get("summary") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            code = int(item.get("value"))
+        except (TypeError, ValueError):
+            continue
+        distance = _finite_number(item.get("distance"))
+        amount = _finite_number(item.get("amount"))
+        if distance is None and amount is not None and route_distance_m > 0:
+            distance = route_distance_m * amount / 100.0
+        if distance is None or distance < 0:
+            continue
+        normalised.append(
+            {
+                "code": code,
+                "distance_m": distance,
+                "share": min(1.0, distance / route_distance_m)
+                if route_distance_m > 0
+                else 0.0,
+            }
+        )
+    return normalised
+
+
+def _extra_values(section: dict) -> list[tuple[int, int, int]]:
+    values = []
+    for item in section.get("values") or []:
+        if not isinstance(item, list | tuple) or len(item) < 3:
+            continue
+        try:
+            start, end, code = int(item[0]), int(item[1]), int(item[2])
+        except (TypeError, ValueError):
+            continue
+        if start >= 0 and end > start:
+            values.append((start, end, code))
+    return values
+
+
+def _sample_concern_segment(points: list[LatLon]) -> list[LatLon]:
+    if len(points) <= _MAX_CONCERN_POINTS:
+        return points
+    indices = [
+        round(index * (len(points) - 1) / (_MAX_CONCERN_POINTS - 1))
+        for index in range(_MAX_CONCERN_POINTS)
+    ]
+    return [points[index] for index in indices]
+
+
+def _segments_for_codes(
+    values: list[tuple[int, int, int]],
+    codes: set[int],
+    polyline: list[LatLon],
+) -> list[list[LatLon]]:
+    segments = []
+    for start, end, code in values:
+        if code not in codes or start >= len(polyline) - 1:
+            continue
+        last = min(end, len(polyline) - 1)
+        segment = polyline[start : last + 1]
+        if len(segment) >= 2:
+            segments.append(_sample_concern_segment(segment))
+        if len(segments) >= _MAX_CONCERN_SEGMENTS:
+            break
+    return segments
+
+
+def _elevation_metrics(
+    coordinates: list,
+    summary: dict,
+) -> tuple[float | None, float | None, float | None]:
+    """Return ascent, descent, and a noise-resistant steepest climb."""
+
+    elevated = []
+    for coordinate in coordinates:
+        if not isinstance(coordinate, list | tuple) or len(coordinate) < 3:
+            continue
+        lon = _finite_number(coordinate[0])
+        lat = _finite_number(coordinate[1])
+        elevation = _finite_number(coordinate[2])
+        if lon is None or lat is None or elevation is None:
+            continue
+        elevated.append((lat, lon, elevation))
+    if len(elevated) < 2:
+        return None, None, None
+
+    ascent = _finite_number(summary.get("ascent"))
+    descent = _finite_number(summary.get("descent"))
+    if ascent is None or descent is None:
+        rises = [
+            elevated[index + 1][2] - elevated[index][2]
+            for index in range(len(elevated) - 1)
+        ]
+        if ascent is None:
+            ascent = sum(max(0.0, rise) for rise in rises)
+        if descent is None:
+            descent = sum(max(0.0, -rise) for rise in rises)
+
+    cumulative = [0.0]
+    for start, end in zip(elevated, elevated[1:], strict=False):
+        cumulative.append(
+            cumulative[-1] + geo.haversine(start[0], start[1], end[0], end[1])
+        )
+
+    max_grade = 0.0
+    minimum_window_m = 30.0
+    for start_index in range(len(elevated) - 1):
+        end_index = start_index + 1
+        while (
+            end_index < len(elevated)
+            and cumulative[end_index] - cumulative[start_index] < minimum_window_m
+        ):
+            end_index += 1
+        if end_index >= len(elevated):
+            continue
+        horizontal = cumulative[end_index] - cumulative[start_index]
+        rise = elevated[end_index][2] - elevated[start_index][2]
+        if horizontal > 0:
+            max_grade = max(max_grade, 100.0 * rise / horizontal)
+
+    if cumulative[-1] < minimum_window_m:
+        horizontal = cumulative[-1]
+        rise = elevated[-1][2] - elevated[0][2]
+        max_grade = max(0.0, 100.0 * rise / horizontal) if horizontal > 0 else 0.0
+    return max(0.0, ascent), max(0.0, descent), max(0.0, max_grade)
+
+
+def _build_route_readiness(
+    *,
+    properties: dict,
+    coordinates: list,
+    polyline: list[LatLon],
+    route_distance_m: float,
+    sport: str,
+) -> RouteReadiness:
+    """Build cautious readiness facts from ORS and OpenStreetMap attributes."""
+
+    extras = properties.get("extras")
+    extras = extras if isinstance(extras, dict) else {}
+    surface_section = _extra_section(extras, "surface", "surfaces")
+    steepness_section = _extra_section(extras, "steepness")
+    waytype_section = _extra_section(extras, "waytype", "waytypes")
+    suitability_section = _extra_section(extras, "suitability")
+
+    surface_summary = _extra_summary(surface_section, route_distance_m)
+    steepness_summary = _extra_summary(steepness_section, route_distance_m)
+    waytype_summary = _extra_summary(waytype_section, route_distance_m)
+    suitability_summary = _extra_summary(suitability_section, route_distance_m)
+    surface_values = _extra_values(surface_section)
+    steepness_values = _extra_values(steepness_section)
+    waytype_values = _extra_values(waytype_section)
+    suitability_values = _extra_values(suitability_section)
+
+    surfaces = []
+    for item in surface_summary:
+        code = item["code"]
+        category = (
+            "paved"
+            if code in _PAVED_SURFACES
+            else "unpaved"
+            if code in _UNPAVED_SURFACES
+            else "unknown"
+        )
+        surfaces.append(
+            RouteSurface(
+                code=code,
+                label=_SURFACE_LABELS.get(code, f"Surface type {code}"),
+                distance_m=item["distance_m"],
+                share=item["share"],
+                category=category,
+            )
+        )
+    surfaces.sort(key=lambda item: item.distance_m, reverse=True)
+    known_distance = sum(
+        item.distance_m for item in surfaces if item.category != "unknown"
+    )
+    unpaved_distance = sum(
+        item.distance_m for item in surfaces if item.category == "unpaved"
+    )
+    surface_available = bool(surfaces)
+    known_share = (
+        min(1.0, known_distance / route_distance_m)
+        if surface_available and route_distance_m > 0
+        else None
+    )
+    unpaved_share = (
+        min(1.0, unpaved_distance / route_distance_m)
+        if surface_available and route_distance_m > 0
+        else None
+    )
+
+    summary = properties.get("summary")
+    summary = summary if isinstance(summary, dict) else {}
+    ascent, descent, calculated_grade = _elevation_metrics(coordinates, summary)
+    positive_steepness = max(
+        (item["code"] for item in steepness_summary if item["code"] > 0),
+        default=0,
+    )
+    lower_bound_grade = _STEEPNESS_LOWER_BOUNDS.get(positive_steepness)
+    max_grade = calculated_grade
+    grade_is_lower_bound = False
+    if lower_bound_grade is not None and (
+        max_grade is None or lower_bound_grade > max_grade
+    ):
+        max_grade = lower_bound_grade
+        grade_is_lower_bound = positive_steepness > 0
+    elevation_available = any(
+        value is not None for value in (ascent, descent, max_grade)
+    )
+
+    concerns: list[RouteConcern] = []
+
+    def add_concern(
+        *,
+        code: str,
+        label: str,
+        detail: str,
+        severity: str,
+        matching_codes: set[int],
+        summary_rows: list[dict],
+        value_rows: list[tuple[int, int, int]],
+        minimum_share: float = 0.0,
+    ) -> None:
+        matching = [item for item in summary_rows if item["code"] in matching_codes]
+        distance = sum(item["distance_m"] for item in matching)
+        share = (
+            min(1.0, distance / route_distance_m)
+            if route_distance_m > 0
+            else 0.0
+        )
+        if distance <= 0 or share < minimum_share:
+            return
+        segments = _segments_for_codes(value_rows, matching_codes, polyline)
+        concerns.append(
+            RouteConcern(
+                code=code,
+                label=label,
+                detail=detail,
+                severity=severity,
+                distance_m=distance,
+                share=share,
+                segment_count=sum(
+                    1 for _, _, value in value_rows if value in matching_codes
+                ),
+                segments_preview=segments,
+            )
+        )
+
+    add_concern(
+        code="low_suitability",
+        label="Low suitability",
+        detail="The routing profile rates these mapped ways as a weak fit.",
+        severity="warning",
+        matching_codes={1, 2, 3},
+        summary_rows=suitability_summary,
+        value_rows=suitability_values,
+        minimum_share=0.02,
+    )
+    steep_codes = {3, 4, 5} if sport.startswith("bike") else {4, 5}
+    add_concern(
+        code="steep_climb",
+        label="Steep section",
+        detail="This part reaches a demanding mapped gradient.",
+        severity="warning",
+        matching_codes=steep_codes,
+        summary_rows=steepness_summary,
+        value_rows=steepness_values,
+        minimum_share=0.01,
+    )
+    add_concern(
+        code="construction",
+        label="Mapped construction",
+        detail="OpenStreetMap currently classifies this way as construction.",
+        severity="warning",
+        matching_codes={10},
+        summary_rows=waytype_summary,
+        value_rows=waytype_values,
+    )
+    if sport.startswith("bike"):
+        add_concern(
+            code="steps",
+            label="Steps",
+            detail="The mapped route includes steps that may require carrying the bike.",
+            severity="warning",
+            matching_codes={8},
+            summary_rows=waytype_summary,
+            value_rows=waytype_values,
+        )
+        add_concern(
+            code="unpaved",
+            label="Unpaved riding",
+            detail="Check that the bike and conditions suit these unpaved sections.",
+            severity="warning",
+            matching_codes=_UNPAVED_SURFACES,
+            summary_rows=surface_summary,
+            value_rows=surface_values,
+            minimum_share=0.03,
+        )
+    else:
+        add_concern(
+            code="loose_surface",
+            label="Loose or difficult surface",
+            detail="Mapped ground, ice, snow, or sand may slow this section.",
+            severity="warning",
+            matching_codes={12, 13, 15},
+            summary_rows=surface_summary,
+            value_rows=surface_values,
+            minimum_share=0.01,
+        )
+    add_concern(
+        code="ferry",
+        label="Ferry connection",
+        detail="Timing and availability need a separate check.",
+        severity="warning",
+        matching_codes={9},
+        summary_rows=waytype_summary,
+        value_rows=waytype_values,
+    )
+    add_concern(
+        code="unknown_surface",
+        label="Surface data gap",
+        detail="The map does not identify the surface on this part.",
+        severity="info",
+        matching_codes={0},
+        summary_rows=surface_summary,
+        value_rows=surface_values,
+        minimum_share=0.05,
+    )
+    add_concern(
+        code="unknown_waytype",
+        label="Road type data gap",
+        detail="The map has limited way-type detail for this part.",
+        severity="info",
+        matching_codes={0},
+        summary_rows=waytype_summary,
+        value_rows=waytype_values,
+        minimum_share=0.05,
+    )
+    concerns.sort(
+        key=lambda item: (item.severity == "warning", item.distance_m),
+        reverse=True,
+    )
+
+    segment_data_available = bool(
+        steepness_summary or waytype_summary or suitability_summary
+    )
+    available_groups = sum(
+        (elevation_available, surface_available, segment_data_available)
+    )
+    data_quality = (
+        "good" if available_groups == 3 else "partial" if available_groups else "unavailable"
+    )
+    has_warning = any(item.severity == "warning" for item in concerns)
+    has_uncertainty = any(item.severity == "info" for item in concerns)
+    status = (
+        "unavailable"
+        if data_quality == "unavailable"
+        else "review"
+        if has_warning or has_uncertainty or data_quality == "partial"
+        else "ready"
+    )
+    return RouteReadiness(
+        status=status,
+        data_quality=data_quality,
+        elevation_available=elevation_available,
+        elevation_gain_m=ascent,
+        elevation_loss_m=descent,
+        max_grade_percent=max_grade,
+        max_grade_is_lower_bound=grade_is_lower_bound,
+        surface_available=surface_available,
+        surface_known_share=known_share,
+        unpaved_share=unpaved_share,
+        surfaces=surfaces,
+        concerns=concerns,
+    )
+
+
 def _ors_request(
     url: str, headers: dict, coords: list, *, preference: str, continue_straight: bool,
-    radius: int, client: httpx.Client | None = None,
-) -> tuple[list[LatLon], float] | _ORSFailure:
+    radius: int, sport: str = "run", client: httpx.Client | None = None,
+) -> _ORSRouteResult | _ORSFailure:
     """Return a route or a structured failure from one ORS request."""
     payload = {
         "coordinates": coords,
@@ -526,6 +963,8 @@ def _ors_request(
         "instructions": False,
         "continue_straight": continue_straight,
         "radiuses": [radius] * len(coords),
+        "elevation": True,
+        "extra_info": ["surface", "steepness", "waytype", "suitability"],
     }
     try:
         sender = client if client is not None else httpx
@@ -569,7 +1008,14 @@ def _ors_request(
             distance = geometry_distance
         # A malformed/partial summary must never under-report the geometry.
         distance = max(distance, geometry_distance)
-        return polyline, distance
+        readiness = _build_route_readiness(
+            properties=properties,
+            coordinates=coords_xy,
+            polyline=polyline,
+            route_distance_m=distance,
+            sport=sport,
+        )
+        return _ORSRouteResult(polyline, distance, readiness)
     except httpx.HTTPError as e:
         log.warning("ORS network error (radius=%dm): %s", radius, e)
         return _ORSFailure(None, None, str(e))
@@ -632,10 +1078,10 @@ def _reduce_waypoints(waypoints: list[LatLon], *, closed: bool) -> list[LatLon] 
     return _subsample(waypoints, closed=closed, max_points=next_budget)
 
 
-def snap_route(
+def snap_route_detailed(
     waypoints: list[LatLon], *, sport: str = "run", closed: bool = False
-) -> tuple[list[LatLon], float, bool]:
-    """Snap ``waypoints`` to roads and return ``(polyline, distance_m, snapped)``.
+) -> tuple[list[LatLon], float, bool, RouteReadiness]:
+    """Snap waypoints and include readiness evidence for the returned route.
 
     Two bounded retry strategies:
     - **Radius widening** (error 2010): a via-point lands on a building/park
@@ -647,11 +1093,13 @@ def snap_route(
     cfg = get_settings().routing
     prepared = _prepare_waypoints(waypoints, closed=closed)
     if len(prepared) < 2:
-        return _straight_line_connector(prepared, closed=closed)
+        route, distance, snapped = _straight_line_connector(prepared, closed=closed)
+        return route, distance, snapped, RouteReadiness()
 
     public_service = _is_public_ors(cfg.ors_base_url)
     if not cfg.ors_api_key and public_service:
-        return _straight_line_connector(prepared, closed=closed)
+        route, distance, snapped = _straight_line_connector(prepared, closed=closed)
+        return route, distance, snapped, RouteReadiness()
 
     # The hosted API permits 50 coordinates, but treating that limit as a
     # target forces the router through unnecessary off-grid points and creates
@@ -686,10 +1134,18 @@ def snap_route(
                 preference=cfg.preference,
                 continue_straight=cfg.continue_straight,
                 radius=radius,
+                sport=sport,
                 client=client,
             )
-            if isinstance(result, tuple):
-                polyline, distance = result
+            if isinstance(result, _ORSRouteResult | tuple):
+                if isinstance(result, _ORSRouteResult):
+                    polyline = result.polyline
+                    distance = result.distance_m
+                    readiness = result.readiness
+                else:
+                    # Compatibility for lightweight internal test doubles.
+                    polyline, distance = result
+                    readiness = RouteReadiness()
                 fidelity = shape_similarity.fidelity_between_routes(prepared, polyline, n=96)
                 log_method = log.info if fidelity >= _ACCEPTABLE_FIDELITY else log.warning
                 log_method(
@@ -700,7 +1156,7 @@ def snap_route(
                     fidelity,
                     "" if fidelity >= _ACCEPTABLE_FIDELITY else "; refinement required",
                 )
-                return polyline, distance, True
+                return polyline, distance, True, readiness
 
             # Error 2009 means two snapped graph locations cannot be joined.
             # Widening the search radius does not repair that. Remove the
@@ -742,5 +1198,19 @@ def snap_route(
             current_via = reduced
             radius_index = 0
 
-    log.warning("ORS routing failed — using straight-line fallback")
-    return _straight_line_connector(prepared, closed=closed)
+    log.warning("ORS routing failed; using straight-line fallback")
+    route, distance, snapped = _straight_line_connector(prepared, closed=closed)
+    return route, distance, snapped, RouteReadiness()
+
+
+def snap_route(
+    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False
+) -> tuple[list[LatLon], float, bool]:
+    """Compatibility wrapper returning route geometry, distance, and snap state."""
+
+    route, distance, snapped, _ = snap_route_detailed(
+        waypoints,
+        sport=sport,
+        closed=closed,
+    )
+    return route, distance, snapped

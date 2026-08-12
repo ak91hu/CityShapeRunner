@@ -2,10 +2,14 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   editRoute,
   generate as generateRoute,
+  createMuralPlan,
   listGallery,
   publishGalleryImage,
   recordRouteAcceptance,
+  repairRecognition,
+  requestTimedReadiness,
   removeGalleryImage,
+  submitCompletionFeedback,
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
@@ -589,17 +593,17 @@ const GATE_COPY = {
 };
 
 function formatMetric(value, digits = 2) {
-  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "n/a";
 }
 
 function formatPercent(value) {
   return typeof value === "number" && Number.isFinite(value)
     ? `${Math.round(value * 100)}%`
-    : "—";
+    : "n/a";
 }
 
 function formatSigned(value, digits = 2, suffix = "") {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}${suffix}`;
 }
 
@@ -635,7 +639,7 @@ function explainGateResult(gate) {
 }
 
 function normaliseLabel(value) {
-  if (!value) return "—";
+  if (!value) return "n/a";
   return String(value)
     .replaceAll("_", " ")
     .replace(/(^|[\s-])(\p{L})/gu, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
@@ -740,6 +744,301 @@ function MetricCard({ label, value, detail, tone = "neutral" }) {
       <dd>{value}</dd>
       {detail && <dd className="metric-detail">{detail}</dd>}
     </div>
+  );
+}
+
+function RouteReadinessCard({ readiness, roadRouted }) {
+  const data = readiness && typeof readiness === "object" ? readiness : {};
+  const concerns = Array.isArray(data.concerns) ? data.concerns : [];
+  const surfaces = Array.isArray(data.surfaces) ? data.surfaces.slice(0, 6) : [];
+  const status = ["ready", "review"].includes(data.status)
+    ? data.status
+    : "unavailable";
+  const statusCopy = {
+    ready: "Looks clear",
+    review: "Check the route",
+    unavailable: "Limited data",
+  }[status];
+  const grade = Number.isFinite(data.max_grade_percent)
+    ? `${data.max_grade_percent.toFixed(1)}%${data.max_grade_is_lower_bound ? "+" : ""}`
+    : "n/a";
+  const elevationGain = Number.isFinite(data.elevation_gain_m)
+    ? `${Math.round(data.elevation_gain_m)} m`
+    : "n/a";
+  const surfaceKnown = Number.isFinite(data.surface_known_share)
+    ? formatPercent(data.surface_known_share)
+    : "n/a";
+  const highlightedConcernCount = concerns.reduce(
+    (count, concern) => count + (concern.segments_preview?.length ?? 0),
+    0,
+  );
+
+  return (
+    <section
+      className={`readiness-card readiness-card--${status}`}
+      aria-labelledby="readiness-title"
+    >
+      <div className="readiness-heading">
+        <div>
+          <span className="eyebrow">Before you go</span>
+          <h3 id="readiness-title">Route readiness</h3>
+        </div>
+        <span className={`readiness-status readiness-status--${status}`}>
+          {statusCopy}
+        </span>
+      </div>
+
+      <p className="readiness-summary">
+        {!roadRouted || status === "unavailable"
+          ? "A street-matched route is needed for elevation, surface, and segment checks."
+          : status === "review"
+            ? highlightedConcernCount > 0
+              ? "Review the highlighted sections before heading out."
+              : "Some route details need a closer check before heading out."
+            : "The available map data has no obvious route-readiness flags."}
+      </p>
+
+      <dl className="readiness-metrics">
+        <div>
+          <dt>Elevation gain</dt>
+          <dd>{elevationGain}</dd>
+        </div>
+        <div>
+          <dt>Steepest climb</dt>
+          <dd>{grade}</dd>
+        </div>
+        <div>
+          <dt>Surface known</dt>
+          <dd>{surfaceKnown}</dd>
+        </div>
+      </dl>
+
+      {surfaces.length > 0 && (
+        <div className="surface-breakdown">
+          <div className="readiness-subheading">
+            <strong>Surface mix</strong>
+            {Number.isFinite(data.unpaved_share) && (
+              <span>{formatPercent(data.unpaved_share)} unpaved</span>
+            )}
+          </div>
+          <div className="surface-bar" aria-label="Route surface composition">
+            {surfaces.map((surface) => (
+              <span
+                key={surface.code}
+                className={`surface-bar-part surface-bar-part--${surface.category}`}
+                style={{ width: `${Math.max(1, Math.round((surface.share ?? 0) * 100))}%` }}
+                title={`${surface.label}: ${formatPercent(surface.share)}`}
+              />
+            ))}
+          </div>
+          <ul className="surface-legend">
+            {surfaces.map((surface) => (
+              <li key={surface.code}>
+                <span
+                  className={`surface-key surface-key--${surface.category}`}
+                  aria-hidden="true"
+                />
+                <span>{surface.label}</span>
+                <strong>{formatPercent(surface.share)}</strong>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="readiness-concerns">
+        <div className="readiness-subheading">
+          <strong>Sections to check</strong>
+          <span>
+            {concerns.length > 0
+              ? `${concerns.length} item${concerns.length === 1 ? "" : "s"}`
+              : "No items"}
+          </span>
+        </div>
+        {concerns.length > 0 ? (
+          <ul>
+            {concerns.map((concern) => (
+              <li key={concern.code} className={`concern--${concern.severity}`}>
+                <span className="concern-icon" aria-hidden="true">
+                  {concern.severity === "warning" ? "!" : "i"}
+                </span>
+                <span>
+                  <strong>{concern.label}</strong>
+                  <small>{concern.detail}</small>
+                </span>
+                <span className="concern-distance">
+                  {concern.distance_m >= 1_000
+                    ? `${formatMetric(concern.distance_m / 1_000, 1)} km`
+                    : `${Math.round(concern.distance_m)} m`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="readiness-empty">
+            {status === "unavailable"
+              ? "No segment data is available for this preview."
+              : "No sections were flagged in the available map data."}
+          </p>
+        )}
+      </div>
+
+      <p className="readiness-note">
+        Based on routing and OpenStreetMap data. Check current closures, access rules, traffic,
+        and weather separately.
+      </p>
+    </section>
+  );
+}
+
+function StreetCanvasCard({ candidates = [] }) {
+  const best = candidates[0];
+  if (!best) return null;
+  return (
+    <section className="street-canvas-card" aria-labelledby="street-canvas-title">
+      <div className="readiness-heading">
+        <div>
+          <span className="eyebrow">Street Canvas</span>
+          <h3 id="street-canvas-title">Best nearby areas</h3>
+        </div>
+        <span className="readiness-status readiness-status--ready">
+          {formatPercent(best.readability_score)} fit
+        </span>
+      </div>
+      <p>
+        These are the strongest nearby street-network matches before full route routing.
+      </p>
+      <ol className="street-canvas-list">
+        {candidates.slice(0, 4).map((candidate) => (
+          <li key={`${candidate.rank}-${candidate.rotation_deg}-${candidate.scale_m}`}>
+            <strong>Area {candidate.rank}</strong>
+            <span>{formatPercent(candidate.readability_score)} readable</span>
+            <small>
+              {formatPercent(candidate.snap_coverage)} street support, {formatMetric(candidate.snap_distance_m, 0)} m average snap
+            </small>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function TimedReadinessCard({ points }) {
+  const [departure, setDeparture] = useState("");
+  const [briefing, setBriefing] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const check = async () => {
+    if (!departure || !Array.isArray(points) || points.length < 1) return;
+    setBusy(true);
+    setError("");
+    try {
+      setBriefing(await requestTimedReadiness({
+        latitude: points[0][0], longitude: points[0][1], departure_at: new Date(departure).toISOString(),
+      }));
+    } catch (requestError) {
+      setError(requestError.message || "We couldn’t check the time-based route context.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="timed-readiness-card" aria-labelledby="timed-readiness-title">
+      <div>
+        <span className="eyebrow">When you go</span>
+        <h3 id="timed-readiness-title">Time-aware check</h3>
+      </div>
+      <div className="timed-readiness-controls">
+        <label>
+          Departure
+          <input type="datetime-local" value={departure} onChange={(event) => setDeparture(event.target.value)} />
+        </label>
+        <button type="button" className="button button--secondary" onClick={check} disabled={!departure || busy}>
+          {busy ? "Checking..." : "Check conditions"}
+        </button>
+      </div>
+      {briefing && (
+        <p className="timed-readiness-result">
+          {briefing.daylight === "daylight" ? "Daylight expected." : "After dark at this time."}
+          {briefing.weather?.temperature_c != null && ` ${Math.round(briefing.weather.temperature_c)}°C, ${Math.round(briefing.weather.wind_kph ?? 0)} km/h wind.`}
+        </p>
+      )}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      <small>Weather is a live snapshot. Closures and access rules still need a local check.</small>
+    </section>
+  );
+}
+
+function CompletionFeedbackCard({ onSubmit, busy, notice }) {
+  const [fileName, setFileName] = useState("");
+  const [points, setPoints] = useState(null);
+  const [error, setError] = useState("");
+  const readFile = async (event) => {
+    const file = event.target.files?.[0];
+    setFileName(file?.name ?? ""); setPoints(null); setError("");
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const found = [...text.matchAll(/<trkpt\s+lat=["']([^"']+)["']\s+lon=["']([^"']+)["']/gi)]
+        .map((match) => [Number(match[1]), Number(match[2])])
+        .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
+      if (found.length < 2) throw new Error("No usable track points were found in that GPX file.");
+      setPoints(found);
+    } catch (readError) { setError(readError.message || "We couldn’t read that GPX file."); }
+  };
+  return (
+    <section className="completion-card" aria-labelledby="completion-title">
+      <div><span className="eyebrow">Field evidence</span><h3 id="completion-title">Teach the Street Canvas</h3></div>
+      <p>Upload the GPX you actually completed. Only an opted-in anonymous summary is saved, never the route trace.</p>
+      <label className="completion-file">Completed GPX<input type="file" accept=".gpx,application/gpx+xml" onChange={readFile} /></label>
+      {fileName && <small>{points ? `${fileName}: ${points.length} track points ready.` : fileName}</small>}
+      <button type="button" className="button button--secondary" onClick={() => onSubmit(points)} disabled={!points || busy}>
+        {busy ? "Analysing..." : "Share anonymous result"}
+      </button>
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      {notice && <p className="editor-success" role="status">{notice}</p>}
+    </section>
+  );
+}
+
+function CommunityMuralCard({ activeRoute, shapeName, city, sport }) {
+  const [participants, setParticipants] = useState(4);
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const create = async () => {
+    setBusy(true); setError("");
+    try {
+      setPlan(await createMuralPlan({
+        points: activeRoute.points_preview,
+        participants: Number(participants),
+        name: `${shapeName} mural in ${city}`,
+        sport: sport === "bike" ? "bike" : "run",
+      }));
+    } catch (requestError) {
+      setError(requestError.message || "We couldn’t split this mural.");
+    } finally { setBusy(false); }
+  };
+  return (
+    <section className="mural-card" aria-labelledby="mural-title">
+      <div>
+        <span className="eyebrow">Community GPS mural</span>
+        <h3 id="mural-title">Make it together</h3>
+        <p>Split this drawing into balanced, continuous sections for a group.</p>
+      </div>
+      <div className="mural-controls">
+        <label>Artists
+          <input type="number" min="2" max="24" value={participants} onChange={(event) => setParticipants(event.target.value)} />
+        </label>
+        <button type="button" className="button button--secondary" onClick={create} disabled={busy}>
+          {busy ? "Splitting..." : "Create mural plan"}
+        </button>
+      </div>
+      {plan && <ul className="mural-sections">{plan.sections.map((section) => (
+        <li key={section.id}><span>{section.label}, {formatMetric(section.distance_km)} km</span><button type="button" onClick={() => saveFile(`${safeFilePart(section.label)}.gpx`, section.gpx, "application/gpx+xml")}>GPX</button></li>
+      ))}</ul>}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+    </section>
   );
 }
 
@@ -1074,6 +1373,10 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [galleryError, setGalleryError] = useState("");
   const [publishedAsset, setPublishedAsset] = useState(null);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairNotice, setRepairNotice] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState("");
   const mapCaptureRef = useRef(null);
 
   useEffect(() => {
@@ -1120,6 +1423,14 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const routingDetails = routeDetails?.routing ?? {};
   const placementDetails = routeDetails?.placement ?? {};
   const deviationDetails = routeDetails?.deviation ?? {};
+  const routeReadiness = routeDetails?.readiness ?? {};
+  const readinessConcerns = Array.isArray(routeReadiness.concerns)
+    ? routeReadiness.concerns
+    : [];
+  const mappedConcernCount = readinessConcerns.reduce(
+    (count, concern) => count + (concern.segments_preview?.length ?? 0),
+    0,
+  );
   const score = validation?.score;
   const automaticChecksPassed = verification
     ? Boolean(verification.passed)
@@ -1141,18 +1452,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   );
   const city = result.intent?.city ? normaliseLabel(result.intent.city) : "your selected area";
   const historyRows = (result.history ?? []).filter((entry) => Number.isFinite(entry.score));
-  const auditRows = Array.isArray(result.candidate_audit) ? result.candidate_audit : [];
   const candidateSummary = result.candidate_summary ?? {};
-  const auditedCount = Number.isFinite(candidateSummary.audited_count)
-    ? candidateSummary.audited_count
-    : candidates.length;
   const reviewCount = Number.isFinite(candidateSummary.review_count)
     ? candidateSummary.review_count
     : Number.isFinite(candidateSummary.rejected_selected_shape_count)
       ? candidateSummary.rejected_selected_shape_count
-    : 0;
-  const otherShapeCount = Number.isFinite(candidateSummary.other_shape_count)
-    ? candidateSummary.other_shape_count
     : 0;
   const issueList = [
     ...new Set([
@@ -1297,6 +1601,58 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     onGalleryPublished,
   ]);
 
+  const improveRecognition = useCallback(async () => {
+    if (repairBusy || !(activeRoute.ideal_preview ?? []).length) return;
+    setRepairBusy(true);
+    setRepairNotice("");
+    try {
+      const response = await repairRecognition({
+        reference_points: activeRoute.ideal_preview,
+        sport: result.intent?.sport === "bike" ? "bike" : "run",
+        closed: Boolean(activeRoute.closed),
+        name: `${shapeName} refined in ${city}`,
+      });
+      setEditedRoute({
+        ...activeRoute,
+        id: `${activeRouteId}-recognition-repair`,
+        points_preview: response.points_preview,
+        ideal_preview: response.guide_points,
+        distance_km: response.distance_km,
+        snapped: response.snapped,
+        details: { ...routeDetails, readiness: response.readiness },
+        gpx: response.gpx,
+      });
+      setRepairNotice(`${response.message} Recognition score: ${formatPercent(response.recognition_score)}.`);
+    } catch (repairError) {
+      setRepairNotice(repairError.message || "We couldn’t refine this drawing.");
+    } finally {
+      setRepairBusy(false);
+    }
+  }, [activeRoute, activeRouteId, city, repairBusy, result.intent, routeDetails, shapeName]);
+
+  const shareCompletion = useCallback(async (completedPoints) => {
+    if (feedbackBusy || !Array.isArray(completedPoints) || completedPoints.length < 2) return;
+    setFeedbackBusy(true);
+    setFeedbackNotice("");
+    try {
+      const response = await submitCompletionFeedback({
+        shape_name: activeRoute.shape_name ?? shapeName,
+        sport: result.intent?.sport === "bike" ? "bike" : "run",
+        city: result.intent?.city ?? null,
+        planned_points: activeRoute.points_preview,
+        completed_points: completedPoints,
+        blocked_segments: 0,
+        notes: [],
+        consent_to_learn: true,
+      });
+      setFeedbackNotice(`${response.message} Current route likeness: ${formatPercent(response.completion.likeness)}.`);
+    } catch (feedbackError) {
+      setFeedbackNotice(feedbackError.message || "We couldn’t save this route insight.");
+    } finally {
+      setFeedbackBusy(false);
+    }
+  }, [activeRoute, feedbackBusy, result.intent, shapeName]);
+
   return (
     <section
       ref={focusRef}
@@ -1358,7 +1714,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             <span>
               {candidates.length > 0
                 ? `${candidates.length} option${candidates.length === 1 ? "" : "s"}: ${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready, ${reviewCount} need a look`
-                : `${auditedCount} tried; showing the closest match`}
+                : "Showing the closest route found"}
             </span>
           </div>
 
@@ -1378,6 +1734,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 landmarkPoints={
                   activeRoute.landmark_preview ?? result.landmark_preview
                 }
+                readinessConcerns={readinessConcerns}
+                streetCanvasCandidates={result.street_canvas ?? []}
                 editPoints={controlPoints}
                 shapeName={shapeName}
                 roadRouted={Boolean(activeRoute.snapped)}
@@ -1440,7 +1798,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             )}
             {editedRoute && (
               <p className="editor-success" role="status">
-                Changes saved — {formatMetric(editedRoute.distance_km)} km.
+                Changes saved: {formatMetric(editedRoute.distance_km)} km.
                 {editedRoute.verification?.passed
                   ? " The route follows streets and passed every check."
                   : " Check the highlighted items before downloading."}
@@ -1460,6 +1818,12 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 points
               </span>
             )}
+            {mappedConcernCount > 0 && (
+              <span>
+                <span className="legend-line legend-line--concern" aria-hidden="true" /> Review
+                section
+              </span>
+            )}
             <span>
               <span className="legend-dot legend-dot--start" aria-hidden="true" /> Start
             </span>
@@ -1472,7 +1836,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                     routingDetails.route_point_count ??
                     (activeRoute.points_preview ?? []).length
                   ).toLocaleString()} map points shown`
-                : "Preview only — not matched to streets"}
+                : "Preview only. Not matched to streets"}
             </span>
           </div>
         </div>
@@ -1490,7 +1854,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
               value={
                 activeRoute.distance_km != null
                   ? `${formatMetric(activeRoute.distance_km)} km`
-                  : "—"
+                  : "n/a"
               }
               detail={normaliseLabel(result.intent?.sport)}
             />
@@ -1508,7 +1872,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   : candidates.length
               }
               detail={
-                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready · ${reviewCount} review · ${auditedCount} tested${
+                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready · ${reviewCount} review${
                   Number.isFinite(result.preflight_count) && result.preflight_count > 0
                     ? ` · ${result.preflight_count} locations`
                     : ""
@@ -1518,11 +1882,45 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             />
           </dl>
 
+          <RouteReadinessCard
+            readiness={routeReadiness}
+            roadRouted={Boolean(activeRoute.snapped)}
+          />
+
+          <StreetCanvasCard candidates={result.street_canvas ?? []} />
+
+          <TimedReadinessCard points={activeRoute.points_preview ?? []} />
+
+          <section className="recognition-repair-card" aria-labelledby="repair-title">
+            <div>
+              <span className="eyebrow">Recognition repair</span>
+              <h3 id="repair-title">Make the outline read more clearly</h3>
+              <p>Re-route from the shape's strongest visual anchors and compare the result.</p>
+            </div>
+            <button type="button" className="button button--secondary" onClick={improveRecognition} disabled={repairBusy || !(activeRoute.ideal_preview ?? []).length}>
+              {repairBusy ? "Refining..." : "Find a crisper version"}
+            </button>
+            {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
+          </section>
+
+          <CommunityMuralCard
+            activeRoute={activeRoute}
+            shapeName={shapeName}
+            city={city}
+            sport={result.intent?.sport}
+          />
+
+          <CompletionFeedbackCard
+            onSubmit={shareCompletion}
+            busy={feedbackBusy}
+            notice={feedbackNotice}
+          />
+
           {fitDecision && (
             <div className={`notice ${fitDecision.substituted ? "notice--success" : "notice--warning"}`}>
               <strong>
                 {fitDecision.substituted
-                  ? `${requestedShape} didn’t fit these streets — here’s a ${shapeName}`
+                  ? `${requestedShape} did not fit these streets. Here is a ${shapeName}`
                   : `Why this ${requestedShape} needs a closer look`}
               </strong>
               <ul className="decision-reasons">
@@ -1569,6 +1967,35 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 </p>
               )}
             </div>
+          )}
+
+          {shapeSource === "llm" && aiDrawingReview?.cue_results?.length > 0 && (
+            <details className="route-facts ai-recognition-card">
+              <summary>Recognition audit</summary>
+              <p className="route-facts-intro">
+                A separate visual check looks for the defining features in the finished
+                outline, not just in the AI description.
+              </p>
+              <ul className="gate-list">
+                {aiDrawingReview.cue_results.map((cue) => (
+                  <li
+                    key={cue.feature_id}
+                    className={cue.present ? "gate--pass" : "gate--fail"}
+                  >
+                    <span className="gate-icon" aria-hidden="true">
+                      {cue.present ? "✓" : "!"}
+                    </span>
+                    <span>
+                      <strong>{normaliseLabel(cue.feature_id)}</strong>
+                      {cue.reason && <small>{cue.reason}</small>}
+                    </span>
+                    <span className="gate-value">
+                      {cue.score == null ? (cue.present ? "Found" : "Missing") : formatPercent(cue.score)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {!automaticChecksPassed && (
@@ -1655,7 +2082,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 <div>
                   <dt>Map points / drawing points</dt>
                   <dd>
-                    {routingDetails.route_point_count ?? "—"} / {routingDetails.guide_point_count ?? "—"}
+                    {routingDetails.route_point_count ?? "n/a"} / {routingDetails.guide_point_count ?? "n/a"}
                   </dd>
                 </div>
                 <div>
@@ -1684,7 +2111,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 </div>
                 {activeRoute.closed && (
                   <div>
-                    <dt>Start–finish gap</dt>
+                    <dt>Start to finish gap</dt>
                     <dd>{formatMetric(routingDetails.closure_gap_m, 0)} m</dd>
                   </div>
                 )}
@@ -1836,7 +2263,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
         </div>
       </div>
 
-      {(issueList.length > 0 || historyRows.length > 0 || auditRows.length > 0) && (
+      {(issueList.length > 0 || historyRows.length > 0) && (
         <div className="details-grid">
           {issueList.length > 0 && (
             <details className="detail-card">
@@ -1876,7 +2303,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                         <td data-label="Change">
                           {Number.isFinite(entry.delta_vs_best)
                             ? `${entry.delta_vs_best >= 0 ? "+" : ""}${formatMetric(entry.delta_vs_best, 3)}`
-                            : "—"}
+                            : "n/a"}
                         </td>
                         <td data-label="Shape match">
                           {formatPercent(entry.fidelity ?? entry.shape_fidelity)}
@@ -1890,54 +2317,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             </details>
           )}
 
-          {auditRows.length > 0 && (
-            <details className="detail-card">
-              <summary>
-                Routes tested <span>{auditRows.length}</span>
-              </summary>
-              <div className="table-wrap">
-                <table>
-                  <caption className="sr-only">
-                    Scores for every route that was tested
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Route</th>
-                      <th scope="col">Shape</th>
-                      <th scope="col">Result</th>
-                      <th scope="col">Score</th>
-                      <th scope="col">Likeness</th>
-                      <th scope="col">Distance</th>
-                      <th scope="col">Checks to review</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditRows.map((entry) => (
-                      <tr key={entry.id}>
-                        <td data-label="Route">{entry.id}</td>
-                        <td data-label="Shape">{normaliseLabel(entry.shape_name)}</td>
-                        <td data-label="Result">
-                          {entry.decision === "verified"
-                            ? "Ready"
-                            : entry.decision === "review"
-                              ? "Needs a look"
-                              : "Different drawing"}
-                        </td>
-                        <td data-label="Score">{formatPercent(entry.score)}</td>
-                        <td data-label="Likeness">{formatPercent(entry.shape_fidelity)}</td>
-                        <td data-label="Distance">{formatMetric(entry.distance_km)} km</td>
-                        <td data-label="Checks to review">
-                          {(entry.failed_gates ?? []).length > 0
-                            ? entry.failed_gates.map(normaliseLabel).join(", ")
-                            : "None"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
         </div>
       )}
     </section>
@@ -2109,7 +2488,7 @@ export default function App() {
           <div className="planner-intro">
             <h1 id="designer-title">Plan a GPS art route</h1>
             <p className="planner-intro-copy">
-              Bring an idea — a classic shape or something completely yours. Add a city, activity,
+              Bring an idea. Choose a classic shape or something completely yours. Add a city, activity,
               and distance, and we’ll test it against nearby streets.
             </p>
             <p className="planner-safety-note">
@@ -2256,7 +2635,7 @@ export default function App() {
                   })}
                   {filteredIdeas.length === 0 && (
                     <p className="idea-empty" role="status">
-                      Nothing in the catalog — no problem. Type your own idea above.
+                      Nothing in the catalog? No problem. Type your own idea above.
                     </p>
                   )}
                 </div>
@@ -2416,7 +2795,7 @@ export default function App() {
                       <span>km</span>
                     </div>
                     <p id="suggest-distance-help" className="field-hint">
-                      {minimumDistance}–{maximumDistance} km for {activityLabel}.
+                      {minimumDistance} to {maximumDistance} km for {activityLabel}.
                     </p>
                     {suggestErrors.distance && (
                       <p id="suggest-distance-error" className="field-error" role="alert">

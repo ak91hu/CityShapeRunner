@@ -145,10 +145,54 @@ class RouteDraft:
 
 
 @dataclass
+class RouteSurface:
+    """One surface class reported for a street-matched route."""
+
+    code: int
+    label: str
+    distance_m: float
+    share: float
+    category: str
+
+
+@dataclass
+class RouteConcern:
+    """A map-data segment that deserves attention before the activity."""
+
+    code: str
+    label: str
+    detail: str
+    severity: str
+    distance_m: float
+    share: float
+    segment_count: int
+    segments_preview: list[list[LatLon]] = field(default_factory=list)
+
+
+@dataclass
+class RouteReadiness:
+    """Elevation, surface, and segment checks attached to a routed line."""
+
+    status: str = "unavailable"  # ready | review | unavailable
+    data_quality: str = "unavailable"  # good | partial | unavailable
+    elevation_available: bool = False
+    elevation_gain_m: float | None = None
+    elevation_loss_m: float | None = None
+    max_grade_percent: float | None = None
+    max_grade_is_lower_bound: bool = False
+    surface_available: bool = False
+    surface_known_share: float | None = None
+    unpaved_share: float | None = None
+    surfaces: list[RouteSurface] = field(default_factory=list)
+    concerns: list[RouteConcern] = field(default_factory=list)
+
+
+@dataclass
 class SnappedRoute:
     points: list[LatLon]
     total_distance_m: float
     snapped: bool  # True = road-following, False = straight-line fallback
+    readiness: RouteReadiness = field(default_factory=RouteReadiness)
 
 
 @dataclass
@@ -193,6 +237,7 @@ class EvaluatedCandidate:
     lat_offset_m: float
     lon_offset_m: float
     preflight_score: float | None = None
+    readiness: RouteReadiness = field(default_factory=RouteReadiness)
 
 
 @dataclass

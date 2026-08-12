@@ -128,3 +128,43 @@ export function removeGalleryImage(payload, options = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+export function requestTimedReadiness(payload, options = {}) {
+  return request("/timed-readiness", {
+    ...options,
+    timeoutMs: 8_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function submitCompletionFeedback(payload, options = {}) {
+  return request("/completion-feedback", {
+    ...options,
+    timeoutMs: 15_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createMuralPlan(payload, options = {}) {
+  return request("/mural-plan", {
+    ...options,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function repairRecognition(payload, options = {}) {
+  return request("/recognition-repair", {
+    ...options,
+    timeoutMs: 180_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}

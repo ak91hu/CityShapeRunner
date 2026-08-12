@@ -153,7 +153,7 @@ test("running suggestions enforce both ends of the supported distance range", as
   await page.getByText("Choose city, activity, and distance").click();
   const distance = page.getByLabel("Distance");
 
-  await expect(page.locator("#suggest-distance-help")).toHaveText("3–60 km for running.");
+  await expect(page.locator("#suggest-distance-help")).toHaveText("3 to 60 km for running.");
   await distance.fill("2");
   await distance.blur();
   await expect(page.locator("#suggest-distance-error")).toContainText("from 3 to 60 km");

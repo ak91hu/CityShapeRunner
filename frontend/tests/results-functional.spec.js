@@ -110,15 +110,50 @@ test("earlier route versions are available as a labelled comparison table", asyn
   await expect(table).toContainText("Distance accuracy");
 });
 
-test("the route audit distinguishes verified and review decisions", async ({ page }) => {
+test("route readiness shows elevation, surfaces, and mapped concerns", async ({ page }) => {
   await openGeneratedRoute(page);
-  await page.getByText("Routes tested").click();
-  const table = page.getByRole("table", { name: "Scores for every route that was tested" });
+  const readiness = page.locator(".readiness-card");
 
-  await expect(table.locator("tbody tr")).toHaveCount(2);
-  await expect(table.locator("tbody tr").first()).toContainText("Ready");
-  await expect(table.locator("tbody tr").last()).toContainText("Needs a look");
-  await expect(table.locator("tbody tr").last()).toContainText("Overall Score");
+  await expect(readiness).toContainText("Route readiness");
+  await expect(readiness).toContainText("184 m");
+  await expect(readiness).toContainText("8.4%");
+  await expect(readiness).toContainText("92%");
+  await expect(readiness).toContainText("Asphalt");
+  await expect(readiness).toContainText("Compacted gravel");
+  await expect(readiness).toContainText("Unpaved riding");
+  await expect(readiness).toContainText("Surface data gap");
+  await expect(page.locator(".route-concern-segment")).toHaveCount(2);
+  await expect(page.getByText("Routes tested")).toHaveCount(0);
+});
+
+test("Street Canvas exposes the strongest nearby areas on the route map", async ({ page }) => {
+  await openGeneratedRoute(page);
+  const canvas = page.locator(".street-canvas-card");
+
+  await expect(canvas).toContainText("Best nearby areas");
+  await expect(canvas).toContainText("88% readable");
+  await expect(canvas).toContainText("94% street support");
+  await expect(page.locator(".street-canvas-marker")).toHaveCount(2);
+});
+
+test("community mural creates separate downloadable artist sections", async ({ page }) => {
+  await page.route("**/mural-plan", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        sections: [
+          { id: "mural-1", label: "Artist 1", distance_km: 4.2, gpx: "<gpx />" },
+          { id: "mural-2", label: "Artist 2", distance_km: 4.1, gpx: "<gpx />" },
+        ],
+      }),
+    });
+  });
+  await openGeneratedRoute(page);
+  await page.getByRole("button", { name: "Create mural plan" }).click();
+
+  const mural = page.locator(".mural-card");
+  await expect(mural).toContainText("Artist 1, 4.20 km");
+  await expect(mural).toContainText("Artist 2, 4.10 km");
 });
 
 test("route issues are deduplicated in the route issues disclosure", async ({ page }) => {
@@ -214,4 +249,11 @@ test("an independently reviewed AI drawing shows its semantic result", async ({ 
   await expect(notice).toContainText("sketched 4 different versions");
   await expect(notice).toContainText("scored it 86%");
   await expect(notice).toContainText("found 2 of 3 defining features");
+
+  await page.getByText("Recognition audit", { exact: true }).click();
+  const audit = page.locator(".ai-recognition-card");
+  await expect(audit.locator("li")).toHaveCount(3);
+  await expect(audit).toContainText("Head");
+  await expect(audit).toContainText("Legs");
+  await expect(audit).toContainText("Missing");
 });

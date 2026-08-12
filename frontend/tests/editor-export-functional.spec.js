@@ -128,7 +128,7 @@ test("a successful edit replaces distance and export state with the edited route
   await page.getByRole("button", { name: "Edit this route" }).click();
   await page.getByRole("button", { name: "Apply changes" }).click();
 
-  await expect(page.getByText(/Changes saved — 20.05 km/)).toBeVisible();
+  await expect(page.getByText(/Changes saved: 20.05 km/)).toBeVisible();
   await expect(
     page.locator(".metric").filter({ has: page.locator("dt", { hasText: /^Distance$/ }) }),
   ).toContainText("20.05 km");

@@ -68,6 +68,18 @@ an explicitly requested drawing misses a recommended target, the planner
 measures simpler city-aware templates and recommends the strongest result
 without removing the original.
 
+## GPS Art Intelligence
+
+The result view now turns route generation into a repeatable local craft. Street
+Canvas marks the strongest nearby placement areas from the preflight search;
+Recognition Repair re-routes a drawing through its highest-information visual
+anchors; and Time-aware Readiness combines daylight with an optional hourly
+weather check. Groups can split one continuous route into balanced Community
+GPS Mural sections with a GPX for each participant. After an activity, a user
+can upload the completed GPX and opt in to save only an anonymous outcome
+summary, never the GPS trace. The full privacy model and endpoint contracts are
+in [GPS Art Intelligence](docs/gps-art-intelligence.md).
+
 ## Research basis
 
 The pipeline is an engineering adaptation of published GPS-art, computational

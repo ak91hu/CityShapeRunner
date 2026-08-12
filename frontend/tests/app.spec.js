@@ -436,7 +436,7 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   ).toHaveText("19.82 km");
   await expect(
     page.locator(".metric").filter({ hasText: "Route options" }).locator(".metric-detail"),
-  ).toHaveText("2 ready · 0 review · 2 tested · 164 locations");
+  ).toHaveText("2 ready · 0 review · 164 locations");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
   await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
   await expect(page.getByLabel("Route options")).toHaveValue("candidate-1");
@@ -455,9 +455,7 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   await page.getByText("Route details", { exact: true }).click();
   await expect(page.locator(".route-facts")).toContainText("842 / 401");
   await expect(page.locator(".route-facts")).toContainText("19.82 km / 20.00 km");
-  await expect(page.getByText("Routes tested")).toContainText("2");
-  await page.getByText("Routes tested").click();
-  await expect(page.locator(".detail-card table").last()).toContainText("Ready");
+  await expect(page.getByText("Routes tested")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
 
   const downloadPromise = page.waitForEvent("download");
@@ -601,7 +599,7 @@ test("a straight-line guide can be explicitly accepted and exported with warning
   await expect(
     page.getByRole("region", { name: /preview only.*not matched to streets/i }),
   ).toBeVisible();
-  await expect(page.getByText("Preview only — not matched to streets")).toBeVisible();
+  await expect(page.getByText("Preview only. Not matched to streets")).toBeVisible();
   await expect(page.getByText("Review this route")).toBeVisible();
   await expect(page.getByText(/items? to check/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
@@ -651,7 +649,7 @@ test("a measured fallback explains why it replaced the requested drawing", async
   await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect(page.getByRole("heading", { name: "Diamond in Debrecen" })).toBeVisible();
-  await expect(page.getByText("Cat didn’t fit these streets — here’s a Diamond")).toBeVisible();
+  await expect(page.getByText("Cat did not fit these streets. Here is a Diamond")).toBeVisible();
   await expect(page.getByText(/41% shape match/)).toBeVisible();
   await expect(page.getByText("Other shapes tried: Triangle, Diamond.")).toBeVisible();
   await expect(page.locator(".route-state")).toContainText("Ready to download");
@@ -698,7 +696,7 @@ test("the online editor reroutes control points and downloads the edited GPX", a
 
   await expect.poll(() => editPayload?.control_points?.length).toBe(4);
   expect(editPayload.shape_name).toBe("star");
-  await expect(page.getByText(/Changes saved — 19.90 km/)).toBeVisible();
+  await expect(page.getByText(/Changes saved: 19.90 km/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Close editor" })).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download edited GPX" }).click();

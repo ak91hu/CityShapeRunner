@@ -127,6 +127,51 @@ export function buildRouteDetails(validation, distanceKm = 19.82) {
       route_to_guide_ratio: validation.route_length_ratio,
     },
     deviation: { mean_outline_deviation_ratio: 0.07 },
+    readiness: {
+      status: "review",
+      data_quality: "good",
+      elevation_available: true,
+      elevation_gain_m: 184,
+      elevation_loss_m: 179,
+      max_grade_percent: 8.4,
+      max_grade_is_lower_bound: false,
+      surface_available: true,
+      surface_known_share: 0.92,
+      unpaved_share: 0.18,
+      surfaces: [
+        { code: 3, label: "Asphalt", distance_m: 14_468, share: 0.73, category: "paved" },
+        {
+          code: 8,
+          label: "Compacted gravel",
+          distance_m: 3_568,
+          share: 0.18,
+          category: "unpaved",
+        },
+        { code: 0, label: "Unknown", distance_m: 1_586, share: 0.08, category: "unknown" },
+      ],
+      concerns: [
+        {
+          code: "unpaved",
+          label: "Unpaved riding",
+          detail: "Check that the bike and conditions suit these unpaved sections.",
+          severity: "warning",
+          distance_m: 3_568,
+          share: 0.18,
+          segment_count: 1,
+          segments_preview: [routePoints.slice(0, 2)],
+        },
+        {
+          code: "unknown_surface",
+          label: "Surface data gap",
+          detail: "The map does not identify the surface on this part.",
+          severity: "info",
+          distance_m: 1_586,
+          share: 0.08,
+          segment_count: 1,
+          segments_preview: [routePoints.slice(1, 3)],
+        },
+      ],
+    },
     placement: {
       rotation_deg: 18,
       scale_m: 3_200,
@@ -251,6 +296,16 @@ export function buildRouteResult(overrides = {}) {
       preflight_count: 164,
     },
     preflight_candidates: [],
+    street_canvas: [
+      {
+        rank: 1, latitude: 47.532, longitude: 21.634, readability_score: 0.88,
+        snap_coverage: 0.94, snap_distance_m: 6.2, rotation_deg: 18, scale_m: 3200,
+      },
+      {
+        rank: 2, latitude: 47.528, longitude: 21.639, readability_score: 0.81,
+        snap_coverage: 0.9, snap_distance_m: 9.4, rotation_deg: 42, scale_m: 3100,
+      },
+    ],
     route_verification: ready.verification,
     route_details: ready.details,
   };
