@@ -77,15 +77,15 @@ settings before a live smoke test can be run; the deterministic suite must never
 silently fall through to those services.
 
 On a restricted Windows profile, pytest may be unable to create its normal
-directory under `%TEMP%`. Use a disposable workspace-local base directory:
+directory under `%TEMP%`. The project configuration already uses the ignored,
+workspace-local `.pytest-tmp` directory, so the ordinary command works:
 
 ```powershell
-$testTemp = Join-Path (Resolve-Path ".tmp") ("pytest-" + [guid]::NewGuid().ToString("N"))
-python -m pytest -q --basetemp $testTemp
+python -m pytest -q
 ```
 
-Pytest owns and may clear the exact `--basetemp` directory, so always give it a
-dedicated disposable path rather than the repository root or a shared folder.
+Pytest owns and may clear `.pytest-tmp`; do not use the repository root or a
+shared folder as its base directory.
 
 ## Run focused tests
 

@@ -50,6 +50,25 @@ test("the result identifies the route and its request ID", async ({ page }) => {
   await expect(page.locator(".route-state")).toContainText("Ready to download");
 });
 
+test("the map is the first result panel and does not overlap later panels", async ({ page }) => {
+  await openGeneratedRoute(page);
+
+  const map = page.locator(".map-card");
+  const sidebar = page.locator(".result-sidebar");
+  const output = page.locator(".route-output");
+  const [mapBox, sidebarBox, outputBox] = await Promise.all([
+    map.boundingBox(),
+    sidebar.boundingBox(),
+    output.boundingBox(),
+  ]);
+
+  expect(mapBox).not.toBeNull();
+  expect(sidebarBox).not.toBeNull();
+  expect(outputBox).not.toBeNull();
+  expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(sidebarBox.y + 1);
+  expect(sidebarBox.y + sidebarBox.height).toBeLessThanOrEqual(outputBox.y + 1);
+});
+
 test("the candidate selector describes ready and review options", async ({ page }) => {
   await openGeneratedRoute(page);
   const selector = page.getByLabel("Route options");
