@@ -99,6 +99,34 @@ test("route details expose routing, distance, placement, and closure facts", asy
   await expect(facts).toContainText("83%");
 });
 
+test("recognition repair keeps route details, downloads, and gallery sharing directly below the route", async ({ page }) => {
+  await page.route("**/recognition-repair", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        points_preview: [[47.4979, 19.0402], [47.4986, 19.0461], [47.4943, 19.0478], [47.4979, 19.0402]],
+        guide_points: [[47.4979, 19.0402], [47.4986, 19.0461], [47.4943, 19.0478], [47.4979, 19.0402]],
+        distance_km: 19.8,
+        snapped: true,
+        gpx: "<?xml version=\"1.0\"?><gpx version=\"1.1\"></gpx>",
+        recognition_score: 0.94,
+        readiness: {},
+        message: "A crisper route is ready.",
+      }),
+    });
+  });
+  await openGeneratedRoute(page);
+  await page.getByRole("button", { name: "Find a crisper version" }).click();
+
+  const output = page.locator(".route-output");
+  await expect(output.getByText("Route details", { exact: true })).toBeVisible();
+  await expect(output.getByRole("button", { name: "Download edited GPX" })).toBeVisible();
+  await expect(output.getByRole("button", { name: "Download TCX" })).toBeVisible();
+  await expect(output.getByText("Publish map image", { exact: true })).toBeVisible();
+  await expect(output.getByRole("checkbox")).toBeVisible();
+  await expect(output.getByRole("button", { name: "Publish map" })).toBeVisible();
+});
+
 test("earlier route versions are available as a labelled comparison table", async ({ page }) => {
   await openGeneratedRoute(page);
   await page.locator(".detail-card summary").filter({ hasText: "Earlier versions" }).click();

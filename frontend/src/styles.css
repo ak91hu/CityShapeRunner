@@ -1089,6 +1089,11 @@ input:disabled {
   padding: clamp(0.75rem, 2vw, 1rem);
 }
 
+.result-sidebar {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
 .candidate-toolbar {
   display: grid;
   grid-template-columns: auto minmax(12rem, 1fr) auto;
@@ -4341,8 +4346,7 @@ input,
 .street-canvas-card,
 .timed-readiness-card,
 .recognition-repair-card,
-.mural-card,
-.completion-card {
+.mural-card {
   padding: 1rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
@@ -4351,7 +4355,6 @@ input,
 
 .street-canvas-card p,
 .mural-card p,
-.completion-card p,
 .recognition-repair-card p {
   margin: 0.55rem 0;
   color: var(--ink-soft);
@@ -4389,8 +4392,7 @@ input,
 }
 
 .timed-readiness-controls label,
-.mural-controls label,
-.completion-file {
+.mural-controls label {
   display: grid;
   gap: 0.3rem;
   color: var(--ink-soft);
@@ -4399,8 +4401,7 @@ input,
 }
 
 .timed-readiness-controls input,
-.mural-controls input,
-.completion-file input {
+.mural-controls input {
   min-height: 2.45rem;
   padding: 0.4rem;
   border: 1px solid var(--line-strong);
@@ -4413,17 +4414,46 @@ input,
 .mural-controls input { width: 4.2rem; }
 .timed-readiness-result { margin: 0.65rem 0 0; color: var(--brand-dark); font-size: 0.73rem; font-weight: 700; }
 .timed-readiness-card > small,
-.completion-card > small { display: block; margin-top: 0.55rem; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
-.recognition-repair-card .button,
-.completion-card .button { margin-top: 0.55rem; }
+.timed-readiness-card > small { display: block; margin-top: 0.55rem; color: var(--muted); font-size: 0.65rem; line-height: 1.4; }
+.recognition-repair-card .button { margin-top: 0.55rem; }
 .mural-sections button { padding: 0.3rem 0.45rem; border: 1px solid var(--line-strong); border-radius: 0.35rem; background: var(--surface-tint); color: var(--brand-dark); font: inherit; font-size: 0.65rem; font-weight: 740; cursor: pointer; }
-.completion-file { margin-top: 0.65rem; }
+
+.route-output {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.72fr);
+  gap: clamp(0.75rem, 2vw, 1.25rem);
+  align-items: start;
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
+  padding: 0 clamp(0.75rem, 2vw, 1rem) 1rem;
+}
+
+.route-output .route-facts,
+.route-output .export-card {
+  margin: 0;
+}
 
 @media (max-width: 38rem) {
   .timed-readiness-controls,
   .mural-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
   .timed-readiness-controls .button,
   .mural-controls .button { width: 100%; }
+}
+
+@media (max-width: 68rem) {
+  .result-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .map-card { order: 1; }
+  .route-output { order: 2; }
+  .result-sidebar { order: 3; }
+
+  .route-output {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 68rem) {

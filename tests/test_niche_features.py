@@ -14,24 +14,6 @@ from gps_art_wizzard.tools import ors_client
 POINTS = [[47.0, 19.0], [47.001, 19.0], [47.001, 19.001], [47.0, 19.001], [47.0, 19.0]]
 
 
-def test_completion_feedback_only_persists_after_explicit_consent(monkeypatch):
-    stored = []
-    monkeypatch.setattr(niche, "record_completion", lambda item: stored.append(item))
-    monkeypatch.setattr(niche, "evidence_summary", lambda **_: {"completed_count": 1, "average_likeness": 0.9, "blocked_report_count": 0})
-    payload = {
-        "shape_name": "heart", "sport": "run", "city": "Budapest",
-        "planned_points": POINTS, "completed_points": POINTS, "consent_to_learn": False,
-    }
-    with TestClient(create_app()) as client:
-        response = client.post("/completion-feedback", json=payload)
-        assert response.status_code == 200
-        assert response.json()["saved_for_learning"] is False
-        assert stored == []
-        response = client.post("/completion-feedback", json={**payload, "consent_to_learn": True})
-    assert response.status_code == 200
-    assert len(stored) == 1
-
-
 def test_mural_plan_splits_one_route_into_balanced_gpx_sections():
     with TestClient(create_app()) as client:
         response = client.post("/mural-plan", json={"points": POINTS, "participants": 2, "name": "Team heart"})

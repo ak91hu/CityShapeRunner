@@ -139,16 +139,6 @@ export function requestTimedReadiness(payload, options = {}) {
   });
 }
 
-export function submitCompletionFeedback(payload, options = {}) {
-  return request("/completion-feedback", {
-    ...options,
-    timeoutMs: 15_000,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
 export function createMuralPlan(payload, options = {}) {
   return request("/mural-plan", {
     ...options,

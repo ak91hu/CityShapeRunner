@@ -1,6 +1,6 @@
 # GPS Art Intelligence
 
-GPS Art Wizard now adds five connected layers around route generation.
+GPS Art Wizard adds four connected layers around route generation.
 
 ## Street Canvas
 
@@ -15,15 +15,6 @@ marks the strongest areas before the user commits to an export.
 as a reduced set of visual anchors, then routes through them again. It is a
 bounded alternative to the existing AI geometry repair: it changes route
 guidance only after street snapping has weakened the visible outline.
-
-## Field evidence
-
-`POST /completion-feedback` compares an uploaded completed GPX track with the
-planned line. Saving is strictly opt-in. The SQLite store retains only an
-anonymous aggregate: city label, shape, activity, distances, likeness score,
-blocked-segment count, and short notes. It never retains the uploaded route
-geometry. Set `GPS_ART_EVIDENCE_DB` to place the database on persistent
-deployment storage.
 
 ## Community GPS mural
 

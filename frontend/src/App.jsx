@@ -9,7 +9,6 @@ import {
   repairRecognition,
   requestTimedReadiness,
   removeGalleryImage,
-  submitCompletionFeedback,
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
@@ -969,38 +968,6 @@ function TimedReadinessCard({ points }) {
   );
 }
 
-function CompletionFeedbackCard({ onSubmit, busy, notice }) {
-  const [fileName, setFileName] = useState("");
-  const [points, setPoints] = useState(null);
-  const [error, setError] = useState("");
-  const readFile = async (event) => {
-    const file = event.target.files?.[0];
-    setFileName(file?.name ?? ""); setPoints(null); setError("");
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const found = [...text.matchAll(/<trkpt\s+lat=["']([^"']+)["']\s+lon=["']([^"']+)["']/gi)]
-        .map((match) => [Number(match[1]), Number(match[2])])
-        .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon));
-      if (found.length < 2) throw new Error("No usable track points were found in that GPX file.");
-      setPoints(found);
-    } catch (readError) { setError(readError.message || "We couldn’t read that GPX file."); }
-  };
-  return (
-    <section className="completion-card" aria-labelledby="completion-title">
-      <div><span className="eyebrow">Field evidence</span><h3 id="completion-title">Teach the Street Canvas</h3></div>
-      <p>Upload the GPX you actually completed. Only an opted-in anonymous summary is saved, never the route trace.</p>
-      <label className="completion-file">Completed GPX<input type="file" accept=".gpx,application/gpx+xml" onChange={readFile} /></label>
-      {fileName && <small>{points ? `${fileName}: ${points.length} track points ready.` : fileName}</small>}
-      <button type="button" className="button button--secondary" onClick={() => onSubmit(points)} disabled={!points || busy}>
-        {busy ? "Analysing..." : "Share anonymous result"}
-      </button>
-      {error && <p className="editor-error" role="alert">{error}</p>}
-      {notice && <p className="editor-success" role="status">{notice}</p>}
-    </section>
-  );
-}
-
 function CommunityMuralCard({ activeRoute, shapeName, city, sport }) {
   const [participants, setParticipants] = useState(4);
   const [plan, setPlan] = useState(null);
@@ -1375,8 +1342,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const [publishedAsset, setPublishedAsset] = useState(null);
   const [repairBusy, setRepairBusy] = useState(false);
   const [repairNotice, setRepairNotice] = useState("");
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [feedbackNotice, setFeedbackNotice] = useState("");
   const mapCaptureRef = useRef(null);
 
   useEffect(() => {
@@ -1476,7 +1441,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     activeRoute.gallery_publish_token &&
     activeRoute.snapped &&
     exportReady &&
-    !editedRoute &&
     !editing,
   );
 
@@ -1629,29 +1593,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
       setRepairBusy(false);
     }
   }, [activeRoute, activeRouteId, city, repairBusy, result.intent, routeDetails, shapeName]);
-
-  const shareCompletion = useCallback(async (completedPoints) => {
-    if (feedbackBusy || !Array.isArray(completedPoints) || completedPoints.length < 2) return;
-    setFeedbackBusy(true);
-    setFeedbackNotice("");
-    try {
-      const response = await submitCompletionFeedback({
-        shape_name: activeRoute.shape_name ?? shapeName,
-        sport: result.intent?.sport === "bike" ? "bike" : "run",
-        city: result.intent?.city ?? null,
-        planned_points: activeRoute.points_preview,
-        completed_points: completedPoints,
-        blocked_segments: 0,
-        notes: [],
-        consent_to_learn: true,
-      });
-      setFeedbackNotice(`${response.message} Current route likeness: ${formatPercent(response.completion.likeness)}.`);
-    } catch (feedbackError) {
-      setFeedbackNotice(feedbackError.message || "We couldn’t save this route insight.");
-    } finally {
-      setFeedbackBusy(false);
-    }
-  }, [activeRoute, feedbackBusy, result.intent, shapeName]);
 
   return (
     <section
@@ -1910,12 +1851,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             sport={result.intent?.sport}
           />
 
-          <CompletionFeedbackCard
-            onSubmit={shareCompletion}
-            busy={feedbackBusy}
-            notice={feedbackNotice}
-          />
-
           {fitDecision && (
             <div className={`notice ${fitDecision.substituted ? "notice--success" : "notice--warning"}`}>
               <strong>
@@ -2059,8 +1994,10 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             </details>
           )}
 
-          {routeDetails && (
-            <details className="route-facts">
+        </div>
+
+      <div className="route-output">
+          <details className="route-facts">
               <summary>Route details</summary>
               <p className="route-facts-intro">
                 Street detour is the extra distance added by the road network. Average drift is
@@ -2139,8 +2076,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                   <dd>{formatPercent(placementDetails.preflight_score)}</dd>
                 </div>
               </dl>
-            </details>
-          )}
+          </details>
 
           <div className="export-card">
             <div>
@@ -2204,7 +2140,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
                 Apply or discard your changes before downloading.
               </p>
             )}
-            {activeRoute.gallery_publish_token && !editedRoute && (
+            {activeRoute.gallery_publish_token && (
               <div className="gallery-publish">
                 <div>
                   <strong>Publish map image</strong>
@@ -2260,7 +2196,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
               route.
             </p>
           </div>
-        </div>
+      </div>
       </div>
 
       {(issueList.length > 0 || historyRows.length > 0) && (
