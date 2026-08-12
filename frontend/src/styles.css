@@ -4480,6 +4480,44 @@ input,
   grid-column: 1 / -1;
 }
 
+/* Keep the route decision next to the map: its score is read first, then the
+   review/download action is immediately available below it. */
+@media (min-width: 68.0625rem) {
+  .result-layout {
+    grid-template-columns: minmax(0, 1.48fr) minmax(22rem, 0.72fr);
+  }
+
+  .map-card {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .result-sidebar,
+  .route-output {
+    display: contents;
+  }
+
+  .result-sidebar .metrics {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .route-output .export-card {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .route-output .route-facts {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .result-sidebar > :not(.metrics) {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 38rem) {
   .timed-readiness-controls,
   .mural-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
