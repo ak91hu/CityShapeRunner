@@ -127,17 +127,6 @@ test("recognition repair keeps route details, downloads, and gallery sharing dir
   await expect(output.getByRole("button", { name: "Publish map" })).toBeVisible();
 });
 
-test("earlier route versions are available as a labelled comparison table", async ({ page }) => {
-  await openGeneratedRoute(page);
-  await page.locator(".detail-card summary").filter({ hasText: "Earlier versions" }).click();
-  const table = page.getByRole("table", { name: "Scores for earlier versions of this route" });
-
-  await expect(table.locator("tbody tr")).toHaveCount(2);
-  await expect(table.locator("tbody tr").first()).toContainText("79%");
-  await expect(table.locator("tbody tr").last()).toContainText("91%");
-  await expect(table).toContainText("Distance accuracy");
-});
-
 test("route readiness shows elevation, surfaces, and mapped concerns", async ({ page }) => {
   await openGeneratedRoute(page);
   const readiness = page.locator(".readiness-card");

@@ -1416,7 +1416,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
     fitDecision?.requested_shape ?? result.requested_shape ?? result.shape?.name,
   );
   const city = result.intent?.city ? normaliseLabel(result.intent.city) : "your selected area";
-  const historyRows = (result.history ?? []).filter((entry) => Number.isFinite(entry.score));
   const candidateSummary = result.candidate_summary ?? {};
   const reviewCount = Number.isFinite(candidateSummary.review_count)
     ? candidateSummary.review_count
@@ -2201,60 +2200,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
       </div>
       </div>
 
-      {(issueList.length > 0 || historyRows.length > 0) && (
+      {issueList.length > 0 && (
         <div className="details-grid">
-          {issueList.length > 0 && (
-            <details className="detail-card">
-              <summary>
-                Route issues <span>{issueList.length}</span>
-              </summary>
-              <ul>
-                {issueList.map((issue) => (
-                  <li key={issue}>{issue}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {historyRows.length > 0 && (
-            <details className="detail-card">
-              <summary>
-                Earlier versions <span>{historyRows.length}</span>
-              </summary>
-              <div className="table-wrap">
-                <table>
-                  <caption className="sr-only">Scores for earlier versions of this route</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Try</th>
-                      <th scope="col">Score</th>
-                      <th scope="col">Change</th>
-                      <th scope="col">Shape match</th>
-                      <th scope="col">Distance accuracy</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyRows.map((entry, index) => (
-                      <tr key={`${entry.iteration ?? index}-${index}`}>
-                        <td data-label="Try">{entry.iteration ?? index}</td>
-                        <td data-label="Score">{formatPercent(entry.score)}</td>
-                        <td data-label="Change">
-                          {Number.isFinite(entry.delta_vs_best)
-                            ? `${entry.delta_vs_best >= 0 ? "+" : ""}${formatMetric(entry.delta_vs_best, 3)}`
-                            : "n/a"}
-                        </td>
-                        <td data-label="Shape match">
-                          {formatPercent(entry.fidelity ?? entry.shape_fidelity)}
-                        </td>
-                        <td data-label="Distance accuracy">{formatPercent(entry.distance_fit)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
-
+          <details className="detail-card">
+            <summary>
+              Route issues <span>{issueList.length}</span>
+            </summary>
+            <ul>
+              {issueList.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </details>
         </div>
       )}
     </section>

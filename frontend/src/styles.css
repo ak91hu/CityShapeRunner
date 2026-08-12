@@ -4437,17 +4437,19 @@ input,
 /* The result is a single, deliberate reading path: inspect the drawing,
    take the route action, then explore optional planning tools. */
 .result-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.82fr);
   gap: clamp(0.9rem, 2vw, 1.35rem);
 }
 
 .map-card {
-  order: 1;
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .route-output {
-  order: 2;
+  grid-column: 1 / -1;
   width: 100%;
   box-sizing: border-box;
   grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.82fr);
@@ -4456,7 +4458,7 @@ input,
 }
 
 .result-sidebar {
-  order: 3;
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
