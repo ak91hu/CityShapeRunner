@@ -22,6 +22,10 @@ workflow:
   preflight_max_placements: 180
   preflight_shortlist: 7
   preflight_guide_points: 18
+  # Free-text drawings use adaptive alternatives and rendered cue verification.
+  ai_shape_verifier_enabled: true
+  ai_shape_min_semantic_score: 0.68
+  ai_shape_max_candidates: 4
   sport_default: run             # run | bike
   city_default: Budapest
   # Target distance bounds (km) per sport; the planner scales the shape to fit.

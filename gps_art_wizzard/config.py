@@ -28,6 +28,10 @@ class LLMConfig:
     temperature: float = field(default_factory=lambda: _float("LLM_TEMPERATURE", 0.2))
     max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 2048))
     model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", ""))
+    opencode_model: str = field(default_factory=lambda: os.getenv("OPENCODE_MODEL", ""))
+    openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", ""))
+    anthropic_model: str = field(default_factory=lambda: os.getenv("ANTHROPIC_MODEL", ""))
+    ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", ""))
     opencode_key: str = field(default_factory=lambda: os.getenv("OPENCODE_API_KEY", ""))
     opencode_base_url: str = field(default_factory=lambda: os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"))
     opencode_structured_model: str = field(
@@ -86,6 +90,15 @@ class WorkflowConfig:
     )
     preflight_guide_points: int = field(
         default_factory=lambda: _int("PREFLIGHT_GUIDE_POINTS", 18)
+    )
+    ai_shape_verifier_enabled: bool = field(
+        default_factory=lambda: _bool("AI_SHAPE_VERIFIER_ENABLED", True)
+    )
+    ai_shape_min_semantic_score: float = field(
+        default_factory=lambda: _float("AI_SHAPE_MIN_SEMANTIC_SCORE", 0.68)
+    )
+    ai_shape_max_candidates: int = field(
+        default_factory=lambda: _int("AI_SHAPE_MAX_CANDIDATES", 4)
     )
     sport_default: str = field(default_factory=lambda: os.getenv("DEFAULT_SPORT", "run"))
     city_default: str = field(default_factory=lambda: os.getenv("DEFAULT_CITY", "Budapest"))
@@ -173,6 +186,9 @@ def get_settings() -> Settings:
                     "preflight_max_placements": "PREFLIGHT_MAX_PLACEMENTS",
                     "preflight_shortlist": "PREFLIGHT_SHORTLIST",
                     "preflight_guide_points": "PREFLIGHT_GUIDE_POINTS",
+                    "ai_shape_verifier_enabled": "AI_SHAPE_VERIFIER_ENABLED",
+                    "ai_shape_min_semantic_score": "AI_SHAPE_MIN_SEMANTIC_SCORE",
+                    "ai_shape_max_candidates": "AI_SHAPE_MAX_CANDIDATES",
                     "sport_default": "DEFAULT_SPORT",
                     "city_default": "DEFAULT_CITY",
                 }.get(k)

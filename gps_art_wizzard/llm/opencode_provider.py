@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import LLMError, LLMResponse, Message, to_dicts
+from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_responses_input
 
 _DEFAULT_MODEL = "glm-5.2"
 _DEFAULT_BASE_URL = "https://opencode.ai/zen/v1"
@@ -59,22 +59,24 @@ class OpenCodeProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
+        images: list[ImageInput] | None = None,
     ) -> LLMResponse:
-        msgs: list[dict[str, str]] = []
+        msgs: list[dict[str, Any]] = []
         if system:
             msgs.append({"role": "system", "content": system})
-        msgs.extend(to_dicts(messages))
+        msgs.extend(to_responses_input(messages, images) if images else to_dicts(messages))
 
         # Zen exposes current OpenAI models through /v1/responses. Its
         # OpenAI-compatible chat models accept JSON mode, but reasoning models
         # may spend the complete output budget on prose before emitting JSON.
         # A Responses model with strict text.format keeps structured agent
         # calls bounded and makes malformed/truncated geometry exceptional.
-        if json_schema is not None and self._structured_model:
+        if (json_schema is not None or images) and self._structured_model:
             return self._complete_structured(
                 msgs,
                 json_schema=json_schema,
                 max_tokens=max_tokens,
+                json_mode=json_mode,
             )
 
         kwargs: dict[str, Any] = {
@@ -100,24 +102,28 @@ class OpenCodeProvider:
 
     def _complete_structured(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
-        json_schema: dict[str, Any],
+        json_schema: dict[str, Any] | None,
         max_tokens: int | None,
+        json_mode: bool = False,
     ) -> LLMResponse:
         kwargs: dict[str, Any] = {
             "model": self._structured_model,
             "input": messages,
-            "text": {
+            "max_output_tokens": self._max_tokens if max_tokens is None else max_tokens,
+        }
+        if json_schema is not None:
+            kwargs["text"] = {
                 "format": {
                     "type": "json_schema",
                     "name": "gps_art_structured_response",
                     "strict": True,
                     "schema": json_schema,
                 }
-            },
-            "max_output_tokens": self._max_tokens if max_tokens is None else max_tokens,
-        }
+            }
+        elif json_mode:
+            kwargs["text"] = {"format": {"type": "json_object"}}
         if self._structured_model.casefold().startswith("gpt-5"):
             kwargs["reasoning"] = {"effort": "low"}
         try:

@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from .base import LLMError, LLMResponse, Message, to_dicts
+from .base import ImageInput, LLMError, LLMResponse, Message, decode_data_url, to_dicts
 
 _DEFAULT_MODEL = "llama3.1"
 
@@ -42,8 +42,18 @@ class OllamaProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
+        images: list[ImageInput] | None = None,
     ) -> LLMResponse:
-        msgs = to_dicts(messages)
+        msgs: list[dict[str, Any]] = list(to_dicts(messages))
+        if images:
+            target = next(
+                (i for i in range(len(msgs) - 1, -1, -1) if msgs[i]["role"] == "user"),
+                None,
+            )
+            if target is None:
+                target = len(msgs)
+                msgs.append({"role": "user", "content": "Review the supplied image."})
+            msgs[target]["images"] = [decode_data_url(image.data_url)[1] for image in images]
         if system:
             msgs = [{"role": "system", "content": system}, *msgs]
         payload: dict[str, Any] = {

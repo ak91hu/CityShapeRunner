@@ -19,6 +19,7 @@ from gps_art_wizzard.agents.preflight_agent import PreflightAgent
 from gps_art_wizzard.agents.refinement_agent import RefinementAgent
 from gps_art_wizzard.agents.shape_agent import (
     _CUSTOM_SHAPE_JSON_SCHEMA,
+    _SHAPE_SPEC_JSON_SCHEMA,
     ShapeAgent,
     _clear_custom_shape_cache,
     _reference_shape_payload,
@@ -2435,7 +2436,7 @@ def test_arbitrary_described_shapes_reach_ai_generation_with_route_metadata(
     assert state.shape.source == "llm"
     assert state.shape.closed is True
     assert state.errors == []
-    assert captured["json_schema"] is _CUSTOM_SHAPE_JSON_SCHEMA
+    assert captured["json_schema"] is _SHAPE_SPEC_JSON_SCHEMA
 
 
 def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):
@@ -2467,19 +2468,20 @@ def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):
 
     ShapeAgent().run(state)
 
-    schema = captured["json_schema"]
+    assert captured["json_schema"] is _SHAPE_SPEC_JSON_SCHEMA
+    schema = _CUSTOM_SHAPE_JSON_SCHEMA
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {
         "name",
-        "recognition_features",
         "variants",
         "preferred_variant",
     }
-    assert schema["properties"]["recognition_features"]["minItems"] == 3
     variants = schema["properties"]["variants"]
-    assert variants["minItems"] == variants["maxItems"] == 2
+    assert variants["minItems"] == 2
+    assert variants["maxItems"] == 4
     assert variants["items"]["additionalProperties"] is False
-    assert variants["items"]["properties"]["paths"]["maxItems"] == 8
+    program = variants["items"]["properties"]["program"]
+    assert program["properties"]["strokes"]["maxItems"] == 8
 
 
 def test_custom_shape_uses_valid_alternative_when_ai_preference_crosses_itself(monkeypatch):
@@ -2696,14 +2698,24 @@ def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(mon
 
 
 def test_custom_shape_prompt_requires_semantic_cues_and_non_stock_contours():
-    prompt = render("shape", shape='"platypus"', style='"none"', reference="null").lower()
+    spec_prompt = render(
+        "shape_spec", shape='"platypus"', style='"none"', route_context="{}"
+    ).lower()
+    prompt = render(
+        "shape",
+        shape='"platypus"',
+        style='"none"',
+        spec="{}",
+        candidate_count=3,
+        route_context="{}",
+        references="[]",
+    ).lower()
 
-    assert "3-6 concrete recognition features" in prompt
-    assert "two meaningfully different silhouette alternatives" in prompt
-    assert "thumbnail size" in prompt
-    assert "preferred_variant" in prompt
-    assert "recognisability anchor" in prompt
-    assert "stock symbol" in prompt
+    assert "3-6 cues" in spec_prompt
+    assert "meaningfully different route-native candidates" in prompt
+    assert "feature_id" in prompt
+    assert "catalog anchors" in prompt
+    assert "stock icon" in prompt
 
 
 def test_compound_custom_shape_uses_its_first_known_subject_as_reference():

@@ -8,7 +8,7 @@ from gps_art_wizzard.llm.anthropic_provider import (
     AnthropicProvider,
     _supports_structured_outputs,
 )
-from gps_art_wizzard.llm.base import LLMError, Message
+from gps_art_wizzard.llm.base import ImageInput, LLMError, Message
 from gps_art_wizzard.llm.ollama_provider import OllamaProvider
 from gps_art_wizzard.llm.openai_provider import (
     OpenAIProvider,
@@ -24,6 +24,7 @@ _SCHEMA = {
     "required": ["closed"],
     "additionalProperties": False,
 }
+_PNG = ImageInput("data:image/png;base64,iVBORw0KGgo=")
 
 
 class _Recorder:
@@ -126,6 +127,34 @@ def test_openai_provider_uses_strict_json_schema_when_supplied():
     assert response_format["json_schema"]["schema"] is _SCHEMA
 
 
+def test_openai_provider_uses_responses_api_for_visual_schema_review():
+    recorder = _Recorder(
+        SimpleNamespace(
+            output_text='{"closed":true}',
+            status="completed",
+            usage=SimpleNamespace(input_tokens=20, output_tokens=5),
+        )
+    )
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "gpt-4o-mini"
+    provider._temperature = 0.2
+    provider._max_tokens = 256
+
+    response = provider.complete(
+        [Message(role="user", content="review")],
+        json_schema=_SCHEMA,
+        images=[_PNG],
+    )
+
+    blocks = recorder.kwargs["input"][0]["content"]
+    assert blocks[0] == {"type": "input_text", "text": "review"}
+    assert blocks[1]["type"] == "input_image"
+    assert blocks[1]["image_url"] == _PNG.data_url
+    assert recorder.kwargs["text"]["format"]["schema"] is _SCHEMA
+    assert response.usage == {"prompt": 20, "completion": 5}
+
+
 def test_openai_provider_keeps_legacy_models_on_json_mode():
     recorder = _Recorder(
         SimpleNamespace(
@@ -175,6 +204,27 @@ def test_ollama_provider_sends_schema_in_native_format(monkeypatch):
     )
 
     assert captured["format"] is _SCHEMA
+
+
+def test_ollama_provider_attaches_base64_images_to_user_message(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": '{"closed":true}'}}
+
+    def post(_url, *, json, timeout):
+        captured.update(json)
+        return Response()
+
+    monkeypatch.setattr("gps_art_wizzard.llm.ollama_provider.httpx.post", post)
+    provider = OllamaProvider("http://localhost:11434", model="vision-model")
+    provider.complete([Message(role="user", content="review")], images=[_PNG])
+
+    assert captured["messages"][0]["images"] == ["iVBORw0KGgo="]
 
 
 def test_anthropic_schema_is_gated_by_model_support():
@@ -228,4 +278,32 @@ def test_anthropic_provider_uses_schema_on_supported_models():
     assert recorder.kwargs is not None
     assert recorder.kwargs["output_config"] == {
         "format": {"type": "json_schema", "schema": _SCHEMA}
+    }
+
+
+def test_anthropic_provider_converts_inline_image_to_native_block():
+    recorder = _Recorder(
+        SimpleNamespace(
+            content=[SimpleNamespace(type="text", text='{"closed":true}')],
+            usage=None,
+        )
+    )
+    provider = AnthropicProvider.__new__(AnthropicProvider)
+    provider._client = SimpleNamespace(messages=recorder)
+    provider._model = "claude-sonnet-4-5-20250929"
+    provider._temperature = 0.2
+    provider._max_tokens = 256
+
+    provider.complete(
+        [Message(role="user", content="review")],
+        json_schema=_SCHEMA,
+        images=[_PNG],
+    )
+
+    blocks = recorder.kwargs["messages"][0]["content"]
+    assert blocks[0] == {"type": "text", "text": "review"}
+    assert blocks[1]["source"] == {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "iVBORw0KGgo=",
     }

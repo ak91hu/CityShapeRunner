@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, cast
 
-from .base import LLMError, LLMResponse, Message, to_dicts
+from .base import ImageInput, LLMError, LLMResponse, Message, decode_data_url, to_dicts
 
 if TYPE_CHECKING:
     from anthropic.types import MessageParam
@@ -40,10 +40,36 @@ class AnthropicProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         system: str | None = None,
+        images: list[ImageInput] | None = None,
     ) -> LLMResponse:
         # The provider-neutral Message role is validated by the intent/prompt
         # pipeline before it reaches this adapter.
-        msgs = cast("list[MessageParam]", to_dicts(messages))
+        raw_messages: list[dict[str, Any]] = to_dicts(messages)
+        if images:
+            target = next(
+                (i for i in range(len(raw_messages) - 1, -1, -1) if raw_messages[i]["role"] == "user"),
+                None,
+            )
+            if target is None:
+                target = len(raw_messages)
+                raw_messages.append({"role": "user", "content": "Review the supplied image."})
+            blocks: list[dict[str, Any]] = [
+                {"type": "text", "text": raw_messages[target]["content"]}
+            ]
+            for image in images:
+                media_type, data = decode_data_url(image.data_url)
+                blocks.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        },
+                    }
+                )
+            raw_messages[target] = {"role": "user", "content": blocks}
+        msgs = cast("list[MessageParam]", raw_messages)
         # Anthropic rejects a leading/standalone system role in messages; pass via system=.
         system_prompt = system or ""
         kwargs: dict[str, Any] = {

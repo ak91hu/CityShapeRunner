@@ -1131,6 +1131,10 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
   const qualityTone = score == null ? "neutral" : automaticChecksPassed ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
   const shapeSource = activeRoute.shape_source ?? result.shape?.source;
+  const aiDrawingReview = result.shape?.semantic_verification;
+  const aiDrawingCueCount = aiDrawingReview?.cue_results?.filter(
+    (cue) => cue.present,
+  ).length;
   const fitDecision = result.fit_decision;
   const requestedShape = normaliseLabel(
     fitDecision?.requested_shape ?? result.requested_shape ?? result.shape?.name,
@@ -1547,9 +1551,23 @@ function ResultPanel({ result, onDownload, onGalleryPublished, focusRef }) {
             <div className="notice notice--info">
               <strong>Made from your idea</strong>
               <p>
-                This outline was created for your description, then tested against nearby
-                streets. Compare the dashed drawing with the route before you head out.
+                This outline was created for your description. We sketched{" "}
+                {result.shape?.generated_candidate_count || "several"} different versions
+                and kept the strongest route-friendly one.
               </p>
+              {aiDrawingReview?.independent && aiDrawingReview.score != null ? (
+                <p>
+                  A separate visual check scored it {formatPercent(aiDrawingReview.score)}
+                  {Number.isFinite(aiDrawingCueCount)
+                    ? ` and found ${aiDrawingCueCount} of ${aiDrawingReview.cue_results.length} defining features`
+                    : ""}.
+                </p>
+              ) : (
+                <p>
+                  Geometry checks passed. Compare the dashed drawing with the street route
+                  before heading out.
+                </p>
+              )}
             </div>
           )}
 

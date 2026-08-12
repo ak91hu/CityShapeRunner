@@ -182,3 +182,36 @@ test("a generated custom drawing is clearly explained", async ({ page }) => {
   await expect(notice).toContainText("created for your description");
   await expect(notice).toContainText("Compare the dashed drawing");
 });
+
+test("an independently reviewed AI drawing shows its semantic result", async ({ page }) => {
+  const result = buildRouteResult({
+    shape: {
+      name: "waving robot",
+      closed: true,
+      source: "llm",
+      n_paths: 1,
+      generated_candidate_count: 4,
+      semantic_verification: {
+        score: 0.86,
+        independent: true,
+        cue_results: [
+          { feature_id: "head", present: true },
+          { feature_id: "arm", present: true },
+          { feature_id: "legs", present: false },
+        ],
+      },
+    },
+  });
+  result.candidates = result.candidates.map((candidate) => ({
+    ...candidate,
+    shape_name: "waving robot",
+    shape_source: "llm",
+  }));
+
+  await openGeneratedRoute(page, result);
+
+  const notice = page.locator(".notice--info").filter({ hasText: "Made from your idea" });
+  await expect(notice).toContainText("sketched 4 different versions");
+  await expect(notice).toContainText("scored it 86%");
+  await expect(notice).toContainText("found 2 of 3 defining features");
+});

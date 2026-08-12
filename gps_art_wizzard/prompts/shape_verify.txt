@@ -1,0 +1,18 @@
+Independently review the supplied black-on-white GPS-art candidate thumbnails.
+Thumbnail N corresponds to candidate_index N-1. Judge what is actually visible,
+not what the generator intended. Use the ShapeSpec as the only target.
+
+For every candidate:
+- score each required recognition feature separately;
+- check subject identity, silhouette readability, part sizes/relationships, and
+  whether the line could remain legible after street snapping;
+- list missing feature ids and incorrect spatial/part relationships;
+- give short, geometry-specific repair instructions that preserve passing parts.
+
+Do not reward neatness when the requested subject is not recognisable. Do not
+infer invisible colour or detail. Return one review for every supplied image in
+the same order and only the requested JSON schema.
+
+Original request: {shape}
+ShapeSpec: {spec}
+

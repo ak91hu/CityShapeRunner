@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import unicodedata
+from dataclasses import asdict
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -539,8 +540,28 @@ def _state_to_response(state) -> dict:
         prompt=state.prompt,
         intent=state.intent.__dict__ if state.intent else None,
         shape=(
-            {"name": state.shape.name, "closed": state.shape.closed,
-             "source": state.shape.source, "n_paths": len(state.shape.paths)}
+            {
+                "name": state.shape.name,
+                "closed": state.shape.closed,
+                "source": state.shape.source,
+                "n_paths": len(state.shape.paths),
+                "recognition_features": list(state.shape.recognition_features),
+                "shape_spec": (
+                    asdict(state.shape.spec) if state.shape.spec else None
+                ),
+                "semantic_verification": (
+                    asdict(state.shape.semantic_verification)
+                    if state.shape.semantic_verification
+                    else None
+                ),
+                "generator": {
+                    "provider": state.shape.generator_provider,
+                    "model": state.shape.generator_model,
+                    "usage": dict(state.shape.generator_usage),
+                },
+                "generated_candidate_count": state.shape.generated_candidate_count,
+                "selected_candidate": state.shape.selected_candidate,
+            }
             if state.shape else None
         ),
         suggested_shape=state.plan.suggested_shape if state.plan else None,

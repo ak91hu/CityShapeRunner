@@ -1,0 +1,12 @@
+Repair the supplied route-native candidate program using the typed diagnostics.
+Change only the contour spans needed for missing cues, wrong relations, or
+executable geometry failures; preserve every passing feature and the overall
+pose. The repair must still follow the drawing-program schema and GPS-art
+constraints. Return exactly one candidate and only the requested JSON schema.
+
+Original request: {shape}
+ShapeSpec: {spec}
+Candidate: {candidate}
+Diagnostics: {diagnostics}
+Route context: {route_context}
+

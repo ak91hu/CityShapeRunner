@@ -45,11 +45,86 @@ class Plan:
 
 
 @dataclass
+class ShapeFeature:
+    """One large visual cue that must survive street snapping."""
+
+    id: str
+    label: str
+    importance: int
+    geometry_hint: str
+    relation: str
+
+
+@dataclass
+class ShapePart:
+    """A semantic part and its relation to the complete subject."""
+
+    id: str
+    label: str
+    parent: str | None
+    required: bool
+    relative_size: str
+    position: str
+
+
+@dataclass
+class ShapeSpec:
+    """Provider-neutral semantic contract produced before drawing geometry."""
+
+    subject: str
+    modifiers: list[str]
+    pose: str
+    viewpoint: str
+    parts: list[ShapePart]
+    recognition_features: list[ShapeFeature]
+    symmetry: str
+    preferred_strokes: int
+    closed_silhouette: bool
+    aspect_ratio: float
+    ambiguity: float
+
+
+@dataclass
+class ShapeCueVerification:
+    feature_id: str
+    present: bool
+    score: float
+    reason: str
+
+
+@dataclass
+class ShapeVerification:
+    """Independent rendered-image review of an AI-generated candidate."""
+
+    score: float | None
+    subject_match: float | None
+    silhouette_quality: float | None
+    route_readability: float | None
+    cue_results: list[ShapeCueVerification] = field(default_factory=list)
+    missing_features: list[str] = field(default_factory=list)
+    wrong_relations: list[str] = field(default_factory=list)
+    repair_instructions: list[str] = field(default_factory=list)
+    provider: str = "deterministic"
+    model: str = "geometry-checks"
+    independent: bool = False
+    method: str = "geometry"
+    usage: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class Shape:
     name: str
     paths: list[list[tuple[float, float]]]
     closed: bool
     source: str = "template"  # template | text | llm | fallback
+    spec: ShapeSpec | None = None
+    semantic_verification: ShapeVerification | None = None
+    recognition_features: list[str] = field(default_factory=list)
+    generator_provider: str | None = None
+    generator_model: str | None = None
+    generator_usage: dict[str, int] = field(default_factory=dict)
+    generated_candidate_count: int = 0
+    selected_candidate: int | None = None
 
 
 @dataclass
@@ -180,4 +255,9 @@ class WorkflowState:
             "on_roads": v.on_roads if v else None,
             "issues": v.issues if v else [],
             "shape": self.shape.name if self.shape else None,
+            "shape_semantic_score": (
+                self.shape.semantic_verification.score
+                if self.shape and self.shape.semantic_verification
+                else None
+            ),
         }

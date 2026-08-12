@@ -16,11 +16,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import LLMError, LLMProvider, LLMResponse, Message, NoProviderError
+from .base import ImageInput, LLMError, LLMProvider, LLMResponse, Message, NoProviderError
 from .factory import available_providers, get_llm, reset_sticky, try_complete
 
 __all__ = [
     "LLMError",
+    "ImageInput",
     "LLMProvider",
     "LLMResponse",
     "Message",

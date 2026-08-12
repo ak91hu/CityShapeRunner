@@ -18,97 +18,226 @@ import math
 import re
 import unicodedata
 from collections import OrderedDict
+from copy import deepcopy
+from dataclasses import asdict, dataclass
 from threading import Lock
 
 from shapely.geometry import LineString
 
-from ..llm import LLMResponse, extract_json, try_complete
+from ..config import get_settings
+from ..llm import ImageInput, LLMResponse, extract_json, try_complete
 from ..prompts import render
-from ..state import Shape, WorkflowState
-from ..tools import geo, shape_library, shape_uniqueness, text_shapes
+from ..state import (
+    Shape,
+    ShapeCueVerification,
+    ShapeFeature,
+    ShapePart,
+    ShapeSpec,
+    ShapeVerification,
+    WorkflowState,
+)
+from ..tools import geo, shape_library, shape_program, shape_uniqueness, text_shapes
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v4"
+_CUSTOM_SHAPE_CACHE_VERSION = "v6"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
 
-_CUSTOM_PATHS_JSON_SCHEMA = {
+_POINT_SCHEMA = {
     "type": "array",
-    "minItems": 1,
-    "maxItems": 8,
-    "description": (
-        "Ordered route strokes. Prefer one closed outer silhouette and reserve "
-        "extra strokes for recognition-critical features that cannot be part of it."
-    ),
-    "items": {
-        "type": "array",
-        "minItems": 6,
-        "maxItems": 96,
-        "items": {
-            "type": "array",
-            "minItems": 2,
-            "maxItems": 2,
-            "items": {"type": "number", "minimum": -10, "maximum": 10},
-        },
+    "minItems": 2,
+    "maxItems": 2,
+    "items": {"type": "number", "minimum": -10, "maximum": 10},
+}
+
+_SHAPE_COMMAND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "op": {"type": "string", "enum": ["move", "line", "curve", "close"]},
+        "points": {"type": "array", "minItems": 0, "maxItems": 3, "items": _POINT_SCHEMA},
+        "feature_id": {"type": ["string", "null"], "maxLength": 48},
     },
+    "required": ["op", "points", "feature_id"],
+    "additionalProperties": False,
+}
+
+_SHAPE_PROGRAM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "strokes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "commands": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 96,
+                        "items": _SHAPE_COMMAND_SCHEMA,
+                    }
+                },
+                "required": ["commands"],
+                "additionalProperties": False,
+            },
+        },
+        "closed": {"type": "boolean"},
+    },
+    "required": ["strokes", "closed"],
+    "additionalProperties": False,
 }
 
 _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA = {
     "type": "object",
     "properties": {
-        "paths": _CUSTOM_PATHS_JSON_SCHEMA,
-        "closed": {
-            "type": "boolean",
-            "description": "Whether every stroke should close back to its exact first point.",
-        },
+        "strategy": {"type": "string", "minLength": 3, "maxLength": 120},
+        "program": _SHAPE_PROGRAM_SCHEMA,
     },
-    "required": ["paths", "closed"],
+    "required": ["strategy", "program"],
     "additionalProperties": False,
 }
 
 _CUSTOM_SHAPE_JSON_SCHEMA = {
     "type": "object",
-    "description": "Two competing, route-friendly silhouettes for the requested GPS art.",
+    "description": "Adaptive route-native candidate programs for the requested GPS art.",
     "properties": {
-        "name": {
-            "type": "string",
-            "maxLength": 80,
-            "description": "A short literal name for the object or scene that was requested.",
+        "name": {"type": "string", "maxLength": 80},
+        "variants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA,
+        },
+        "preferred_variant": {"type": "integer", "minimum": 0, "maximum": 3},
+    },
+    "required": ["name", "variants", "preferred_variant"],
+    "additionalProperties": False,
+}
+
+_SHAPE_SPEC_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject": {"type": "string", "minLength": 1, "maxLength": 80},
+        "modifiers": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 80}},
+        "pose": {"type": "string", "maxLength": 120},
+        "viewpoint": {"type": "string", "enum": ["front", "side", "three-quarter", "symbolic", "unspecified"]},
+        "parts": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1, "maxLength": 48},
+                    "label": {"type": "string", "minLength": 1, "maxLength": 80},
+                    "parent": {"type": ["string", "null"], "maxLength": 48},
+                    "required": {"type": "boolean"},
+                    "relative_size": {"type": "string", "enum": ["small", "medium", "large", "dominant"]},
+                    "position": {"type": "string", "maxLength": 120},
+                },
+                "required": ["id", "label", "parent", "required", "relative_size", "position"],
+                "additionalProperties": False,
+            },
         },
         "recognition_features": {
             "type": "array",
             "minItems": 3,
             "maxItems": 6,
-            "description": (
-                "The large silhouette landmarks that make this exact request recognisable "
-                "without labels, colour, eyes, texture, or other tiny detail."
-            ),
-            "items": {"type": "string", "minLength": 4, "maxLength": 120},
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1, "maxLength": 48},
+                    "label": {"type": "string", "minLength": 4, "maxLength": 120},
+                    "importance": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "geometry_hint": {"type": "string", "maxLength": 160},
+                    "relation": {"type": "string", "maxLength": 160},
+                },
+                "required": ["id", "label", "importance", "geometry_hint", "relation"],
+                "additionalProperties": False,
+            },
         },
-        "variants": {
-            "type": "array",
-            "minItems": 2,
-            "maxItems": 2,
-            "description": (
-                "Exactly two meaningfully different silhouettes, ordered independently "
-                "from the preferred_variant field."
-            ),
-            "items": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA,
-        },
-        "preferred_variant": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 1,
-            "description": (
-                "Zero-based index of the silhouette that remains most recognisable at "
-                "thumbnail size after mentally checking every recognition feature."
-            ),
-        },
+        "symmetry": {"type": "string", "enum": ["none", "approximate", "bilateral", "radial"]},
+        "preferred_strokes": {"type": "integer", "minimum": 1, "maximum": 4},
+        "closed_silhouette": {"type": "boolean"},
+        "aspect_ratio": {"type": "number", "minimum": 0.5, "maximum": 2.0},
+        "ambiguity": {"type": "number", "minimum": 0, "maximum": 1},
     },
-    "required": ["name", "recognition_features", "variants", "preferred_variant"],
+    "required": [
+        "subject", "modifiers", "pose", "viewpoint", "parts",
+        "recognition_features", "symmetry", "preferred_strokes",
+        "closed_silhouette", "aspect_ratio", "ambiguity",
+    ],
     "additionalProperties": False,
 }
+
+_SHAPE_REPAIR_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {"candidate": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA},
+    "required": ["candidate"],
+    "additionalProperties": False,
+}
+
+_SHAPE_VERIFICATION_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reviews": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "candidate_index": {"type": "integer", "minimum": 0, "maximum": 3},
+                    "score": {"type": "number", "minimum": 0, "maximum": 1},
+                    "subject_match": {"type": "number", "minimum": 0, "maximum": 1},
+                    "silhouette_quality": {"type": "number", "minimum": 0, "maximum": 1},
+                    "route_readability": {"type": "number", "minimum": 0, "maximum": 1},
+                    "cue_results": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "feature_id": {"type": "string", "maxLength": 48},
+                                "present": {"type": "boolean"},
+                                "score": {"type": "number", "minimum": 0, "maximum": 1},
+                                "reason": {"type": "string", "maxLength": 180},
+                            },
+                            "required": ["feature_id", "present", "score", "reason"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "missing_features": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 48}},
+                    "wrong_relations": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 160}},
+                    "repair_instructions": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 180}},
+                },
+                "required": [
+                    "candidate_index", "score", "subject_match", "silhouette_quality",
+                    "route_readability", "cue_results", "missing_features",
+                    "wrong_relations", "repair_instructions",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "recommended_candidate": {"type": "integer", "minimum": 0, "maximum": 3},
+    },
+    "required": ["reviews", "recommended_candidate"],
+    "additionalProperties": False,
+}
+
+
+@dataclass
+class _GeneratedCandidate:
+    index: int
+    strategy: str
+    raw: dict
+    shape: Shape
+    local_score: float
+    feature_warnings: list[str]
+    response: LLMResponse
 
 
 class ShapeAgent(BaseAgent):
@@ -213,72 +342,261 @@ class ShapeAgent(BaseAgent):
             return cached
 
         system = self.system_prompt
-        reference = _reference_shape_payload(idea)
-        user = render(
+        route_context = _route_context(state)
+        spec_prompt = render(
+            "shape_spec",
+            shape=json.dumps(idea, ensure_ascii=False),
+            style=json.dumps(style, ensure_ascii=False),
+            route_context=json.dumps(route_context, ensure_ascii=False),
+        )
+        spec_response = try_complete(
+            lambda: self._spec_fallback(idea),
+            messages=[{"role": "user", "content": spec_prompt}],
+            system=system,
+            json_mode=True,
+            json_schema=_SHAPE_SPEC_JSON_SCHEMA,
+            temperature=0.15,
+        )
+
+        # A compatibility bridge accepts a legacy combined geometry response.
+        # New providers always take the explicit semantic-specification branch.
+        geometry_response: LLMResponse | None = None
+        try:
+            spec = _shape_spec_from_response(spec_response, idea)
+        except (KeyError, TypeError, ValueError):
+            if spec_response.provider != "fallback" and _looks_like_geometry_response(spec_response):
+                spec = _heuristic_shape_spec(idea)
+                geometry_response = spec_response
+            else:
+                return self._llm_fallback_shape(idea)
+        if spec_response.provider == "fallback":
+            return self._llm_fallback_shape(idea)
+
+        candidate_count = _adaptive_candidate_count(spec)
+        references = _reference_shape_payloads(idea)
+        geometry_prompt = render(
             "shape",
             shape=json.dumps(idea, ensure_ascii=False),
             style=json.dumps(style, ensure_ascii=False),
-            reference=json.dumps(reference, ensure_ascii=False, separators=(",", ":")),
+            spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
+            candidate_count=candidate_count,
+            route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
+            references=json.dumps(references, ensure_ascii=False, separators=(",", ":")),
         )
-        resp = try_complete(
-            lambda: self._llm_fallback(idea),
-            messages=[{"role": "user", "content": user}],
-            system=system,
-            json_mode=True,
-            json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
-            temperature=0.3,
-        )
-        try:
-            shape = _shape_from_response(resp, idea)
-        except (KeyError, TypeError, ValueError) as exc:
-            shape = self._repair_or_fallback(
-                idea=idea,
-                user=user,
+        if geometry_response is None:
+            geometry_response = try_complete(
+                lambda: self._llm_fallback(idea),
+                messages=[{"role": "user", "content": geometry_prompt}],
                 system=system,
-                reason=str(exc),
-                provider_was_available=resp.provider != "fallback",
+                json_mode=True,
+                json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
+                temperature=0.25,
+                max_tokens=4096,
             )
+        if geometry_response.provider == "fallback":
+            return self._llm_fallback_shape(idea)
 
-        if shape.source == "llm":
-            _cache_custom_shape(cache_key, shape)
+        repair_used = False
+        try:
+            candidates, preferred = _candidates_from_response(
+                geometry_response,
+                idea=idea,
+                spec=spec,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            repair_used = True
+            repaired = self._repair_candidate(
+                idea=idea,
+                spec=spec,
+                route_context=route_context,
+                candidate_payload=_safe_response_payload(geometry_response),
+                diagnostics={"geometry_errors": [" ".join(str(exc).split())[:320]]},
+                system=system,
+            )
+            if repaired is None:
+                return self._llm_fallback_shape(idea)
+            candidates, preferred, geometry_response = [repaired], 0, repaired.response
+
+        verifications, recommended = self._verify_candidates(
+            idea=idea,
+            spec=spec,
+            candidates=candidates,
+            generator_provider=geometry_response.provider,
+            system=system,
+        )
+        selected = _select_candidate(candidates, verifications, preferred, recommended)
+        selected_review = verifications.get(selected.index)
+
+        diagnostics = _candidate_repair_diagnostics(selected, selected_review)
+        threshold = get_settings().workflow.ai_shape_min_semantic_score
+        semantically_weak = bool(
+            selected_review
+            and selected_review.independent
+            and selected_review.score is not None
+            and selected_review.score < threshold
+        )
+        if not repair_used and (diagnostics or semantically_weak):
+            repaired = self._repair_candidate(
+                idea=idea,
+                spec=spec,
+                route_context=route_context,
+                candidate_payload=selected.raw,
+                diagnostics=diagnostics or {"semantic_score_below": threshold},
+                system=system,
+            )
+            if repaired is not None:
+                repair_reviews, _ = self._verify_candidates(
+                    idea=idea,
+                    spec=spec,
+                    candidates=[repaired],
+                    generator_provider=repaired.response.provider,
+                    system=system,
+                )
+                repaired_review = repair_reviews.get(repaired.index)
+                if _repair_is_better(selected, selected_review, repaired, repaired_review):
+                    selected, selected_review = repaired, repaired_review
+
+        shape = selected.shape
+        shape.spec = spec
+        shape.recognition_features = [feature.label for feature in spec.recognition_features]
+        shape.semantic_verification = selected_review
+        shape.generator_provider = selected.response.provider
+        shape.generator_model = selected.response.model
+        shape.generator_usage = dict(selected.response.usage)
+        shape.generated_candidate_count = len(candidates)
+        shape.selected_candidate = selected.index
+        _cache_custom_shape(cache_key, shape)
+        self._record(
+            state,
+            (
+                f"ai drawing={shape.name} candidates={len(candidates)} "
+                f"semantic_score={selected_review.score if selected_review else None}"
+            ),
+            event="shape.ai.generated",
+            generator_provider=shape.generator_provider,
+            generator_model=shape.generator_model,
+            verifier_provider=selected_review.provider if selected_review else None,
+            verifier_independent=selected_review.independent if selected_review else False,
+            semantic_score=selected_review.score if selected_review else None,
+            generator_prompt_tokens=selected.response.usage.get("prompt", 0),
+            generator_completion_tokens=selected.response.usage.get("completion", 0),
+            verifier_prompt_tokens=(
+                selected_review.usage.get("prompt", 0) if selected_review else 0
+            ),
+            verifier_completion_tokens=(
+                selected_review.usage.get("completion", 0) if selected_review else 0
+            ),
+            candidate_count=len(candidates),
+            repair_used=repair_used or selected is not _select_candidate(
+                candidates, verifications, preferred, recommended
+            ),
+        )
         return shape
 
-    def _repair_or_fallback(
+    def _repair_candidate(
         self,
         *,
         idea: str,
-        user: str,
+        spec: ShapeSpec,
+        route_context: dict[str, object],
+        candidate_payload: object,
+        diagnostics: dict[str, object],
         system: str,
-        reason: str,
-        provider_was_available: bool,
-    ) -> Shape:
-        if not provider_was_available:
-            return self._llm_fallback_shape(idea)
-
-        safe_reason = " ".join(reason.split())[:240]
+    ) -> _GeneratedCandidate | None:
         self.log.warning(
-            "custom shape geometry rejected (%s); requesting one bounded repair",
-            safe_reason,
+            "AI shape candidate needs one bounded targeted repair: %s",
+            json.dumps(diagnostics, ensure_ascii=False)[:480],
         )
-        repair_prompt = (
-            f"{user}\n\n"
-            "The previous candidate set failed an executable validation check: "
-            f"{safe_reason}. Regenerate both alternatives from scratch. Preserve every "
-            "recognition feature as a large contour interval, prefer one simple continuous "
-            "silhouette, close it exactly, and return only the requested JSON schema."
+        repair_prompt = render(
+            "shape_repair",
+            shape=json.dumps(idea, ensure_ascii=False),
+            spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
+            candidate=json.dumps(candidate_payload, ensure_ascii=False, separators=(",", ":"))[:12000],
+            diagnostics=json.dumps(diagnostics, ensure_ascii=False, separators=(",", ":")),
+            route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
         )
         repaired = try_complete(
             lambda: self._llm_fallback(idea),
             messages=[{"role": "user", "content": repair_prompt}],
             system=system,
             json_mode=True,
-            json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
-            temperature=0.2,
+            json_schema=_SHAPE_REPAIR_JSON_SCHEMA,
+            temperature=0.15,
+            max_tokens=3072,
         )
+        if repaired.provider == "fallback":
+            return None
         try:
-            return _shape_from_response(repaired, idea)
+            data = extract_json(repaired.text)
+            raw = data.get("candidate") if isinstance(data, dict) else None
+            if isinstance(raw, dict) and "program" in raw:
+                return _candidate_from_program(raw, 0, idea, spec, repaired)
+            # Compatibility for a provider that returned legacy geometry.
+            legacy_shape = _shape_from_response(repaired, idea)
+            return _GeneratedCandidate(0, "legacy repair", {}, legacy_shape, 0.5, [], repaired)
         except (KeyError, TypeError, ValueError):
-            return self._llm_fallback_shape(idea)
+            return None
+
+    def _verify_candidates(
+        self,
+        *,
+        idea: str,
+        spec: ShapeSpec,
+        candidates: list[_GeneratedCandidate],
+        generator_provider: str,
+        system: str,
+    ) -> tuple[dict[int, ShapeVerification], int | None]:
+        deterministic = {
+            candidate.index: _geometry_only_verification(candidate)
+            for candidate in candidates
+        }
+        if (
+            not get_settings().workflow.ai_shape_verifier_enabled
+            or not candidates
+            or any("program" not in candidate.raw for candidate in candidates)
+        ):
+            return deterministic, None
+        images = [
+            ImageInput(
+                shape_program.render_paths_png_data_url(
+                    _final_ai_preview_paths(candidate.shape.paths, candidate.shape.closed)
+                ),
+                detail="high",
+            )
+            for candidate in candidates
+        ]
+        prompt = render(
+            "shape_verify",
+            shape=json.dumps(idea, ensure_ascii=False),
+            spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
+        )
+        response = try_complete(
+            lambda: LLMResponse(text="{}", provider="fallback", model="geometry-checks"),
+            messages=[{"role": "user", "content": prompt}],
+            system=system,
+            images=images,
+            json_mode=True,
+            json_schema=_SHAPE_VERIFICATION_JSON_SCHEMA,
+            temperature=0,
+            max_tokens=2048,
+            exclude_provider=generator_provider,
+            pin_provider=False,
+        )
+        independent = response.provider not in {"fallback", generator_provider}
+        if not independent:
+            return deterministic, None
+        try:
+            reviews, recommended = _verifications_from_response(response, candidates, spec)
+        except (KeyError, TypeError, ValueError):
+            return deterministic, None
+        return reviews, recommended
+
+    def _spec_fallback(self, idea: str) -> LLMResponse:
+        return LLMResponse(
+            text=json.dumps(asdict(_heuristic_shape_spec(idea))),
+            provider="fallback",
+            model="rules",
+        )
 
     def _llm_fallback(self, idea: str) -> LLMResponse:
         fallback = _label_fallback_shape(idea)
@@ -305,6 +623,452 @@ class ShapeAgent(BaseAgent):
 
     def _llm_fallback_shape(self, idea: str) -> Shape:
         return _label_fallback_shape(idea)
+
+
+def _shape_spec_from_response(resp: LLMResponse, idea: str) -> ShapeSpec:
+    data = extract_json(resp.text)
+    if not isinstance(data, dict):
+        raise ValueError("ShapeSpec response must be an object")
+    subject = _clean_text(data.get("subject"), max_length=80)
+    modifiers = _clean_text_list(data.get("modifiers"), maximum=6, allow_empty=True)
+    pose = _clean_text(data.get("pose"), max_length=120, allow_empty=True)
+    viewpoint = data.get("viewpoint")
+    if viewpoint not in {"front", "side", "three-quarter", "symbolic", "unspecified"}:
+        raise ValueError("ShapeSpec has an invalid viewpoint")
+    raw_parts = data.get("parts")
+    if not isinstance(raw_parts, list) or not 2 <= len(raw_parts) <= 10:
+        raise ValueError("ShapeSpec needs two to ten parts")
+    parts: list[ShapePart] = []
+    part_ids: set[str] = set()
+    for raw in raw_parts:
+        if not isinstance(raw, dict):
+            raise ValueError("ShapeSpec parts must be objects")
+        part_id = _semantic_id(raw.get("id"))
+        if part_id in part_ids:
+            raise ValueError("ShapeSpec part ids must be unique")
+        parent = raw.get("parent")
+        if parent is not None:
+            parent = _semantic_id(parent)
+        relative_size = raw.get("relative_size")
+        if relative_size not in {"small", "medium", "large", "dominant"}:
+            raise ValueError("ShapeSpec part has invalid relative_size")
+        if not isinstance(raw.get("required"), bool):
+            raise ValueError("ShapeSpec part required flag must be boolean")
+        parts.append(
+            ShapePart(
+                id=part_id,
+                label=_clean_text(raw.get("label"), max_length=80),
+                parent=parent,
+                required=raw["required"],
+                relative_size=relative_size,
+                position=_clean_text(raw.get("position"), max_length=120, allow_empty=True),
+            )
+        )
+        part_ids.add(part_id)
+    if any(part.parent is not None and part.parent not in part_ids for part in parts):
+        raise ValueError("ShapeSpec part parent must reference another part")
+
+    raw_features = data.get("recognition_features")
+    if not isinstance(raw_features, list) or not 3 <= len(raw_features) <= 6:
+        raise ValueError("ShapeSpec needs three to six recognition features")
+    features: list[ShapeFeature] = []
+    feature_ids: set[str] = set()
+    for raw in raw_features:
+        if not isinstance(raw, dict):
+            raise ValueError("ShapeSpec recognition features must be objects")
+        feature_id = _semantic_id(raw.get("id"))
+        importance = raw.get("importance")
+        if isinstance(importance, bool) or not isinstance(importance, int) or not 1 <= importance <= 5:
+            raise ValueError("recognition feature importance must be 1 to 5")
+        if feature_id in feature_ids:
+            raise ValueError("recognition feature ids must be unique")
+        features.append(
+            ShapeFeature(
+                id=feature_id,
+                label=_clean_text(raw.get("label"), max_length=120),
+                importance=importance,
+                geometry_hint=_clean_text(raw.get("geometry_hint"), max_length=160, allow_empty=True),
+                relation=_clean_text(raw.get("relation"), max_length=160, allow_empty=True),
+            )
+        )
+        feature_ids.add(feature_id)
+    symmetry = data.get("symmetry")
+    if symmetry not in {"none", "approximate", "bilateral", "radial"}:
+        raise ValueError("ShapeSpec has invalid symmetry")
+    preferred_strokes = data.get("preferred_strokes")
+    if isinstance(preferred_strokes, bool) or not isinstance(preferred_strokes, int) or not 1 <= preferred_strokes <= 4:
+        raise ValueError("ShapeSpec preferred_strokes must be 1 to 4")
+    if not isinstance(data.get("closed_silhouette"), bool):
+        raise ValueError("ShapeSpec closed_silhouette must be boolean")
+    aspect_ratio = _bounded_float(data.get("aspect_ratio"), 0.5, 2.0, "aspect_ratio")
+    ambiguity = _bounded_float(data.get("ambiguity"), 0.0, 1.0, "ambiguity")
+    return ShapeSpec(
+        subject=subject or " ".join(idea.split())[:80],
+        modifiers=modifiers,
+        pose=pose,
+        viewpoint=viewpoint,
+        parts=parts,
+        recognition_features=features,
+        symmetry=symmetry,
+        preferred_strokes=preferred_strokes,
+        closed_silhouette=data["closed_silhouette"],
+        aspect_ratio=aspect_ratio,
+        ambiguity=ambiguity,
+    )
+
+
+def _heuristic_shape_spec(idea: str) -> ShapeSpec:
+    subject = " ".join(idea.split())[:80] or "custom shape"
+    return ShapeSpec(
+        subject=subject,
+        modifiers=[],
+        pose="as requested",
+        viewpoint="unspecified",
+        parts=[
+            ShapePart("main_body", "main body", None, True, "dominant", "centre"),
+            ShapePart("identity_cue", "distinctive outer feature", "main_body", True, "medium", "on outer contour"),
+        ],
+        recognition_features=[
+            ShapeFeature("overall_silhouette", "recognisable overall silhouette", 5, "broad outer contour", "contains all parts"),
+            ShapeFeature("main_body_mass", "clear main body mass", 4, "large central interval", "anchors the silhouette"),
+            ShapeFeature("distinctive_feature", "request-specific distinguishing feature", 5, "large separated contour interval", "attached to the main body"),
+        ],
+        symmetry="approximate",
+        preferred_strokes=1,
+        closed_silhouette=True,
+        aspect_ratio=1.0,
+        ambiguity=0.65,
+    )
+
+
+def _adaptive_candidate_count(spec: ShapeSpec) -> int:
+    complexity = len(spec.parts) + len(spec.modifiers) + sum(
+        bool(feature.relation.strip()) for feature in spec.recognition_features
+    )
+    count = 2
+    if spec.ambiguity >= 0.35 or complexity >= 9:
+        count += 1
+    if spec.ambiguity >= 0.72 or complexity >= 13:
+        count += 1
+    return min(max(2, get_settings().workflow.ai_shape_max_candidates), count)
+
+
+def _candidates_from_response(
+    resp: LLMResponse,
+    *,
+    idea: str,
+    spec: ShapeSpec,
+) -> tuple[list[_GeneratedCandidate], int]:
+    data = extract_json(resp.text)
+    if not isinstance(data, dict):
+        raise ValueError("geometry response must be an object")
+    variants = data.get("variants")
+    if not isinstance(variants, list) or not variants:
+        # Compatibility with the pre-program point-list format.
+        legacy = _shape_from_geometry(data, idea=idea, source="llm")
+        return [_GeneratedCandidate(0, "legacy points", data, legacy, 0.5, [], resp)], 0
+    if all(isinstance(variant, dict) and "program" not in variant for variant in variants):
+        legacy = _best_shape_variant(data, idea=idea, source="llm")
+        return [_GeneratedCandidate(0, "legacy alternatives", data, legacy, 0.5, [], resp)], 0
+    if not 2 <= len(variants) <= 4:
+        raise ValueError("geometry response needs two to four candidates")
+    preferred = data.get("preferred_variant")
+    if isinstance(preferred, bool) or not isinstance(preferred, int) or not 0 <= preferred < len(variants):
+        raise ValueError("preferred_variant does not select a candidate")
+    candidates: list[_GeneratedCandidate] = []
+    errors: list[str] = []
+    for index, raw in enumerate(variants):
+        if not isinstance(raw, dict):
+            errors.append(f"candidate {index}: not an object")
+            continue
+        try:
+            candidate = _candidate_from_program(raw, index, idea, spec, resp)
+            if any(
+                shape_uniqueness.contour_distance(candidate.shape.paths, other.shape.paths) <= 0.035
+                for other in candidates
+            ):
+                raise ValueError("duplicates another generated candidate")
+            candidates.append(candidate)
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(f"candidate {index}: {exc}")
+    if not candidates:
+        raise ValueError("; ".join(errors)[:640] or "no valid drawing candidate")
+    return candidates, preferred
+
+
+def _candidate_from_program(
+    raw: dict,
+    index: int,
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+) -> _GeneratedCandidate:
+    strategy = _clean_text(raw.get("strategy"), max_length=120)
+    required_ids = {feature.id for feature in spec.recognition_features}
+    compiled = shape_program.compile_shape_program(
+        raw.get("program"),
+        required_feature_ids=required_ids,
+    )
+    _validate_route_friendly_geometry(compiled.paths)
+    _validate_shape_spec_geometry(compiled, spec)
+    _validate_distinct_custom_geometry(compiled.paths)
+    shape = Shape(
+        name=" ".join(idea.split())[:80],
+        paths=compiled.paths,
+        closed=compiled.closed,
+        source="llm",
+    )
+    return _GeneratedCandidate(
+        index=index,
+        strategy=strategy,
+        raw=raw,
+        shape=shape,
+        local_score=shape_program.local_program_score(compiled, required_ids),
+        feature_warnings=compiled.warnings,
+        response=response,
+    )
+
+
+def _geometry_only_verification(candidate: _GeneratedCandidate) -> ShapeVerification:
+    missing = [
+        warning.removeprefix("missing feature spans: ")
+        for warning in candidate.feature_warnings
+        if warning.startswith("missing feature spans:")
+    ]
+    return ShapeVerification(
+        score=None,
+        subject_match=None,
+        silhouette_quality=candidate.local_score,
+        route_readability=candidate.local_score,
+        missing_features=[item for group in missing for item in group.split(", ")],
+        repair_instructions=list(candidate.feature_warnings),
+        independent=False,
+        method="geometry",
+    )
+
+
+def _verifications_from_response(
+    resp: LLMResponse,
+    candidates: list[_GeneratedCandidate],
+    spec: ShapeSpec,
+) -> tuple[dict[int, ShapeVerification], int | None]:
+    data = extract_json(resp.text)
+    if not isinstance(data, dict) or not isinstance(data.get("reviews"), list):
+        raise ValueError("visual verifier response needs reviews")
+    candidate_ids = {candidate.index for candidate in candidates}
+    reviews: dict[int, ShapeVerification] = {}
+    expected_features = {feature.id: feature for feature in spec.recognition_features}
+    for raw in data["reviews"]:
+        if not isinstance(raw, dict):
+            raise ValueError("visual review must be an object")
+        index = raw.get("candidate_index")
+        if isinstance(index, bool) or not isinstance(index, int) or index not in candidate_ids:
+            raise ValueError("visual review references an unknown candidate")
+        cues: list[ShapeCueVerification] = []
+        if not isinstance(raw.get("cue_results"), list):
+            raise ValueError("visual review cue_results must be an array")
+        for cue in raw["cue_results"]:
+            if not isinstance(cue, dict) or not isinstance(cue.get("present"), bool):
+                raise ValueError("invalid visual cue result")
+            cues.append(
+                ShapeCueVerification(
+                    feature_id=_semantic_id(cue.get("feature_id")),
+                    present=cue["present"],
+                    score=_bounded_float(cue.get("score"), 0, 1, "cue score"),
+                    reason=_clean_text(cue.get("reason"), max_length=180, allow_empty=True),
+                )
+            )
+        if {cue.feature_id for cue in cues} != set(expected_features):
+            raise ValueError("visual review must score every required cue exactly once")
+        cue_score = sum(
+            cue.score * expected_features[cue.feature_id].importance
+            for cue in cues
+        ) / sum(feature.importance for feature in expected_features.values())
+        subject_match = _bounded_float(raw.get("subject_match"), 0, 1, "subject_match")
+        silhouette_quality = _bounded_float(raw.get("silhouette_quality"), 0, 1, "silhouette_quality")
+        route_readability = _bounded_float(raw.get("route_readability"), 0, 1, "route_readability")
+        calculated_score = (
+            0.45 * cue_score
+            + 0.25 * subject_match
+            + 0.15 * silhouette_quality
+            + 0.15 * route_readability
+        )
+        reported_score = _bounded_float(raw.get("score"), 0, 1, "semantic score")
+        reviews[index] = ShapeVerification(
+            score=min(reported_score, calculated_score),
+            subject_match=subject_match,
+            silhouette_quality=silhouette_quality,
+            route_readability=route_readability,
+            cue_results=cues,
+            missing_features=_clean_text_list(raw.get("missing_features"), maximum=6, allow_empty=True),
+            wrong_relations=_clean_text_list(raw.get("wrong_relations"), maximum=6, allow_empty=True),
+            repair_instructions=_clean_text_list(raw.get("repair_instructions"), maximum=6, allow_empty=True),
+            provider=resp.provider,
+            model=resp.model,
+            independent=True,
+            method="rendered-image",
+            usage=dict(resp.usage),
+        )
+    for candidate in candidates:
+        reviews.setdefault(candidate.index, _geometry_only_verification(candidate))
+    recommended = data.get("recommended_candidate")
+    if isinstance(recommended, bool) or not isinstance(recommended, int) or recommended not in candidate_ids:
+        recommended = None
+    return reviews, recommended
+
+
+def _select_candidate(
+    candidates: list[_GeneratedCandidate],
+    reviews: dict[int, ShapeVerification],
+    preferred: int,
+    recommended: int | None,
+) -> _GeneratedCandidate:
+    def score(candidate: _GeneratedCandidate) -> tuple[float, float, float]:
+        review = reviews.get(candidate.index)
+        semantic = (
+            review.score
+            if review and review.independent and review.score is not None
+            else candidate.local_score
+        )
+        return (
+            semantic,
+            1.0 if candidate.index == recommended else 0.0,
+            1.0 if candidate.index == preferred else 0.0,
+        )
+
+    return max(candidates, key=score)
+
+
+def _candidate_repair_diagnostics(
+    candidate: _GeneratedCandidate,
+    review: ShapeVerification | None,
+) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    if candidate.feature_warnings:
+        diagnostics["feature_coverage"] = candidate.feature_warnings
+    if review and review.independent:
+        if review.missing_features:
+            diagnostics["missing_features"] = review.missing_features
+        if review.wrong_relations:
+            diagnostics["wrong_relations"] = review.wrong_relations
+        if review.repair_instructions:
+            diagnostics["repair_instructions"] = review.repair_instructions
+    return diagnostics
+
+
+def _repair_is_better(
+    original: _GeneratedCandidate,
+    original_review: ShapeVerification | None,
+    repaired: _GeneratedCandidate,
+    repaired_review: ShapeVerification | None,
+) -> bool:
+    if repaired.feature_warnings and not original.feature_warnings:
+        return False
+    if repaired_review and repaired_review.independent and repaired_review.score is not None:
+        baseline = (
+            original_review.score
+            if original_review and original_review.independent and original_review.score is not None
+            else original.local_score
+        )
+        return repaired_review.score >= baseline + 0.02
+    return len(repaired.feature_warnings) < len(original.feature_warnings)
+
+
+def _route_context(state: WorkflowState) -> dict[str, object]:
+    intent = state.intent
+    plan = state.plan
+    return {
+        "sport": intent.sport if intent else None,
+        "target_distance_km": intent.distance_km if intent else None,
+        "city": intent.city if intent else None,
+        "difficulty": plan.difficulty if plan else None,
+        "placement_hints": plan.placement_hints if plan else None,
+    }
+
+
+def _validate_shape_spec_geometry(
+    compiled: shape_program.CompiledShapeProgram,
+    spec: ShapeSpec,
+) -> None:
+    if spec.closed_silhouette and not compiled.closed:
+        raise ValueError("ShapeSpec requires a closed outer silhouette")
+    if len(compiled.paths) > max(2, spec.preferred_strokes + 1):
+        raise ValueError("drawing uses too many strokes for its ShapeSpec")
+    points = [point for path in compiled.paths for point in path]
+    width = max(point[0] for point in points) - min(point[0] for point in points)
+    height = max(point[1] for point in points) - min(point[1] for point in points)
+    actual_ratio = width / max(height, 1e-9)
+    ratio_error = max(actual_ratio / spec.aspect_ratio, spec.aspect_ratio / actual_ratio)
+    if ratio_error > 2.25:
+        raise ValueError("drawing aspect ratio conflicts with its ShapeSpec")
+    for feature in spec.recognition_features:
+        minimum = 0.05 if feature.importance >= 4 else 0.03
+        coverage = compiled.feature_coverage.get(feature.id, 0.0)
+        if 0 < coverage < minimum:
+            compiled.warnings.append(
+                f"feature {feature.id} covers {coverage:.1%}; enlarge it to at least {minimum:.0%}"
+            )
+
+
+def _final_ai_preview_paths(paths: list[geo.Path], closed: bool) -> list[geo.Path]:
+    """Mirror the exact smoothing/normalisation applied after candidate choice."""
+
+    smoothed: list[geo.Path] = []
+    for path in paths:
+        candidate = geo.catmull_rom_smooth(
+            path,
+            closed=closed,
+            subdivisions=3,
+            corner_threshold_deg=70.0,
+        )
+        smoothed.append(candidate if _is_simple_path(candidate) else list(path))
+    return geo.normalize_shape(smoothed)
+
+
+def _looks_like_geometry_response(resp: LLMResponse) -> bool:
+    try:
+        data = extract_json(resp.text)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(data, dict) and ("paths" in data or "variants" in data)
+
+
+def _safe_response_payload(resp: LLMResponse) -> object:
+    try:
+        return extract_json(resp.text)
+    except (TypeError, ValueError):
+        return {"invalid_response": resp.text[:1200]}
+
+
+def _clean_text(value: object, *, max_length: int, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise ValueError("expected text")
+    cleaned = " ".join(value.split())[:max_length]
+    if not cleaned and not allow_empty:
+        raise ValueError("text value cannot be empty")
+    return cleaned
+
+
+def _clean_text_list(value: object, *, maximum: int, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list) or len(value) > maximum or (not value and not allow_empty):
+        raise ValueError("expected a bounded text array")
+    return [_clean_text(item, max_length=180) for item in value]
+
+
+def _semantic_id(value: object) -> str:
+    identifier = _clean_text(value, max_length=48)
+    if not re.fullmatch(r"[a-z][a-z0-9_-]*", identifier):
+        raise ValueError("semantic ids must be lowercase ASCII identifiers")
+    return identifier
+
+
+def _bounded_float(value: object, minimum: float, maximum: float, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{label} must be a number")
+    parsed = float(value)
+    if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        raise ValueError(f"{label} must stay between {minimum} and {maximum}")
+    return parsed
 
 
 def _shape_from_response(resp: LLMResponse, idea: str) -> Shape:
@@ -505,6 +1269,44 @@ def _label_fallback_shape(idea: str) -> Shape:
     return Shape(name=name, paths=[list(path) for path in paths], closed=closed, source="fallback")
 
 
+def _reference_shape_payloads(idea: str, *, limit: int = 3) -> list[dict[str, object]]:
+    """Return ordered subject/accessory anchors for a compound request."""
+
+    low = idea.casefold()
+    matches: list[tuple[int, int, str]] = []
+    for keyword, canonical_name in shape_library.KEYWORDS.items():
+        match = re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
+        if match:
+            matches.append((match.start(), -len(keyword), canonical_name))
+    payloads: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for _, _, canonical_name in sorted(matches):
+        if canonical_name in seen:
+            continue
+        hit = shape_library.get_shape(canonical_name)
+        if hit is None:
+            continue
+        name, generated_paths, closed = hit
+        authored = shape_library.AUTHORED_OUTLINES.get(name)
+        reference_paths = (
+            [list(authored)]
+            if authored
+            else [_sample_reference_path(path) for path in generated_paths[:4]]
+        )
+        payloads.append(
+            {
+                "role": "primary_subject" if not payloads else "related_part",
+                "name": name,
+                "paths": reference_paths,
+                "closed": closed,
+            }
+        )
+        seen.add(canonical_name)
+        if len(payloads) >= limit:
+            break
+    return payloads
+
+
 def _reference_shape_payload(idea: str) -> dict[str, object] | None:
     """Find the earliest catalogued subject in a compound free-text request.
 
@@ -514,30 +1316,12 @@ def _reference_shape_payload(idea: str) -> dict[str, object] | None:
     while those custom details are added.
     """
 
-    low = idea.casefold()
-    matches: list[tuple[int, int, str]] = []
-    for keyword, canonical_name in shape_library.KEYWORDS.items():
-        match = re.search(rf"(?<!\w){re.escape(keyword.casefold())}(?!\w)", low)
-        if match:
-            matches.append((match.start(), -len(keyword), canonical_name))
-    if not matches:
+    payloads = _reference_shape_payloads(idea, limit=1)
+    if not payloads:
         return None
-
-    canonical_name = min(matches)[2]
-    hit = shape_library.get_shape(canonical_name)
-    if hit is None:
-        return None
-    name, generated_paths, closed = hit
-    authored = shape_library.AUTHORED_OUTLINES.get(name)
-    if authored:
-        reference_paths = [list(authored)]
-    else:
-        reference_paths = [_sample_reference_path(path) for path in generated_paths[:4]]
-    return {
-        "name": name,
-        "paths": reference_paths,
-        "closed": closed,
-    }
+    payload = dict(payloads[0])
+    payload.pop("role", None)
+    return payload
 
 
 def _sample_reference_path(path: geo.Path, max_points: int = 48) -> geo.Path:
@@ -594,12 +1378,7 @@ def _clear_custom_shape_cache() -> None:
 
 
 def _clone_shape(shape: Shape) -> Shape:
-    return Shape(
-        name=shape.name,
-        paths=[list(path) for path in shape.paths],
-        closed=shape.closed,
-        source=shape.source,
-    )
+    return deepcopy(shape)
 
 
 def _parse_bool(value: object) -> bool:

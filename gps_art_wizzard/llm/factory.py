@@ -34,6 +34,19 @@ def _probe_in_cooldown(provider_name: str) -> bool:
 def _build(cfg: LLMConfig) -> list[LLMProvider]:
     """Instantiate every provider that *could* work, in fallback order."""
     candidates: list[LLMProvider] = []
+    provider_order = _provider_order(cfg)
+    primary_provider = provider_order[0] if provider_order else ""
+
+    def model_for(name: str) -> str:
+        explicit = {
+            "opencode": cfg.opencode_model,
+            "openai": cfg.openai_model,
+            "anthropic": cfg.anthropic_model,
+            "ollama": cfg.ollama_model,
+        }[name]
+        if explicit:
+            return explicit
+        return cfg.model if name == primary_provider else ""
 
     def add(name: str):
         try:
@@ -43,7 +56,7 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
                     OpenCodeProvider(
                         cfg.opencode_key,
                         cfg.opencode_base_url,
-                        cfg.model,
+                        model_for("opencode"),
                         cfg.temperature,
                         cfg.max_tokens,
                         structured_model=cfg.opencode_structured_model,
@@ -51,17 +64,17 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
                 )
             elif name == "openai" and cfg.openai_key:
                 from .openai_provider import OpenAIProvider
-                candidates.append(OpenAIProvider(cfg.openai_key, cfg.model, cfg.temperature, cfg.max_tokens))
+                candidates.append(OpenAIProvider(cfg.openai_key, model_for("openai"), cfg.temperature, cfg.max_tokens))
             elif name == "anthropic" and cfg.anthropic_key:
                 from .anthropic_provider import AnthropicProvider
-                candidates.append(AnthropicProvider(cfg.anthropic_key, cfg.model, cfg.temperature, cfg.max_tokens))
+                candidates.append(AnthropicProvider(cfg.anthropic_key, model_for("anthropic"), cfg.temperature, cfg.max_tokens))
             elif name == "ollama" and cfg.ollama_base_url:
                 from .ollama_provider import OllamaProvider
-                candidates.append(OllamaProvider(cfg.ollama_base_url, cfg.model, cfg.temperature, cfg.max_tokens))
+                candidates.append(OllamaProvider(cfg.ollama_base_url, model_for("ollama"), cfg.temperature, cfg.max_tokens))
         except LLMError as e:
             log.debug("provider %s unavailable: %s", name, e)
 
-    for name in _provider_order(cfg):
+    for name in provider_order:
         add(name)
     return candidates
 
@@ -114,7 +127,13 @@ def reset_sticky() -> None:
     _UNAVAILABLE_UNTIL.clear()
 
 
-def try_complete(fallback_fn, **kwargs):
+def try_complete(
+    fallback_fn,
+    *,
+    exclude_provider: str | None = None,
+    pin_provider: bool = True,
+    **kwargs,
+):
     """Run an LLM call with provider fallback.
 
     Tries the sticky provider; on :class:`LLMError` rotates to the next
@@ -122,7 +141,11 @@ def try_complete(fallback_fn, **kwargs):
     so the agent can degrade gracefully.
     """
     global _STICKY
-    providers = list(available_providers())
+    providers = [
+        provider
+        for provider in available_providers()
+        if provider.name != exclude_provider
+    ]
     # If a sticky provider exists, try it first, then the rest.
     if _STICKY is not None and _STICKY in providers:
         providers.remove(_STICKY)
@@ -139,7 +162,8 @@ def try_complete(fallback_fn, **kwargs):
         attempted += 1
         try:
             resp = provider.complete(**kwargs)
-            _STICKY = provider  # pin on success
+            if pin_provider:
+                _STICKY = provider  # pin the primary generation provider only
             return resp
         except LLMError as e:
             last_err = e
