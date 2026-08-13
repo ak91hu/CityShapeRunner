@@ -24,7 +24,7 @@ from .config import get_settings
 from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
-from .state import FitDecision, WorkflowState
+from .state import FitDecision, Intent, LatLon, RoutePreferences, WorkflowState
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +37,16 @@ class Orchestrator:
     def __init__(self, nodes: Mapping[str, WorkflowNode] | None = None):
         self.nodes = build_nodes() if nodes is None else nodes
 
-    def run(self, prompt: str) -> WorkflowState:
+    def run(
+        self,
+        prompt: str,
+        *,
+        intent_override: Intent | None = None,
+        start_point: LatLon | None = None,
+        start_label: str | None = None,
+        start_direction_deg: float | None = None,
+        route_preferences: RoutePreferences | None = None,
+    ) -> WorkflowState:
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a string")
         prompt = " ".join(prompt.split())
@@ -49,11 +58,23 @@ class Orchestrator:
         state = WorkflowState(
             prompt=prompt,
             request_id=current_request_id(),
+            route_preferences=route_preferences or RoutePreferences(),
+            start_point=start_point,
+            start_label=start_label,
+            start_direction_deg=start_direction_deg,
         )
         n = self.nodes
 
         # --- linear pass --------------------------------------------------- #
         n["intent"].run(state)
+        if intent_override is not None:
+            state.intent = copy.deepcopy(intent_override)
+            state.history.append(
+                {
+                    "agent": "intent",
+                    "note": "user-confirmed structured interpretation applied",
+                }
+            )
         if state.intent is not None:
             state.requested_shape = (
                 f"text:{state.intent.text}"
@@ -799,6 +820,21 @@ def get_orchestrator() -> Orchestrator:
     return _default
 
 
-def generate(prompt: str) -> WorkflowState:
+def generate(
+    prompt: str,
+    *,
+    intent_override: Intent | None = None,
+    start_point: LatLon | None = None,
+    start_label: str | None = None,
+    start_direction_deg: float | None = None,
+    route_preferences: RoutePreferences | None = None,
+) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
-    return get_orchestrator().run(prompt)
+    return get_orchestrator().run(
+        prompt,
+        intent_override=intent_override,
+        start_point=start_point,
+        start_label=start_label,
+        start_direction_deg=start_direction_deg,
+        route_preferences=route_preferences,
+    )

@@ -128,6 +128,19 @@ class PlacementAgent(BaseAgent):
         rotation = plan.rotation_hint_deg if (plan and plan.rotation_hint_deg is not None) else (
             geo.bbox_long_axis_heading(city_bbox)
         )
+        if state.start_direction_deg is not None:
+            stitched = geo.stitch_paths(state.shape.paths)
+            if len(stitched) > 1:
+                first = stitched[0]
+                next_point = next(
+                    (point for point in stitched[1:] if point != first),
+                    None,
+                )
+                if next_point is not None:
+                    dx = next_point[0] - first[0]
+                    dy = next_point[1] - first[1]
+                    initial_bearing = math.degrees(math.atan2(dx, dy)) % 360.0
+                    rotation = (initial_bearing - state.start_direction_deg) % 360.0
         if plan and plan.scale_hint is not None:
             scale_m *= min(4.0, max(0.25, plan.scale_hint))
 
@@ -145,6 +158,8 @@ class PlacementAgent(BaseAgent):
             waypoints=[],
             closed=state.shape.closed,
             target_distance_km=target_km,
+            anchored_start=state.start_point,
+            preferred_start_direction_deg=state.start_direction_deg,
         )
 
     # -- projection --------------------------------------------------------- #
@@ -154,7 +169,16 @@ class PlacementAgent(BaseAgent):
         eff_lat = draft.center_lat + _metres_to_dlat(draft.lat_offset_m)
         eff_lon = draft.center_lon + _metres_to_dlon(draft.lon_offset_m, draft.center_lat)
         continuous_route = geo.stitch_paths(rotated)
-        return geo.project_paths([continuous_route], eff_lat, eff_lon, draft.scale_m)
+        projected = geo.project_paths([continuous_route], eff_lat, eff_lon, draft.scale_m)
+        if projected and draft.anchored_start is not None:
+            anchor_lat, anchor_lon = draft.anchored_start
+            lat_delta = anchor_lat - projected[0][0]
+            lon_delta = anchor_lon - projected[0][1]
+            projected = [
+                (lat + lat_delta, lon + lon_delta)
+                for lat, lon in projected
+            ]
+        return projected
 
     # Kept as a compatibility alias for callers written before projection was
     # exposed as part of the placement/preflight interface.

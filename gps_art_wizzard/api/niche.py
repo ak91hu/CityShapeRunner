@@ -9,7 +9,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from ..tools import geo, gpx_writer, ors_client, shape_similarity
+from ..state import RoutePreferences
+from ..tools import art_rescue, geo, gpx_writer, ors_client, shape_similarity
 from ..tools.timed_readiness import time_readiness
 
 router = APIRouter(tags=["GPS Art Intelligence"])
@@ -102,11 +103,69 @@ def timed_readiness(request: TimedReadinessRequest) -> dict:
     return time_readiness(request.latitude, request.longitude, when)
 
 
+class InkproofRequest(BaseModel):
+    points: list[list[float]] = Field(min_length=4, max_length=5_000)
+    accuracy_m: float = Field(default=10.0, ge=3.0, le=50.0)
+
+    @field_validator("points")
+    @classmethod
+    def validate_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/inkproof-analysis")
+def inkproof(request: InkproofRequest) -> dict:
+    """Forecast whether realistic GPS drift can erase fine drawing details."""
+
+    return art_rescue.inkproof_analysis(_points(request.points), request.accuracy_m)
+
+
+class RecordedGPX(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    gpx: str = Field(min_length=1, max_length=2_000_000)
+
+
+class ArtRescueRequest(BaseModel):
+    planned_points: list[list[float]] = Field(min_length=4, max_length=5_000)
+    recordings: list[RecordedGPX] = Field(min_length=1, max_length=12)
+    tolerance_m: float = Field(default=25.0, ge=5.0, le=100.0)
+    name: str = Field(default="GPS art rescue", min_length=1, max_length=100)
+    sport: str = Field(default="run", pattern="^(run|bike)$")
+
+    @field_validator("planned_points")
+    @classmethod
+    def validate_planned_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/art-rescue")
+def rescue_recordings(request: ArtRescueRequest) -> dict:
+    """Merge completed sessions without false strokes and isolate missing ink."""
+
+    try:
+        recordings = [
+            art_rescue.parse_recording(recording.name, recording.gpx)
+            for recording in request.recordings
+        ]
+        return art_rescue.rescue_analysis(
+            _points(request.planned_points),
+            recordings,
+            tolerance_m=request.tolerance_m,
+            name=request.name,
+            sport=request.sport,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 class RecognitionRepairRequest(BaseModel):
     reference_points: list[list[float]] = Field(min_length=4, max_length=500)
     sport: str = Field(default="run", pattern="^(run|bike)$")
     closed: bool = True
     name: str = Field(default="Refined GPS art", min_length=1, max_length=100)
+    route_preferences: dict[str, bool] = Field(default_factory=dict)
 
     @field_validator("reference_points")
     @classmethod
@@ -128,10 +187,21 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
             deduped.append(point)
     if request.closed and deduped[0] != deduped[-1]:
         deduped.append(deduped[0])
+    allowed_preference_keys = set(RoutePreferences.__dataclass_fields__)
+    preference_values = {
+        key: bool(value)
+        for key, value in request.route_preferences.items()
+        if key in allowed_preference_keys
+    }
+    repair_options = {
+        "sport": request.sport,
+        "closed": request.closed,
+    }
+    if any(preference_values.values()):
+        repair_options["route_preferences"] = RoutePreferences(**preference_values)
     routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
         deduped,
-        sport=request.sport,
-        closed=request.closed,
+        **repair_options,
     )
     fidelity = shape_similarity.fidelity_between_routes(guide, routed, n=96)
     return {

@@ -69,6 +69,29 @@ _SUGGESTION_PATTERNS = (
     re.compile(r"\blepj\s+meg\b", re.IGNORECASE),
 )
 
+_INTENT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "shape": {"type": ["string", "null"], "maxLength": 80},
+        "text": {"type": ["string", "null"], "maxLength": 20},
+        "city": {"type": ["string", "null"], "maxLength": 100},
+        "sport": {"type": "string", "enum": ["run", "bike"]},
+        "distance_km": {"type": ["number", "null"], "minimum": 0},
+        "style": {"type": ["string", "null"], "maxLength": 80},
+        "suggest": {"type": "boolean"},
+    },
+    "required": [
+        "shape",
+        "text",
+        "city",
+        "sport",
+        "distance_km",
+        "style",
+        "suggest",
+    ],
+    "additionalProperties": False,
+}
+
 
 class IntentAgent(BaseAgent):
     name = "intent"
@@ -88,6 +111,7 @@ class IntentAgent(BaseAgent):
                 messages=[{"role": "user", "content": user}],
                 system=self.system_prompt,
                 json_mode=True,
+                json_schema=_INTENT_JSON_SCHEMA,
                 temperature=0.1,
             )
             intent = self._parse(resp.text)

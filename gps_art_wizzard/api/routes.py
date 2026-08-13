@@ -4,24 +4,77 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import unicodedata
 from dataclasses import asdict
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..agents.intent_agent import IntentAgent
 from ..agents.validation_agent import ValidationAgent
+from ..config import get_settings
 from ..logging_config import current_request_id
 from ..orchestrator import generate
 from ..quality import quality_bottleneck, quality_gate_report
-from ..state import EvaluatedCandidate, Intent, RouteDraft, Shape, SnappedRoute, WorkflowState
-from ..tools import cloudinary_gallery, geo, gpx_writer, ors_client, shape_similarity
+from ..state import (
+    EvaluatedCandidate,
+    Intent,
+    RouteDraft,
+    RoutePreferences,
+    Shape,
+    SnappedRoute,
+    WorkflowState,
+)
+from ..tools import (
+    cloudinary_gallery,
+    geo,
+    geocoder,
+    gpx_writer,
+    ors_client,
+    shape_library,
+    shape_similarity,
+)
 
 router = APIRouter()
 log = logging.getLogger(__name__)
 
 PROMPT_MAX_LENGTH = 320
+
+
+class IntentOverrideRequest(BaseModel):
+    """A user-confirmed correction to the natural-language interpretation."""
+
+    shape: str | None = Field(default=None, max_length=80)
+    text: str | None = Field(default=None, max_length=20)
+    city: str | None = Field(default=None, max_length=100)
+    sport: Literal["run", "bike"] = "run"
+    distance_km: float | None = Field(default=None, gt=0, le=500)
+    style: str | None = Field(default=None, max_length=80)
+    suggest: bool = False
+
+    @field_validator("shape", "text", "city", "style")
+    @classmethod
+    def normalise_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(value.split()).strip()
+        return cleaned or None
+
+
+class StartPointRequest(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    label: str | None = Field(default=None, max_length=180)
+
+
+class RoutePreferencesRequest(BaseModel):
+    avoid_steps: bool = False
+    avoid_ferries: bool = False
+    avoid_fords: bool = False
+    prefer_quiet: bool = False
+    prefer_green: bool = False
 
 
 class GenerateRequest(BaseModel):
@@ -32,6 +85,13 @@ class GenerateRequest(BaseModel):
         examples=["a heart run in Budapest, about 8km", "suggest a run in Debrecen, 10km"],
         description="Natural-language prompt describing the shape, city, sport, and optional target distance. "
         "Use 'suggest' to let AI pick the best shape for the city.",
+    )
+    intent_override: IntentOverrideRequest | None = None
+    start_point: StartPointRequest | None = None
+    start_address: str | None = Field(default=None, max_length=180)
+    start_direction_deg: float | None = Field(default=None, ge=0, lt=360)
+    route_preferences: RoutePreferencesRequest = Field(
+        default_factory=RoutePreferencesRequest
     )
 
     @field_validator("prompt", mode="before")
@@ -57,6 +117,20 @@ class GenerateRequest(BaseModel):
         if not any(character.isalnum() for character in cleaned):
             raise ValueError("include a shape, word, letter, or number to draw")
         return cleaned
+
+    @field_validator("start_address")
+    @classmethod
+    def normalise_start_address(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = " ".join(unicodedata.normalize("NFKC", value).split()).strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def one_start_source(self) -> GenerateRequest:
+        if self.start_point is not None and self.start_address is not None:
+            raise ValueError("choose either a current/map point or a start address")
+        return self
 
 
 class GenerateResponse(BaseModel):
@@ -90,7 +164,19 @@ class GenerateResponse(BaseModel):
     street_canvas: list[dict] = Field(default_factory=list)
     route_verification: dict | None = None
     route_details: dict | None = None
+    planning_options: dict = Field(default_factory=dict)
     gallery_publish_token: str | None = None
+
+
+class InterpretResponse(BaseModel):
+    prompt: str
+    intent: dict
+    drawing_label: str
+    drawing_kind: Literal["template", "custom", "text", "suggestion"]
+    defaults_applied: list[str] = Field(default_factory=list)
+    confidence: dict[str, float] = Field(default_factory=dict)
+    needs_clarification: bool = False
+    clarifications: list[dict] = Field(default_factory=list)
 
 
 class EditedRouteRequest(BaseModel):
@@ -101,6 +187,9 @@ class EditedRouteRequest(BaseModel):
     target_distance_km: float | None = Field(default=None, gt=0, le=500)
     name: str = Field(default="Edited GPS art route", min_length=1, max_length=120)
     shape_name: str = Field(default="edited", min_length=1, max_length=80)
+    route_preferences: RoutePreferencesRequest = Field(
+        default_factory=RoutePreferencesRequest
+    )
 
     @field_validator("name", "shape_name")
     @classmethod
@@ -630,12 +719,104 @@ def _state_to_response(state) -> dict:
         street_canvas=street_canvas,
         route_verification=route_verification,
         route_details=route_details,
+        planning_options={
+            "start_point": list(state.start_point) if state.start_point else None,
+            "start_label": state.start_label,
+            "start_direction_deg": state.start_direction_deg,
+            "route_preferences": asdict(state.route_preferences),
+        },
         gallery_publish_token=(
             cloudinary_gallery.maybe_issue_publish_token()
             if snapped and snapped.snapped
             else None
         ),
     )
+
+
+def _interpretation_guidance(
+    prompt: str,
+    intent: Intent,
+    *,
+    drawing_kind: str,
+    defaults_applied: list[str],
+) -> tuple[dict[str, float], list[dict]]:
+    """Return inspectable confidence and bounded semantic corrections.
+
+    Confidence is deliberately field-specific: a clear drawing must not hide
+    an assumed city or distance behind one misleading overall percentage.
+    """
+
+    low = prompt.casefold()
+    explicit_sport = bool(
+        re.search(
+            r"\b(?:run|running|jog|jogging|bike|biking|cycle|cycling|"
+            r"fut\w*|kocog\w*|bicikl\w*|kerékpár\w*|teker\w*)\b",
+            low,
+        )
+    )
+    explicit_distance = bool(re.search(r"\b\d+(?:[.,]\d+)?\s*km\b", low))
+    confidence = {
+        "drawing": (
+            0.98
+            if drawing_kind in {"template", "text"}
+            else 0.86
+            if drawing_kind == "suggestion"
+            else 0.78
+            if intent.shape
+            else 0.35
+        ),
+        "city": 0.98 if intent.city and "city" not in defaults_applied else 0.38,
+        "sport": 0.98 if explicit_sport else 0.62,
+        "distance": 0.99 if explicit_distance else 0.55,
+    }
+    clarifications: list[dict] = []
+
+    # In a route-drawing context "bug" defaults to the catalogued insect.
+    # The alternatives stay one click away without forcing every clear request
+    # through an interrupting modal.
+    if re.search(r"\bbug\b", low) and (intent.shape or "").casefold() == "bug":
+        clarifications.append(
+            {
+                "field": "drawing",
+                "question": "We read ‘bug’ as the insect. Is that right?",
+                "required": False,
+                "selected": "bug",
+                "options": [
+                    {
+                        "label": "Bug (insect)",
+                        "value": "bug",
+                        "intent_patch": {"shape": "bug", "text": None},
+                    },
+                    {
+                        "label": "Letter B",
+                        "value": "letter-b",
+                        "intent_patch": {"shape": "text", "text": "B"},
+                    },
+                ],
+            }
+        )
+
+    if not intent.shape and not intent.text and not intent.suggest:
+        clarifications.append(
+            {
+                "field": "drawing",
+                "question": "What should the route draw?",
+                "required": True,
+                "selected": None,
+                "options": [],
+            }
+        )
+    if "city" in defaults_applied:
+        clarifications.append(
+            {
+                "field": "city",
+                "question": "No city was found, so the planner used its default. Change it if needed.",
+                "required": False,
+                "selected": intent.city,
+                "options": [],
+            }
+        )
+    return confidence, clarifications
 
 
 @router.get("/health")
@@ -645,6 +826,78 @@ def health() -> dict:
         "service": "GPS Art Wizard",
         "version": "0.1.0",
         "gallery": {"configured": cloudinary_gallery.is_configured()},
+    }
+
+
+@router.post("/interpret", response_model=InterpretResponse)
+def interpret_route_request(req: GenerateRequest) -> dict:
+    """Return the route request as the planner understands it, before routing.
+
+    This inexpensive, inspectable step lets the UI expose semantic mistakes
+    before a user waits for placement and street routing. It intentionally uses
+    the exact same IntentAgent as ``/generate`` so the preview cannot drift from
+    the real pipeline.
+    """
+
+    state = WorkflowState(prompt=req.prompt, request_id=current_request_id())
+    try:
+        IntentAgent().run(state)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("route interpretation failed")
+        raise HTTPException(
+            status_code=500,
+            detail="We couldn’t interpret that route idea. Please try a shorter description.",
+        ) from exc
+    if state.intent is None:
+        raise HTTPException(status_code=422, detail="We couldn’t identify a route idea.")
+
+    intent = state.intent
+    cfg = get_settings().workflow
+    defaults_applied: list[str] = []
+    payload = dict(intent.__dict__)
+    if not intent.city:
+        payload["city"] = cfg.city_default
+        defaults_applied.append("city")
+    if intent.distance_km is None:
+        payload["distance_km"] = cfg.distance_defaults.get(intent.sport, 8.0)
+        defaults_applied.append("distance")
+
+    if intent.suggest:
+        drawing_label = "Best shape for the streets"
+        drawing_kind = "suggestion"
+    elif intent.text:
+        drawing_label = intent.text
+        drawing_kind = "text"
+    else:
+        drawing_label = intent.shape or "Custom drawing"
+        template = shape_library.get_shape(intent.shape or "")
+        if template is None and intent.shape:
+            template = shape_library.find_by_keyword(intent.shape)
+            if template and not shape_library.template_match_covers_description(
+                intent.shape,
+                template[0],
+            ):
+                template = None
+        drawing_kind = "template" if template else "custom"
+
+    confidence, clarifications = _interpretation_guidance(
+        req.prompt,
+        intent,
+        drawing_kind=drawing_kind,
+        defaults_applied=defaults_applied,
+    )
+
+    return {
+        "prompt": req.prompt,
+        "intent": payload,
+        "drawing_label": drawing_label,
+        "drawing_kind": drawing_kind,
+        "defaults_applied": defaults_applied,
+        "confidence": confidence,
+        "needs_clarification": any(
+            bool(item.get("required")) for item in clarifications
+        ),
+        "clarifications": clarifications,
     }
 
 
@@ -705,8 +958,46 @@ def generate_route(req: GenerateRequest) -> dict:
             "prompt_length": len(req.prompt),
         },
     )
+    intent_override = (
+        Intent(**req.intent_override.model_dump())
+        if req.intent_override is not None
+        else None
+    )
+    preferences = RoutePreferences(**req.route_preferences.model_dump())
+    start_point = None
+    start_label = None
+    if req.start_point is not None:
+        start_point = (req.start_point.latitude, req.start_point.longitude)
+        start_label = req.start_point.label or "Selected location"
+    elif req.start_address:
+        resolved = geocoder.geocode_point(req.start_address)
+        if resolved is None:
+            raise HTTPException(
+                status_code=422,
+                detail="We couldn’t find that start address. Try a more complete address or use your current location.",
+            )
+        start_point = (resolved.lat, resolved.lon)
+        start_label = resolved.name
     try:
-        state = generate(req.prompt)
+        has_preferences = any(req.route_preferences.model_dump().values())
+        if (
+            intent_override is None
+            and start_point is None
+            and req.start_direction_deg is None
+            and not has_preferences
+        ):
+            # Preserve the original domain call for ordinary prompts and for
+            # lightweight integrations that wrap the one-argument function.
+            state = generate(req.prompt)
+        else:
+            state = generate(
+                req.prompt,
+                intent_override=intent_override,
+                start_point=start_point,
+                start_label=start_label,
+                start_direction_deg=req.start_direction_deg,
+                route_preferences=preferences,
+            )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -732,10 +1023,16 @@ def edit_route(req: EditedRouteRequest) -> dict:
             detail="Edited route guides must stay within a 1,000 km total span.",
         )
 
+    edit_preferences = RoutePreferences(**req.route_preferences.model_dump())
+    edit_routing_options = {
+        "sport": req.sport,
+        "closed": req.closed,
+    }
+    if any(req.route_preferences.model_dump().values()):
+        edit_routing_options["route_preferences"] = edit_preferences
     points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
         control_points,
-        sport=req.sport,
-        closed=req.closed,
+        **edit_routing_options,
     )
     temporary = WorkflowState(
         prompt="manual route edit",

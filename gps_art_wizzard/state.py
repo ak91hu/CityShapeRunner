@@ -25,6 +25,17 @@ class Intent:
 
 
 @dataclass
+class RoutePreferences:
+    """User-selected routing preferences supported by the routing provider."""
+
+    avoid_steps: bool = False
+    avoid_ferries: bool = False
+    avoid_fords: bool = False
+    prefer_quiet: bool = False
+    prefer_green: bool = False
+
+
+@dataclass
 class Plan:
     """Strategy committed by the PlanningAgent before any drawing happens."""
     shape_strategy: str  # template | text | llm
@@ -142,6 +153,8 @@ class RouteDraft:
     preflight_score: float | None = None
     preflight_coverage: float | None = None
     preflight_snap_distance_m: float | None = None
+    anchored_start: LatLon | None = None
+    preferred_start_direction_deg: float | None = None
 
 
 @dataclass
@@ -287,6 +300,10 @@ class WorkflowState:
     placement_candidates: list[RouteDraft] = field(default_factory=list)
     preflight_candidates: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[EvaluatedCandidate] = field(default_factory=list)
+    route_preferences: RoutePreferences = field(default_factory=RoutePreferences)
+    start_point: LatLon | None = None
+    start_label: str | None = None
+    start_direction_deg: float | None = None
 
     def snapshot(self) -> dict[str, Any]:
         """Compact, JSON-friendly snapshot for the API / history."""

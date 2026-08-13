@@ -57,6 +57,17 @@ def test_unknown_shape_uses_an_explicit_idea_linked_offline_fallback():
     assert any("fallback" in error for error in state.errors)
 
 
+def test_bug_prompt_uses_an_insect_outline_even_without_an_ai_provider():
+    state = generate("a bug run in Tatabánya, about 8 km")
+
+    assert state.intent is not None
+    assert state.intent.shape == "bug"
+    assert state.shape is not None
+    assert state.shape.name == "bug"
+    assert state.shape.source == "template"
+    assert state.shape.name != "B label"
+
+
 # --------------------------------------------------------------------------- #
 # Tooling
 # --------------------------------------------------------------------------- #

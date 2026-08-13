@@ -28,7 +28,10 @@ class SnapAgent(BaseAgent):
             return state
 
         polyline, dist_m, snapped, readiness = ors_client.snap_route_detailed(
-            waypoints, sport=state.intent.sport, closed=draft.closed
+            waypoints,
+            sport=state.intent.sport,
+            closed=draft.closed,
+            route_preferences=state.route_preferences,
         )
         # Apply the refinement-controlled tolerance in local metre space, but
         # only on real road geometry. Degree-space tolerance over-simplifies

@@ -192,6 +192,31 @@ def dog() -> ShapeGen:
     )
 
 
+def bug() -> ShapeGen:
+    """A route-friendly beetle silhouette with antennae and three leg pairs.
+
+    ``bug`` is intentionally a broad, everyday label. In a drawing request it
+    means the insect, while explicit text such as ``letter B`` continues to use
+    the vector font. Keeping the anatomy in one outer contour avoids transfer
+    legs that could turn the insect into an unrelated glyph after road snapping.
+    """
+
+    return _outline(
+        "bug",
+        [
+            (-0.10, 0.64), (-0.58, 1.00), (-0.22, 0.52),
+            (-0.48, 0.34), (-0.94, 0.54), (-0.54, 0.12),
+            (-1.00, 0.00), (-0.54, -0.12), (-0.90, -0.58),
+            (-0.38, -0.42), (-0.28, -0.78), (0.00, -1.00),
+            (0.28, -0.78), (0.38, -0.42), (0.90, -0.58),
+            (0.54, -0.12), (1.00, 0.00), (0.54, 0.12),
+            (0.94, 0.54), (0.48, 0.34), (0.22, 0.52),
+            (0.58, 1.00), (0.10, 0.64),
+        ],
+        3,
+    )
+
+
 def diamond() -> ShapeGen:
     # A cut gemstone silhouette, rather than a square rotated by 45 degrees.
     # The flat crown and tapered pavilion remain visible after road snapping.
@@ -1145,7 +1170,7 @@ def _authored_generator(name: str) -> Callable[[], ShapeGen]:
 # Registry
 # --------------------------------------------------------------------------- #
 SHAPES: dict[str, Callable[[], ShapeGen]] = {g()[0]: g for g in [
-    heart, star, circle, butterfly, fish, arrow, triangle, square, cat, dog, diamond,
+    heart, star, circle, butterfly, fish, arrow, triangle, square, cat, dog, bug, diamond,
     moon, flower, tree, bird, anchor, cross, infinity,
     rabbit, horse, dolphin, dragon, crown, key, mug, skull, note, lightning,
     helix, sailboat, mountain, sun, wave,
@@ -1170,6 +1195,9 @@ KEYWORDS: dict[str, str] = {
     "square": "square", "box": "square",
     "cat": "cat", "kitten": "cat",
     "dog": "dog", "puppy": "dog", "hound": "dog",
+    "bug": "bug", "insect": "bug", "beetle": "bug", "ladybug": "bug",
+    "ladybird": "bug", "bogár": "bug", "bogar": "bug", "rovar": "bug",
+    "katicabogár": "bug", "katicabogar": "bug",
     "diamond": "diamond",
     "moon": "moon", "crescent": "moon",
     "flower": "flower", "petal": "flower",

@@ -50,42 +50,86 @@ test("the result identifies the route and its request ID", async ({ page }) => {
   await expect(page.locator(".route-state")).toContainText("Ready to download");
 });
 
+test("the result leads with the interpreted request and offers a correction path", async ({ page }) => {
+  await openGeneratedRoute(page);
+
+  const summary = page.locator(".request-summary-card");
+  await expect(summary).toContainText("We understood Star");
+  await expect(summary).toContainText("Debrecen");
+  await expect(summary).toContainText("Cycling");
+  await expect(summary).toContainText("20.00 km");
+
+  await summary.getByRole("button", { name: "Change request" }).click();
+  await expect(page.getByLabel("Drawing and location")).toBeFocused();
+});
+
+test("optional route tools are grouped after the decision and download cards", async ({ page }) => {
+  await openGeneratedRoute(page);
+
+  const lastPrimaryCard = page.locator(".route-output .route-facts");
+  const lab = page.locator(".route-lab");
+  const [primaryBox, labBox] = await Promise.all([
+    lastPrimaryCard.boundingBox(),
+    lab.boundingBox(),
+  ]);
+
+  expect(primaryBox).not.toBeNull();
+  expect(labBox).not.toBeNull();
+  expect(primaryBox.y + primaryBox.height).toBeLessThanOrEqual(labBox.y + 1);
+  await expect(lab).toContainText("Fine-tune or plan together");
+  await expect(lab.locator(".street-canvas-card")).toBeVisible();
+  await expect(lab.locator(".recognition-repair-card")).toBeVisible();
+});
+
 test("the map is the first result panel and does not overlap later panels", async ({ page }) => {
   await openGeneratedRoute(page);
 
   const map = page.locator(".map-card");
-  const sidebar = page.locator(".result-sidebar");
-  const output = page.locator(".route-output");
-  const [mapBox, sidebarBox, outputBox] = await Promise.all([
+  const metrics = page.locator(".result-sidebar .metrics");
+  const exportCard = page.locator(".route-output .export-card");
+  const routeFacts = page.locator(".route-output .route-facts");
+  const [mapBox, metricsBox, exportBox, factsBox] = await Promise.all([
     map.boundingBox(),
-    sidebar.boundingBox(),
-    output.boundingBox(),
+    metrics.boundingBox(),
+    exportCard.boundingBox(),
+    routeFacts.boundingBox(),
   ]);
 
   expect(mapBox).not.toBeNull();
-  expect(sidebarBox).not.toBeNull();
-  expect(outputBox).not.toBeNull();
-  expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(sidebarBox.y + 1);
-  expect(sidebarBox.y + sidebarBox.height).toBeLessThanOrEqual(outputBox.y + 1);
+  expect(metricsBox).not.toBeNull();
+  expect(exportBox).not.toBeNull();
+  expect(factsBox).not.toBeNull();
+  const sideBySide = metricsBox.y < mapBox.y + mapBox.height - 1;
+  if (sideBySide) {
+    expect(mapBox.x + mapBox.width).toBeLessThanOrEqual(metricsBox.x + 1);
+    expect(metricsBox.y + metricsBox.height).toBeLessThanOrEqual(exportBox.y + 1);
+    expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(factsBox.y + 1);
+  } else {
+    expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(metricsBox.y + 1);
+    expect(metricsBox.y + metricsBox.height).toBeLessThanOrEqual(exportBox.y + 1);
+    expect(exportBox.y + exportBox.height).toBeLessThanOrEqual(factsBox.y + 1);
+  }
 });
 
-test("the candidate selector describes ready and review options", async ({ page }) => {
+test("route option cards compare ready and review candidates", async ({ page }) => {
   await openGeneratedRoute(page);
-  const selector = page.getByLabel("Route options");
+  const options = page.getByRole("region", { name: "Route options" });
+  const cards = options.locator(".candidate-card");
 
-  await expect(selector.locator("option")).toHaveCount(2);
-  await expect(selector.locator("option").nth(0)).toContainText("91% · 19.82 km · Ready");
-  await expect(selector.locator("option").nth(1)).toContainText(
-    "61% · 21.40 km · Needs a look",
-  );
-  await expect(page.locator(".candidate-toolbar")).toContainText(
-    "2 options: 1 ready, 1 need a look",
-  );
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toContainText("Best overall match");
+  await expect(cards.nth(0)).toContainText("91%");
+  await expect(cards.nth(0)).toContainText("19.82");
+  await expect(cards.nth(0)).toContainText("Ready");
+  await expect(cards.nth(1)).toContainText("61%");
+  await expect(cards.nth(1)).toContainText("21.40");
+  await expect(cards.nth(1)).toContainText("Review");
+  await expect(options).toContainText("1 ready · 1 to review");
 });
 
 test("selecting a review candidate updates all headline metrics", async ({ page }) => {
   await openGeneratedRoute(page);
-  await page.getByLabel("Route options").selectOption("candidate-review");
+  await page.locator(".candidate-card").nth(1).click();
 
   await expect(page.locator(".route-state")).toContainText("Check before downloading");
   await expect(page.locator(".metric").filter({ hasText: "Overall match" })).toContainText("61%");
@@ -159,6 +203,13 @@ test("route readiness shows elevation, surfaces, and mapped concerns", async ({ 
   await expect(readiness).toContainText("Unpaved riding");
   await expect(readiness).toContainText("Surface data gap");
   await expect(page.locator(".route-concern-segment")).toHaveCount(2);
+  const unpaved = readiness.getByRole("button", { name: /Unpaved riding/ });
+  await unpaved.click();
+  await expect(unpaved).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".route-concern-segment--active")).toHaveCount(1);
+  await expect(readiness.getByRole("button", { name: "Show full route" })).toBeVisible();
+  await readiness.getByRole("button", { name: "Show full route" }).click();
+  await expect(page.locator(".route-concern-segment--active")).toHaveCount(0);
   await expect(page.getByText("Routes tested")).toHaveCount(0);
 });
 
@@ -170,6 +221,96 @@ test("Street Canvas exposes the strongest nearby areas on the route map", async 
   await expect(canvas).toContainText("88% readable");
   await expect(canvas).toContainText("94% street support");
   await expect(page.locator(".street-canvas-marker")).toHaveCount(2);
+});
+
+test("Inkproof forecasts GPS drift and highlights fragile drawing details", async ({ page }) => {
+  let requestBody;
+  await page.route("**/inkproof-analysis", async (route) => {
+    requestBody = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        accuracy_m: 10,
+        resilience_score: 0.78,
+        expected_recognition: 0.91,
+        fragile_share: 0.16,
+        rating: "watch",
+        fragile_segments: [{
+          id: "inkproof-1",
+          label: "Fragile ink area 1",
+          reason: "A tight turn may be rounded off.",
+          risk_score: 0.72,
+          distance_m: 180,
+          points_preview: [[47.4979, 19.0402], [47.4986, 19.0461]],
+        }],
+        tips: ["Slow down at the highlighted details."],
+        method: "deterministic simulation",
+      }),
+    });
+  });
+  await openGeneratedRoute(page);
+  await page.getByRole("button", { name: "Test recording durability" }).click();
+
+  expect(requestBody.accuracy_m).toBe(10);
+  expect(requestBody.points.length).toBeGreaterThan(3);
+  const card = page.locator(".inkproof-card");
+  await expect(card).toContainText("78% inkproof");
+  await expect(card).toContainText("91%");
+  await expect(page.locator(".route-analysis-segment--inkproof")).toHaveCount(1);
+  await card.getByRole("button", { name: "Hide fragile ink on map" }).click();
+  await expect(page.locator(".route-analysis-segment--inkproof")).toHaveCount(0);
+});
+
+test("Missing Ink compares multiple GPX sessions without adding false strokes", async ({ page }) => {
+  let requestBody;
+  await page.route("**/art-rescue", async (route) => {
+    requestBody = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        recording_count: 2,
+        track_segment_count: 2,
+        coverage: 0.74,
+        precision: 0.96,
+        art_match: 0.84,
+        tolerance_m: 25,
+        recorded_distance_km: 14.2,
+        missing_distance_km: 1.35,
+        missing_segments: [{
+          id: "missing-ink-1",
+          label: "Missing ink 1",
+          distance_m: 1350,
+          points_preview: [[47.4986, 19.0461], [47.4943, 19.0478]],
+          gpx: "<gpx><trk><trkseg /></trk></gpx>",
+        }],
+        recorded_segments_preview: [],
+        merged_recording_gpx: "<gpx><trk><trkseg /><trkseg /></trk></gpx>",
+        missing_ink_gpx: "<gpx><trk><trkseg /></trk></gpx>",
+        message: "1 separate repair mission can complete the drawing.",
+        authenticity: "The combined GPX contains recorded points only; repair routes are separate and untimed.",
+        privacy: "Files were analysed in memory and were not stored.",
+      }),
+    });
+  });
+  await openGeneratedRoute(page);
+  await page.getByLabel("Recorded GPX files").setInputFiles([
+    { name: "morning.gpx", mimeType: "application/gpx+xml", buffer: Buffer.from("<gpx><trk /></gpx>") },
+    { name: "evening.gpx", mimeType: "application/gpx+xml", buffer: Buffer.from("<gpx><trk /></gpx>") },
+  ]);
+  await page.getByRole("button", { name: "Analyse completed art" }).click();
+
+  const card = page.locator(".art-rescue-card");
+  await expect(card).toContainText("74% covered");
+  expect(requestBody.recordings).toHaveLength(2);
+  expect(requestBody.recordings[0].name).toBe("morning.gpx");
+  expect(requestBody.tolerance_m).toBe(25);
+  await expect(card).toContainText("84% art match");
+  await expect(card).toContainText("1.35 km left");
+  await expect(card.getByRole("button", { name: "Combined GPX" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Missing Ink pack" })).toBeVisible();
+  await expect(page.locator(".route-analysis-segment--missing")).toHaveCount(1);
+  await expect(card).toContainText("recorded points only");
+  await expect(card).toContainText("not stored");
 });
 
 test("community mural creates separate downloadable artist sections", async ({ page }) => {

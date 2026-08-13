@@ -1147,6 +1147,75 @@ def geocode(city: str) -> GeoResult:
     return _default(city)
 
 
+def geocode_point(query: str) -> GeoResult | None:
+    """Resolve an optional route start without silently substituting a city.
+
+    Unlike :func:`geocode`, this function returns ``None`` when an address or
+    place cannot be resolved. A wrong fallback is unacceptable for a start
+    anchor because it would move the route to a place the user did not choose.
+    """
+    import os
+
+    cleaned = " ".join(query.split()).strip()
+    if not cleaned:
+        return None
+    known = _known_default(cleaned)
+    if known is not None:
+        return known
+    if os.getenv("GEOCODE_OFFLINE"):
+        return None
+
+    cfg = get_settings().geocoder
+    headers = {
+        "User-Agent": (
+            f"GPS-Art-Wizard/0.1 ({cfg.nominatim_email})"
+            if cfg.nominatim_email
+            else "GPS-Art-Wizard/0.1"
+        ),
+        "Accept-Language": "en",
+    }
+    params: dict[str, str | int] = {
+        "q": cleaned,
+        "format": "json",
+        "limit": 1,
+        "addressdetails": 0,
+        "layer": "address",
+    }
+    if cfg.nominatim_email:
+        params["email"] = cfg.nominatim_email
+    try:
+        response = httpx.get(
+            f"{cfg.nominatim_base_url}/search",
+            params=params,
+            headers=headers,
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not data:
+            return None
+        hit = data[0]
+        lat = float(hit["lat"])
+        lon = float(hit["lon"])
+        if not (
+            math.isfinite(lat)
+            and math.isfinite(lon)
+            and -90 <= lat <= 90
+            and -180 <= lon <= 180
+        ):
+            return None
+        display_name = str(hit.get("display_name") or cleaned)
+        return GeoResult(
+            display_name,
+            lat,
+            lon,
+            _route_search_bbox(lat, lon, hit.get("boundingbox")),
+        )
+    except Exception as error:  # noqa: BLE001
+        log.warning("Nominatim start-point lookup failed for %r (%s)", cleaned, error)
+        return None
+
+
 def city_context(city: str, geo_result: GeoResult) -> str:
     """Return a natural-language geography description for map-aware planning.
 

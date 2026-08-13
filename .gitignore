@@ -43,6 +43,7 @@ Thumbs.db
 !tests/fixtures/*.gpx
 *.tcx
 *.log
+*.log.*
 .vite.*
 
 # Caches

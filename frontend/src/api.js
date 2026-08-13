@@ -71,15 +71,16 @@ export function health(options = {}) {
 }
 
 export function generate(prompt, options = {}) {
+  const { payload = {}, ...requestOptions } = options;
   return request("/generate", {
-    ...options,
+    ...requestOptions,
     // Custom drawings may include one bounded AI repair plus several measured
     // street-network candidates. Keep waiting until the server responds or
     // the user explicitly uses the existing Cancel action.
     timeoutMs: null,
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...payload }),
   });
 }
 
@@ -129,6 +130,16 @@ export function removeGalleryImage(payload, options = {}) {
   });
 }
 
+export function interpretPrompt(prompt, options = {}) {
+  return request("/interpret", {
+    ...options,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 export function requestTimedReadiness(payload, options = {}) {
   return request("/timed-readiness", {
     ...options,
@@ -153,6 +164,26 @@ export function repairRecognition(payload, options = {}) {
   return request("/recognition-repair", {
     ...options,
     timeoutMs: 180_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function analyseInkproof(payload, options = {}) {
+  return request("/inkproof-analysis", {
+    ...options,
+    timeoutMs: 30_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function rescueGpsArt(payload, options = {}) {
+  return request("/art-rescue", {
+    ...options,
+    timeoutMs: 60_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

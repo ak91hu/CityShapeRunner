@@ -19,7 +19,7 @@ import httpx
 from shapely.geometry import LineString
 
 from ..config import get_settings
-from ..state import RouteConcern, RouteReadiness, RouteSurface
+from ..state import RouteConcern, RoutePreferences, RouteReadiness, RouteSurface
 from . import geo, shape_similarity
 
 log = logging.getLogger(__name__)
@@ -958,7 +958,9 @@ def _build_route_readiness(
 
 def _ors_request(
     url: str, headers: dict, coords: list, *, preference: str, continue_straight: bool,
-    radius: int, sport: str = "run", client: httpx.Client | None = None,
+    radius: int, sport: str = "run",
+    route_preferences: RoutePreferences | None = None,
+    client: httpx.Client | None = None,
 ) -> _ORSRouteResult | _ORSFailure:
     """Return a route or a structured failure from one ORS request."""
     payload = {
@@ -971,6 +973,28 @@ def _ors_request(
         "elevation": True,
         "extra_info": ["surface", "steepness", "waytype", "suitability"],
     }
+    preferences = route_preferences or RoutePreferences()
+    avoid_features = [
+        feature
+        for feature, enabled in (
+            ("steps", preferences.avoid_steps),
+            ("ferries", preferences.avoid_ferries),
+            ("fords", preferences.avoid_fords),
+        )
+        if enabled
+    ]
+    options: dict[str, object] = {}
+    if avoid_features:
+        options["avoid_features"] = avoid_features
+    if sport.startswith("run") and (preferences.prefer_quiet or preferences.prefer_green):
+        weightings: dict[str, object] = {}
+        if preferences.prefer_quiet:
+            weightings["quiet"] = {"factor": 1.0}
+        if preferences.prefer_green:
+            weightings["green"] = {"factor": 0.8}
+        options["profile_params"] = {"weightings": weightings}
+    if options:
+        payload["options"] = options
     try:
         sender = client if client is not None else httpx
         r = sender.post(url, json=payload, headers=headers, timeout=_HTTP_TIMEOUT)
@@ -1084,7 +1108,8 @@ def _reduce_waypoints(waypoints: list[LatLon], *, closed: bool) -> list[LatLon] 
 
 
 def snap_route_detailed(
-    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False
+    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False,
+    route_preferences: RoutePreferences | None = None,
 ) -> tuple[list[LatLon], float, bool, RouteReadiness]:
     """Snap waypoints and include readiness evidence for the returned route.
 
@@ -1140,6 +1165,7 @@ def snap_route_detailed(
                 continue_straight=cfg.continue_straight,
                 radius=radius,
                 sport=sport,
+                route_preferences=route_preferences,
                 client=client,
             )
             if isinstance(result, _ORSRouteResult | tuple):

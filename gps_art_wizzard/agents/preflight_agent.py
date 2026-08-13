@@ -196,9 +196,15 @@ class PreflightAgent(BaseAgent):
             (step, step),
         )
         offsets = self._city_grid_offsets(base, state.plan.city_bbox if state.plan else None)
-        if len(offsets) < 5:
+        if base.anchored_start is not None:
+            offsets = ((0.0, 0.0),)
+        elif len(offsets) < 5:
             offsets = local_offsets
-        rotation_deltas = (0.0, 30.0, 60.0, 90.0, 120.0, 150.0)
+        rotation_deltas = (
+            (0.0,)
+            if base.preferred_start_direction_deg is not None
+            else (0.0, 30.0, 60.0, 90.0, 120.0, 150.0)
+        )
         scale_factors = (1.0, 0.85, 1.15)
         city_bbox = state.plan.city_bbox if state.plan else None
 

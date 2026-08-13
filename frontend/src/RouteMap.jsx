@@ -144,6 +144,8 @@ const RouteMap = forwardRef(function RouteMap({
   idealPoints = [],
   landmarkPoints = [],
   readinessConcerns = [],
+  activeConcernCode = null,
+  analysisSegments = [],
   streetCanvasCandidates = [],
   editPoints = [],
   shapeName = "GPS art",
@@ -206,11 +208,25 @@ const RouteMap = forwardRef(function RouteMap({
         .filter((segment) => segment.length > 1)
         .map((segment) => ({
           coordinates: segment,
+          code: String(concern.code || "review"),
           label: String(concern.label || "Section to review"),
           severity: concern.severity === "warning" ? "warning" : "info",
         })),
     );
   }, [readinessConcerns]);
+  const labSegments = useMemo(
+    () => (Array.isArray(analysisSegments) ? analysisSegments : [])
+      .map((segment) => ({
+        id: String(segment?.id || "analysis"),
+        label: String(segment?.label || "GPS art analysis"),
+        kind: segment?.kind === "missing" ? "missing" : "inkproof",
+        coordinates: (Array.isArray(segment?.points_preview) ? segment.points_preview : [])
+          .filter(isCoordinate)
+          .map(([latitude, longitude]) => [latitude, longitude]),
+      }))
+      .filter((segment) => segment.coordinates.length > 1),
+    [analysisSegments],
+  );
   const canvasCoordinates = useMemo(
     () => (Array.isArray(streetCanvasCandidates) ? streetCanvasCandidates : [])
       .filter((candidate) => Number.isFinite(candidate?.latitude) && Number.isFinite(candidate?.longitude))
@@ -295,19 +311,37 @@ const RouteMap = forwardRef(function RouteMap({
       interactive: false,
     }).addTo(routeLayer);
 
+    const concernLines = [];
     concernSegments.forEach((segment) => {
-      L.polyline(segment.coordinates, {
+      const isActive = activeConcernCode === segment.code;
+      const concernLine = L.polyline(segment.coordinates, {
         color: segment.severity === "warning" ? "#c2412d" : "#9a6700",
-        weight: 8,
-        opacity: 0.92,
-        dashArray: "4 8",
+        weight: isActive ? 11 : 8,
+        opacity: isActive ? 1 : 0.84,
+        dashArray: isActive ? undefined : "4 8",
         lineCap: "round",
         lineJoin: "round",
-        className: `route-concern-segment route-concern-segment--${segment.severity}`,
+        className: `route-concern-segment route-concern-segment--${segment.severity}${isActive ? " route-concern-segment--active" : ""}`,
       })
         .bindTooltip(segment.label)
         .addTo(routeLayer);
+      concernLines.push({ ...segment, line: concernLine, isActive });
     });
+
+    const labLines = labSegments.map((segment) => ({
+      ...segment,
+      line: L.polyline(segment.coordinates, {
+        color: segment.kind === "missing" ? "#c026d3" : "#6d28d9",
+        weight: 10,
+        opacity: 0.9,
+        dashArray: segment.kind === "missing" ? "3 7" : "10 6",
+        lineCap: "round",
+        lineJoin: "round",
+        className: `route-analysis-segment route-analysis-segment--${segment.kind}`,
+      })
+        .bindTooltip(segment.label)
+        .addTo(routeLayer),
+    }));
 
     canvasCoordinates.forEach((candidate) => {
       L.circleMarker([candidate.latitude, candidate.longitude], {
@@ -428,14 +462,30 @@ const RouteMap = forwardRef(function RouteMap({
       if (editLine) bounds.extend(editLine.getBounds());
       map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
     }
+    const activeConcern = concernLines.find((segment) => segment.isActive);
+    if (activeConcern) {
+      map.fitBounds(activeConcern.line.getBounds(), {
+        padding: [72, 72],
+        maxZoom: 17,
+      });
+      activeConcern.line.openTooltip();
+    } else if (labLines.length > 0) {
+      const bounds = labLines.slice(1).reduce(
+        (combined, segment) => combined.extend(segment.line.getBounds()),
+        labLines[0].line.getBounds(),
+      );
+      map.fitBounds(bounds, { padding: [72, 72], maxZoom: 17 });
+    }
   }, [
     accepted,
+    activeConcernCode,
     concernSegments,
     canvasCoordinates,
     coordinates,
     editableCoordinates,
     editing,
     idealCoordinates,
+    labSegments,
     landmarkCoordinates,
     onEditPoint,
     roadRouted,
@@ -508,6 +558,14 @@ const RouteMap = forwardRef(function RouteMap({
             dash: [4, 8],
           });
         });
+        labSegments.forEach((segment) => {
+          drawCoordinatePath(context, map, segment.coordinates, {
+            color: segment.kind === "missing" ? "#c026d3" : "#6d28d9",
+            width: 9,
+            opacity: 0.9,
+            dash: segment.kind === "missing" ? [3, 7] : [10, 6],
+          });
+        });
         drawEndpoint(context, map, coordinates[0], "#0b6b57");
         drawEndpoint(context, map, coordinates.at(-1), "#e4542f");
 
@@ -537,7 +595,7 @@ const RouteMap = forwardRef(function RouteMap({
         }
       },
     }),
-    [accepted, concernSegments, coordinates, idealCoordinates, roadRouted],
+    [accepted, concernSegments, coordinates, idealCoordinates, labSegments, roadRouted],
   );
 
   return (

@@ -9,12 +9,22 @@
 [![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
 [![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
-Turn a run or ride into a drawing. Describe an idea—or choose from 157 catalog
+Turn a run or ride into a drawing. Describe an idea—or choose from 158 catalog
 options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
-The project combines 144 deterministic shape templates, a complete A–Z/0–9
+The free-text planner is continuously interpreted into editable drawing,
+place, activity, and distance fields. Confidence is shown per field, ambiguous
+terms expose a bounded correction (for example, `bug` means the insect unless
+the user chooses the letter B), and the confirmed structured intent is sent to
+generation. Optional controls can anchor the route at a current location or
+address, set its first direction, avoid steps/ferries/fords, and prefer quieter
+or greener walking streets. Result alternatives appear together as comparison
+cards; route-readiness issues can be selected to zoom the map to their exact
+preview segments.
+
+The project combines 145 deterministic shape templates, a complete A–Z/0–9
 vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
 Balaton shore municipalities, and 136 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
@@ -41,7 +51,7 @@ Nominatim is restricted to inhabited-place results and its administrative bbox
 is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
-Free-form drawings are not limited to the 157-option catalog either. A named
+Free-form drawings are not limited to the 158-option catalog either. A named
 custom idea is preserved locally, converted into two structured vector
 alternatives with an explicit recognition-feature brief, and checked for
 degenerate proportions, transfer lines, duplicates, and self-intersections.
@@ -75,10 +85,17 @@ Canvas marks the strongest nearby placement areas from the preflight search;
 Recognition Repair re-routes a drawing through its highest-information visual
 anchors; and Time-aware Readiness combines daylight with an optional hourly
 weather check. Groups can split one continuous route into balanced Community
-GPS Mural sections with a GPX for each participant. After an activity, a user
-can upload the completed GPX and opt in to save only an anonymous outcome
-summary, never the GPS trace. The full privacy model and endpoint contracts are
-in [GPS Art Intelligence](docs/gps-art-intelligence.md).
+GPS Mural sections with a GPX for each participant. Inkproof runs correlated
+GPS-drift simulations before departure and highlights details likely to blur.
+After an activity, Missing Ink Rescue compares up to twelve interrupted or
+multi-day GPX recordings with the selected street route, preserves real GPX
+track-segment gaps instead of drawing false connecting lines, and exports both
+a combined recording and individual or bundled repair missions for only the
+uncovered strokes. The combined file never inserts synthetic points into the
+completed activity; missing lines remain separate, untimed routes to perform
+later. These analyses need no paid map call, account, or retained trace. The
+privacy model and endpoint contracts are in
+[GPS Art Intelligence](docs/gps-art-intelligence.md).
 
 ## Research basis
 
@@ -109,8 +126,8 @@ implemented geometry changes are recorded in the
 
 ## Understanding and editing results
 
-The candidate selector keeps every fully routed result for the final chosen
-shape. Routes that pass every automatic check appear first; a larger average
+The candidate comparison cards keep every fully routed result for the final
+chosen shape visible together. Routes that pass every automatic check appear first; a larger average
 score cannot outrank a route that passes all of the independent recognition,
 road, distance, and closure checks. Attempts for a different suggested shape
 remain in the audit summary instead of being mixed into that selector.
@@ -165,7 +182,7 @@ queries, and the operational troubleshooting checklist.
 ## Quick ideas
 
 The web app keeps six common starters beside the prompt and places a searchable
-157-option catalog behind “More shapes, letters, and numbers”. It contains 144
+158-option catalog behind “More shapes, letters, and numbers”. It contains 145
 deterministic route templates plus 13 letter, number, and short-text presets:
 
 - **Hungarian ideas (16):** paprika, puzzle cube, moustache, grape cluster,
@@ -176,7 +193,8 @@ deterministic route templates plus 13 letter, number, and short-text presets:
   shield, clover, spiral, and hourglass
 - **Nature (23):** the original 16 plus acorn, banana, broccoli, feather,
   ice cream, volcano, and watermelon slice
-- **Animals (32):** the original 19 plus ant, crab, dinosaur, frog, hedgehog,
+- **Animals (33):** the original 20 (including the insect-aware bug template)
+  plus ant, crab, dinosaur, frog, hedgehog,
   koala, octopus, paw print, seahorse, snake, spider, squid, and swan
 - **Objects (44):** the original 14 plus 30 route-authored everyday objects,
   including robot, lighthouse, camera, paper plane, train, and windmill
@@ -191,7 +209,7 @@ when their detail needs more road-network resolution. They are starting points,
 not guarantees: the result still depends on local connectivity, access rules,
 and route-provider coverage. Cat, dog, bird, and bat now have separate
 route-readable outlines and distinct catalog markers. A rotation-, scale-,
-start-, and direction-independent audit checks every pair in the 144-template
+start-, and direction-independent audit checks every pair in the 145-template
 registry; see the [shape-template research and uniqueness guard](docs/shape-template-uniqueness.md).
 
 The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
@@ -208,7 +226,7 @@ hill, or mountain recommendation profiles. These are planning priors, not a
 claim that every neighbourhood is suitable for every drawing.
 
 Smart suggestions no longer use a fixed city mascot. The planner measures all
-144 route templates, combines their continuity, turning complexity, directional
+145 route templates, combines their continuity, turning complexity, directional
 order, aspect ratio, and routeability with the selected city's street context,
 activity, and distance, then sends three diverse continuous shapes through the
 real placement and routing checks. The result explains why the winning shape

@@ -32,6 +32,52 @@ def to_gpx(
     return gpx.to_xml()
 
 
+def to_segmented_gpx(
+    segments: list[list[LatLon]],
+    *,
+    name: str = "GPS Art Wizard multi-session track",
+    sport: str = "run",
+) -> str:
+    """Build one GPX track without drawing false lines between sessions.
+
+    GPX track segments are deliberate "pen-up" gaps.  Keeping them separate is
+    essential for multi-day GPS art: joining the final point of one recording
+    to the first point of the next would add an artificial stroke to the image.
+    """
+
+    gpx = gpxpy.gpx.GPX()
+    gpx.name = name
+    track = gpxpy.gpx.GPXTrack(name=name)
+    gpx.tracks.append(track)
+    total_distance_m = 0.0
+    for points in segments:
+        if len(points) < 2:
+            continue
+        segment = gpxpy.gpx.GPXTrackSegment()
+        track.segments.append(segment)
+        for lat, lon in points:
+            segment.points.append(gpxpy.gpx.GPXTrackPoint(latitude=lat, longitude=lon))
+        total_distance_m += sum(
+            _haversine_m(start, end)
+            for start, end in zip(points, points[1:], strict=False)
+        )
+    gpx.description = f"{total_distance_m / 1000:.2f} km, sport={sport}, pen-up segments preserved"
+    return gpx.to_xml()
+
+
+def _haversine_m(start: LatLon, end: LatLon) -> float:
+    """Small local helper to keep the serialiser dependency-free."""
+
+    from math import asin, cos, radians, sin, sqrt
+
+    lat1, lon1 = start
+    lat2, lon2 = end
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    value = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * 6_371_000.0 * asin(min(1.0, sqrt(value)))
+
+
 def to_tcx(
     points: list[LatLon],
     *,

@@ -372,7 +372,7 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByLabel("City").locator('option[value="Kraków"]')).toHaveCount(1);
   await expect(page.getByLabel("City").locator('option[value="Timișoara"]')).toHaveCount(1);
   await page.getByText("More shapes, letters, and numbers").click();
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(157);
+  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(158);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Robot" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Paprika" })).toBeVisible();
@@ -439,8 +439,11 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   ).toHaveText("2 ready · 0 review · 164 locations");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
   await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
-  await expect(page.getByLabel("Route options")).toHaveValue("candidate-1");
-  await expect(page.getByLabel("Route options").locator("option")).toHaveCount(2);
+  await expect(page.locator('.candidate-card[data-candidate-id="candidate-1"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator(".candidate-card")).toHaveCount(2);
   await expect(page.getByText("Checks passed")).toBeVisible();
   await expect(page.locator(".verification-heading")).toContainText("12 of 12 passed · show details");
   await expect(

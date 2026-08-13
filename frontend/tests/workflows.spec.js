@@ -282,8 +282,9 @@ test("switching route options updates quality, distance, and export state", asyn
   await page.goto("/");
   await page.getByRole("button", { name: "Find routes" }).click();
 
-  const routeOptions = page.getByLabel("Route options");
-  await routeOptions.selectOption("candidate-review");
+  const readyOption = page.locator('.candidate-card[data-candidate-id="candidate-ready"]');
+  const reviewOption = page.locator('.candidate-card[data-candidate-id="candidate-review"]');
+  await reviewOption.click();
   await expect(page.locator(".route-state")).toContainText("Check before downloading");
   await expect(
     page.locator(".metric").filter({ hasText: "Overall match" }).locator("dd").first(),
@@ -298,7 +299,7 @@ test("switching route options updates quality, distance, and export state", asyn
   ).toHaveText("9.40 km");
   await expect(page.getByRole("button", { name: "Approve and download GPX" })).toBeEnabled();
 
-  await routeOptions.selectOption("candidate-ready");
+  await readyOption.click();
   await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
   await expect(page.getByText("Publish map image")).toBeVisible();
@@ -308,7 +309,7 @@ test("switching route options updates quality, distance, and export state", asyn
   );
   expect(hasHorizontalOverflow).toBe(false);
   for (const control of [
-    routeOptions,
+    readyOption,
     page.getByRole("button", { name: "Edit this route" }),
     page.getByRole("button", { name: "Download GPX", exact: true }),
   ]) {
@@ -461,7 +462,7 @@ test("acceptance telemetry failure does not block a reviewed route download", as
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Find routes" }).click();
-  await page.getByLabel("Route options").selectOption("candidate-review");
+  await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Approve and download GPX" }).click();
@@ -511,7 +512,7 @@ test("switching route options clears an unfinished editor session", async ({ pag
   await firstEditPoint.press("ArrowUp");
   await expect(page.getByRole("button", { name: "Discard point changes" })).toBeVisible();
 
-  await page.getByLabel("Route options").selectOption("candidate-review");
+  await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
 
   await expect(page.locator(".route-edit-marker")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeVisible();

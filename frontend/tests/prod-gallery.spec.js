@@ -67,7 +67,7 @@ async function generateThroughProductionUi(page, routeCase) {
 }
 
 async function publishSelectedCandidate(page, candidate) {
-  await page.getByLabel("Route options").selectOption(candidate.id);
+  await page.locator(`.candidate-card[data-candidate-id="${candidate.id}"]`).click();
   await expect(page.getByRole("region", { name: new RegExp(`${candidate.shape_name} street-route map`, "i") }))
     .toBeVisible();
 
@@ -173,7 +173,7 @@ test.describe("production GPS-art curation and gallery publication", () => {
       });
       if (!candidate) continue;
 
-      await page.getByLabel("Route options").selectOption(candidate.id);
+      await page.locator(`.candidate-card[data-candidate-id="${candidate.id}"]`).click();
       const map = page.getByRole("region", {
         name: new RegExp(`${candidate.shape_name} street-route map`, "i"),
       });

@@ -101,6 +101,98 @@ def test_generate_endpoint_passes_a_normalised_prompt_to_the_domain(monkeypatch)
     assert response.headers["X-Request-ID"] == "api-contract-test"
 
 
+def test_interpret_endpoint_exposes_the_bug_as_an_insect_template() -> None:
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/interpret",
+            json={"prompt": "a bug run in Tatabánya, about 8 km"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["drawing_label"] == "bug"
+    assert payload["drawing_kind"] == "template"
+    assert payload["defaults_applied"] == []
+    assert payload["confidence"] == {
+        "drawing": 0.98,
+        "city": 0.98,
+        "sport": 0.98,
+        "distance": 0.99,
+    }
+    assert payload["needs_clarification"] is False
+    assert payload["clarifications"][0]["selected"] == "bug"
+    assert [
+        option["label"] for option in payload["clarifications"][0]["options"]
+    ] == ["Bug (insect)", "Letter B"]
+    assert payload["intent"] == {
+        "shape": "bug",
+        "text": None,
+        "city": "Tatabánya",
+        "sport": "run",
+        "distance_km": 8.0,
+        "style": None,
+        "suggest": False,
+    }
+
+
+def test_interpret_endpoint_makes_route_defaults_visible() -> None:
+    with TestClient(create_app()) as client:
+        response = client.post("/interpret", json={"prompt": "draw a bug"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"]["city"] == "Budapest"
+    assert payload["intent"]["distance_km"] == 8.0
+    assert payload["defaults_applied"] == ["city", "distance"]
+    assert payload["confidence"]["city"] == 0.38
+    assert payload["confidence"]["distance"] == 0.55
+
+
+def test_generate_endpoint_forwards_confirmed_intent_start_and_preferences(
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured advanced request")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a bug run in Tatabánya, about 8 km",
+                "intent_override": {
+                    "shape": "bug",
+                    "city": "Tatabánya",
+                    "sport": "run",
+                    "distance_km": 8,
+                },
+                "start_point": {
+                    "latitude": 47.5853,
+                    "longitude": 18.4041,
+                    "label": "Station",
+                },
+                "start_direction_deg": 90,
+                "route_preferences": {
+                    "avoid_steps": True,
+                    "prefer_quiet": True,
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["prompt"] == "a bug run in Tatabánya, about 8 km"
+    assert captured["intent_override"].shape == "bug"
+    assert captured["start_point"] == (47.5853, 18.4041)
+    assert captured["start_label"] == "Station"
+    assert captured["start_direction_deg"] == 90
+    assert captured["route_preferences"].avoid_steps is True
+    assert captured["route_preferences"].prefer_quiet is True
+
+
 def test_generate_endpoint_does_not_expose_unexpected_exception_details(monkeypatch) -> None:
     def fail_generation(_prompt: str):
         raise RuntimeError("provider-secret-value")

@@ -175,16 +175,17 @@ test("approval of a review candidate remains scoped to that option", async ({ pa
     });
   });
   await openGeneratedRoute(page);
-  const selector = page.getByLabel("Route options");
-  await selector.selectOption("candidate-review");
+  const readyOption = page.locator('.candidate-card[data-candidate-id="candidate-ready"]');
+  const reviewOption = page.locator('.candidate-card[data-candidate-id="candidate-review"]');
+  await reviewOption.click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Approve and download GPX" }).click();
   await downloadPromise;
 
   await expect.poll(() => acceptancePayload?.route_id).toBe("candidate-review");
-  await selector.selectOption("candidate-ready");
+  await readyOption.click();
   await expect(page.locator(".route-state")).toContainText("Ready to download");
-  await selector.selectOption("candidate-review");
+  await reviewOption.click();
   await expect(page.locator(".route-state")).toContainText("Approved by you");
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
 });

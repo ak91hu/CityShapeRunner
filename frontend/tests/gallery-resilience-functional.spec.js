@@ -269,10 +269,9 @@ test("gallery consent is cleared when route options change", async ({ page }) =>
   await consent.check();
   await expect(consent).toBeChecked();
 
-  const selector = page.getByLabel("Route options");
-  await selector.selectOption("candidate-review");
+  await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
   await expect(consent).toHaveCount(0);
-  await selector.selectOption("candidate-ready");
+  await page.locator('.candidate-card[data-candidate-id="candidate-ready"]').click();
   await expect(consent).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Publish map" })).toBeDisabled();
 });

@@ -45,6 +45,7 @@ from gps_art_wizzard.state import (
     Plan,
     RouteConcern,
     RouteDraft,
+    RoutePreferences,
     RouteReadiness,
     RouteSurface,
     Shape,
@@ -101,6 +102,19 @@ def test_intent_fallback_distinguishes_a_shape_from_written_text():
 
     text_intent = agent._parse(agent._fallback("write HI in Berlin").text)
     assert text_intent.text == "HI"
+
+
+def test_bug_prompt_is_understood_as_an_insect_template_not_a_letter():
+    prompt = "a bug run in Tatabánya, about 8 km"
+    agent = IntentAgent()
+    intent = agent._parse(agent._fallback(prompt).text)
+
+    assert intent.shape == "bug"
+    assert intent.text is None
+    assert intent.city == "Tatabánya"
+    assert intent.sport == "run"
+    assert intent.distance_km == pytest.approx(8.0)
+    assert shape_library.find_by_keyword(intent.shape)[0] == "bug"
 
 
 @pytest.mark.parametrize(
@@ -376,6 +390,22 @@ def test_butterfly_is_a_short_closed_routable_silhouette():
     assert any(point[1] < -0.9 for point in path)  # lower-wing/body tip
 
 
+def test_bug_template_keeps_antennae_and_three_leg_pairs_in_one_route():
+    name, paths, closed = shape_library.bug()
+    path = paths[0]
+
+    assert name == "bug"
+    assert closed is True
+    assert path[0] == path[-1]
+    assert len(paths) == 1
+    assert 4.0 < geo.unit_path_length(geo.normalize_shape(paths)[0]) < 7.0
+    assert min(x for x, _ in path) == pytest.approx(-1.0)
+    assert max(x for x, _ in path) == pytest.approx(1.0)
+    assert sum(1 for x, y in path if abs(x) >= 0.85 and y > 0.2) >= 2
+    assert sum(1 for x, y in path if abs(x) >= 0.85 and abs(y) <= 0.1) >= 2
+    assert sum(1 for x, y in path if abs(x) >= 0.85 and y < -0.2) >= 2
+
+
 def _segments_cross(
     first_start: tuple[float, float],
     first_end: tuple[float, float],
@@ -408,7 +438,7 @@ def test_shape_catalog_includes_both_expansion_sets():
     assert EXTENDED_SHAPE_NAMES.isdisjoint(AUTHORED_OUTLINES)
     assert EXTENDED_SHAPE_NAMES.isdisjoint(HUNGARIAN_OUTLINES)
     assert AUTHORED_OUTLINES.keys().isdisjoint(HUNGARIAN_OUTLINES)
-    assert len(shape_library.SHAPES) == 144
+    assert len(shape_library.SHAPES) == 145
 
 
 def test_robot_template_keeps_large_robot_landmarks_after_road_snapping():
@@ -1173,6 +1203,37 @@ def test_ors_request_uses_boolean_and_sums_all_segment_distances():
     ]
 
 
+def test_ors_request_applies_supported_route_preferences():
+    client = _FakeClient()
+    ors_client._ors_request(
+        "https://example.test/route",
+        {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0]],
+        preference="recommended",
+        continue_straight=False,
+        radius=120,
+        sport="run",
+        route_preferences=RoutePreferences(
+            avoid_steps=True,
+            avoid_ferries=True,
+            avoid_fords=True,
+            prefer_quiet=True,
+            prefer_green=True,
+        ),
+        client=client,
+    )
+
+    assert client.payload["options"]["avoid_features"] == [
+        "steps",
+        "ferries",
+        "fords",
+    ]
+    assert client.payload["options"]["profile_params"]["weightings"] == {
+        "quiet": {"factor": 1.0},
+        "green": {"factor": 0.8},
+    }
+
+
 class _ReadinessResponse:
     status_code = 200
     text = ""
@@ -1718,6 +1779,36 @@ def test_omitted_running_distance_uses_practical_eight_kilometre_default():
     assert state.route_draft.scale_m < 3_000.0
 
 
+def test_start_anchor_and_direction_control_the_first_route_segment():
+    anchor = (47.5853, 18.4041)
+    state = WorkflowState(
+        prompt="eastbound arrow in Tatabánya",
+        intent=Intent("arrow", None, "Tatabánya", "run", 8.0, None),
+        plan=Plan(
+            shape_strategy="template",
+            center_lat=47.58,
+            center_lon=18.39,
+            city_bbox=(47.5, 47.7, 18.3, 18.5),
+        ),
+        shape=Shape(
+            name="line",
+            paths=[[(0.0, 0.0), (1.0, 0.0)]],
+            closed=False,
+        ),
+        start_point=anchor,
+        start_direction_deg=90.0,
+    )
+
+    PlacementAgent().run(state)
+
+    assert state.route_draft is not None
+    assert state.route_draft.waypoints[0] == pytest.approx(anchor)
+    assert geo.bearing(*state.route_draft.waypoints[0], *state.route_draft.waypoints[1]) == pytest.approx(
+        90.0,
+        abs=0.1,
+    )
+
+
 def test_refinement_shrinks_a_measured_route_that_is_over_target():
     draft = RouteDraft(
         center_lat=47.5,
@@ -1857,7 +1948,7 @@ def test_shape_recommender_profiles_every_registered_template():
     profiles = shape_recommender.shape_catalog_profiles()
 
     assert profiles.keys() == shape_library.SHAPES.keys()
-    assert len(profiles) == 144
+    assert len(profiles) == 145
     assert all(profile.path_count >= 1 for profile in profiles.values())
     assert all(0.0 <= profile.complexity <= 1.0 for profile in profiles.values())
     assert all(0.0 <= profile.routeability <= 1.0 for profile in profiles.values())
