@@ -972,20 +972,30 @@ function TimedReadinessCard({ points }) {
   const [briefing, setBriefing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const requestSequence = useRef(0);
   const check = async () => {
     if (!departure || !Array.isArray(points) || points.length < 1) return;
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
     setBusy(true);
     setError("");
     try {
-      setBriefing(await requestTimedReadiness({
+      const response = await requestTimedReadiness({
         latitude: points[0][0], longitude: points[0][1], departure_at: new Date(departure).toISOString(),
-      }));
+      });
+      if (requestSequence.current === requestId) setBriefing(response);
     } catch (requestError) {
-      setError(requestError.message || "We couldn’t check the time-based route context.");
+      if (requestSequence.current === requestId) {
+        setError(requestError.message || "We couldn’t check the time-based route context.");
+      }
     } finally {
-      setBusy(false);
+      if (requestSequence.current === requestId) setBusy(false);
     }
   };
+  const forecastTime = briefing?.weather?.forecast_at
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
+      .format(new Date(briefing.weather.forecast_at))
+    : null;
   return (
     <section className="timed-readiness-card" aria-labelledby="timed-readiness-title">
       <div>
@@ -995,20 +1005,41 @@ function TimedReadinessCard({ points }) {
       <div className="timed-readiness-controls">
         <label>
           Departure
-          <input type="datetime-local" value={departure} onChange={(event) => setDeparture(event.target.value)} />
+          <input
+            type="datetime-local"
+            value={departure}
+            onChange={(event) => {
+              requestSequence.current += 1;
+              setDeparture(event.target.value);
+              setBriefing(null);
+              setError("");
+              setBusy(false);
+            }}
+          />
         </label>
         <button type="button" className="button button--secondary" onClick={check} disabled={!departure || busy}>
           {busy ? "Checking..." : "Check conditions"}
         </button>
       </div>
       {briefing && (
-        <p className="timed-readiness-result">
-          {briefing.daylight === "daylight" ? "Daylight expected." : "After dark at this time."}
-          {briefing.weather?.temperature_c != null && ` ${Math.round(briefing.weather.temperature_c)}°C, ${Math.round(briefing.weather.wind_kph ?? 0)} km/h wind.`}
-        </p>
+        <div className="timed-readiness-result" role="status">
+          <strong>{briefing.daylight === "daylight" ? "Daylight expected." : "After dark at this time."}</strong>
+          {briefing.weather ? (
+            <>
+              <span>Forecast for {forecastTime}.</span>
+              <span>
+                {briefing.weather.temperature_c == null ? "Temperature unavailable" : `${Math.round(briefing.weather.temperature_c)}°C`}
+                {briefing.weather.wind_kph != null && ` · ${Math.round(briefing.weather.wind_kph)} km/h wind`}
+                {briefing.weather.precipitation_mm != null && ` · ${briefing.weather.precipitation_mm} mm precipitation`}.
+              </span>
+            </>
+          ) : (
+            <span>{briefing.weather_message || "Hourly weather is unavailable for this departure."}</span>
+          )}
+        </div>
       )}
       {error && <p className="editor-error" role="alert">{error}</p>}
-      <small>Weather is a live snapshot. Closures and access rules still need a local check.</small>
+      <small>Weather is matched to the selected hour when it is inside the forecast window. Closures and access rules still need a local check.</small>
     </section>
   );
 }

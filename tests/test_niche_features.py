@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from gps_art_wizzard.api import niche
 from gps_art_wizzard.main import create_app
 from gps_art_wizzard.state import RouteReadiness
-from gps_art_wizzard.tools import gpx_writer, ors_client
+from gps_art_wizzard.tools import gpx_writer, ors_client, timed_readiness
 
 POINTS = [[47.0, 19.0], [47.001, 19.0], [47.001, 19.001], [47.0, 19.001], [47.0, 19.0]]
 
@@ -30,6 +30,87 @@ def test_timed_readiness_exposes_daylight_and_resilient_weather(monkeypatch):
         response = client.post("/timed-readiness", json={"latitude": 47.5, "longitude": 19.0, "departure_at": datetime.now(UTC).isoformat()})
     assert response.status_code == 200
     assert response.json()["daylight"] == "daylight"
+
+
+class _ForecastResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+def test_timed_readiness_matches_the_exact_selected_hour(monkeypatch):
+    requested_params = []
+    hourly = {
+        "time": ["2026-08-13T12:00", "2026-08-13T13:00", "2026-08-14T12:00"],
+        "temperature_2m": [19.0, 23.0, 31.0],
+        "precipitation": [0.0, 1.4, 4.2],
+        "weather_code": [1, 61, 80],
+        "wind_speed_10m": [5.0, 11.0, 22.0],
+    }
+
+    def fake_get(_url, *, params, timeout):
+        requested_params.append((params, timeout))
+        return _ForecastResponse({"hourly": hourly})
+
+    monkeypatch.setattr(timed_readiness.httpx, "get", fake_get)
+    current = datetime(2026, 8, 13, 9, tzinfo=UTC)
+    first = timed_readiness.time_readiness(
+        47.5, 19.0, datetime(2026, 8, 13, 13, 45, tzinfo=UTC), now=current
+    )
+    second = timed_readiness.time_readiness(
+        47.5, 19.0, datetime(2026, 8, 14, 12, 15, tzinfo=UTC), now=current
+    )
+
+    assert first["weather"]["forecast_at"] == "2026-08-13T13:00:00+00:00"
+    assert first["weather"]["temperature_c"] == 23.0
+    assert second["weather"]["temperature_c"] == 31.0
+    assert first["weather"] != second["weather"]
+    assert requested_params[0][0]["forecast_days"] == 16
+
+
+def test_timed_readiness_never_substitutes_a_nearby_hour(monkeypatch):
+    hourly = {
+        "time": ["2026-08-13T12:00", "2026-08-13T14:00"],
+        "temperature_2m": [19.0, 25.0],
+    }
+    monkeypatch.setattr(
+        timed_readiness.httpx,
+        "get",
+        lambda *_args, **_kwargs: _ForecastResponse({"hourly": hourly}),
+    )
+
+    result = timed_readiness.time_readiness(
+        47.5,
+        19.0,
+        datetime(2026, 8, 13, 13, 30, tzinfo=UTC),
+        now=datetime(2026, 8, 13, 9, tzinfo=UTC),
+    )
+
+    assert result["weather"] is None
+    assert result["weather_status"] == "unavailable"
+    assert "No hourly forecast" in result["weather_message"]
+
+
+def test_timed_readiness_explains_dates_outside_the_forecast_window(monkeypatch):
+    def unexpected_get(*_args, **_kwargs):
+        raise AssertionError("Weather API must not be called outside its supported window")
+
+    monkeypatch.setattr(timed_readiness.httpx, "get", unexpected_get)
+    result = timed_readiness.time_readiness(
+        47.5,
+        19.0,
+        datetime(2026, 9, 4, 13, tzinfo=UTC),
+        now=datetime(2026, 8, 13, 9, tzinfo=UTC),
+    )
+
+    assert result["weather"] is None
+    assert result["weather_status"] == "outside_forecast_window"
+    assert "16 days ahead" in result["weather_message"]
 
 
 def test_recognition_repair_keeps_salient_anchor_route_exportable(monkeypatch):
