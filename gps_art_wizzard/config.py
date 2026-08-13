@@ -37,7 +37,7 @@ class LLMConfig:
     opencode_structured_model: str = field(
         default_factory=lambda: os.getenv(
             "OPENCODE_STRUCTURED_MODEL",
-            "gpt-5.6-luna",
+            "gpt-5.4-mini",
         )
     )
     openai_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))

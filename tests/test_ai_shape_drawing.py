@@ -10,6 +10,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _adaptive_candidate_count,
     _clear_custom_shape_cache,
     _heuristic_shape_spec,
+    _normalise_close_commands,
     _reference_shape_payloads,
 )
 from gps_art_wizzard.ai_shape_benchmark import AI_SHAPE_BENCHMARK_CASES
@@ -78,6 +79,21 @@ def _program(*, raised: bool) -> dict:
         {"op": "close", "points": [], "feature_id": "box_head"},
     ]
     return {"strokes": [{"commands": commands}], "closed": True}
+
+
+def test_close_command_is_moved_after_all_authored_segments() -> None:
+    program = _program(raised=True)
+    commands = program["strokes"][0]["commands"]
+    commands.insert(-3, commands.pop())
+
+    normalised = _normalise_close_commands(program)
+
+    assert normalised["strokes"][0]["commands"][-1]["op"] == "close"
+    assert sum(
+        command["op"] == "close"
+        for command in normalised["strokes"][0]["commands"]
+    ) == 1
+    assert program["strokes"][0]["commands"][-1]["op"] != "close"
 
 
 def _review(candidate_index: int, score: float) -> dict:
@@ -206,17 +222,12 @@ def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeyp
         ],
         "preferred_variant": 1,
     }
-    verification = {
-        "reviews": [_review(0, 0.72), _review(1, 0.9)],
-        "recommended_candidate": 1,
-    }
     responses = iter([
         LLMResponse(
             json.dumps({"spec": _spec_payload(), **geometry}),
             "generator",
             "vision-draw",
         ),
-        LLMResponse(json.dumps(verification), "reviewer", "vision-review"),
     ])
     calls = []
 
@@ -239,9 +250,8 @@ def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeyp
 
     assert calls[0]["images"][0].data_url == data_url
     assert calls[0]["images"][0].detail == "auto"
-    assert len(calls) == 2
-    assert len(calls[1]["images"]) == 3
-    assert calls[1]["images"][0].data_url == data_url
+    assert len(calls) == 1
+    assert calls[0]["max_provider_attempts"] == 1
     assert "Treat the image as authoritative" in calls[0]["messages"][0]["content"]
     assert calls[0]["json_schema"]["required"] == [
         "spec",
@@ -253,11 +263,11 @@ def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeyp
     assert state.shape.name == "mug icon"
 
 
-def test_visual_svg_uses_sampled_geometry_when_ai_is_unavailable(monkeypatch):
+def test_visual_svg_uses_sampled_geometry_without_waiting_for_ai(monkeypatch):
     _clear_custom_shape_cache()
 
-    def complete(fallback, **_kwargs):
-        return fallback()
+    def complete(*_args, **_kwargs):
+        raise AssertionError("SVG geometry should bypass the visual model")
 
     monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
     fallback_shape = Shape(
@@ -283,6 +293,39 @@ def test_visual_svg_uses_sampled_geometry_when_ai_is_unavailable(monkeypatch):
     assert state.shape.source == "reference_svg"
     assert len(state.shape.paths) == 1
     assert state.shape.paths[0][0] == state.shape.paths[0][-1]
+
+
+def test_raster_reference_falls_back_to_local_contour_after_one_provider(monkeypatch):
+    _clear_custom_shape_cache()
+    calls = []
+
+    def complete(fallback, **kwargs):
+        calls.append(kwargs)
+        return fallback()
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    fallback_shape = Shape(
+        name="linked mug",
+        paths=[[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0), (0.0, 0.0)]],
+        closed=True,
+        source="reference_raster",
+    )
+    state = WorkflowState(
+        prompt="a custom image in Budapest, about 10 km",
+        intent=Intent("custom image", None, "Budapest", "run", 10, None),
+        plan=Plan(shape_strategy="llm"),
+        reference_shape=fallback_shape,
+        reference_image_data_url="data:image/png;base64,aW1hZ2U=",
+        reference_name="linked mug",
+        reference_kind="raster",
+    )
+
+    ShapeAgent().run(state)
+
+    assert len(calls) == 1
+    assert calls[0]["max_provider_attempts"] == 1
+    assert state.shape is not None
+    assert state.shape.source == "reference_raster"
 
 
 def test_weak_visual_review_triggers_one_targeted_repair(monkeypatch):
@@ -371,3 +414,34 @@ def test_visual_reviewer_excludes_generator_without_replacing_sticky_provider(mo
         "reviewer",
         "generator",
     )
+
+
+def test_provider_attempt_limit_prevents_slow_fallback_cascade(monkeypatch):
+    class Provider:
+        def __init__(self, name):
+            self.name = name
+            self.calls = 0
+
+        def is_available(self):
+            return True
+
+        def complete(self, **_kwargs):
+            self.calls += 1
+            raise llm_factory.LLMError("timed out")
+
+    primary = Provider("primary")
+    secondary = Provider("secondary")
+    monkeypatch.setattr(llm_factory, "available_providers", lambda: (primary, secondary))
+    llm_factory.reset_sticky()
+    try:
+        response = llm_factory.try_complete(
+            lambda: "local contour",
+            messages=[],
+            max_provider_attempts=1,
+        )
+    finally:
+        llm_factory.reset_sticky()
+
+    assert response == "local contour"
+    assert primary.calls == 1
+    assert secondary.calls == 0

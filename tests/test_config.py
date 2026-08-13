@@ -46,10 +46,10 @@ def test_split_env_trims_values_and_removes_empty_entries(monkeypatch) -> None:
     ]
 
 
-def test_opencode_visual_model_defaults_to_current_fast_responses_model(monkeypatch) -> None:
+def test_opencode_visual_model_defaults_to_fast_responses_model(monkeypatch) -> None:
     monkeypatch.delenv("OPENCODE_STRUCTURED_MODEL", raising=False)
 
-    assert config.LLMConfig().opencode_structured_model == "gpt-5.6-luna"
+    assert config.LLMConfig().opencode_structured_model == "gpt-5.4-mini"
 
 
 def test_yaml_overlays_populate_workflow_and_routing(monkeypatch) -> None:

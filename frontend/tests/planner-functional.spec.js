@@ -34,6 +34,30 @@ test("primary navigation links reach each planner section", async ({ page }) => 
   }
 });
 
+test("the planner uses a compact responsive layout with optional panels collapsed", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(page.locator(".image-reference-panel")).not.toHaveAttribute("open", "");
+  const spacing = await page.locator(".generator-stage").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      columnGap: Number.parseFloat(style.columnGap),
+      paddingTop: Number.parseFloat(style.paddingTop),
+      paddingBottom: Number.parseFloat(style.paddingBottom),
+    };
+  });
+
+  expect(spacing.columnGap).toBeLessThanOrEqual(48);
+  expect(spacing.paddingTop).toBeLessThanOrEqual(44);
+  expect(spacing.paddingBottom).toBeLessThanOrEqual(44);
+  const horizontalOverflow = await page.locator("body").evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  );
+  expect(horizontalOverflow).toBeLessThanOrEqual(1);
+});
+
 test("the route idea exposes its help and character count to assistive technology", async ({
   page,
 }) => {
@@ -157,6 +181,7 @@ test("a supported image link can generate an AI route in a selected city", async
   await page.goto("/");
 
   const imagePanel = page.locator(".image-reference-panel");
+  await imagePanel.getByText("Use an image link").click();
   await imagePanel.getByLabel("Direct image URL").fill(
     "https://www.premiumsvg.com/wimg1/mug-icon.webp",
   );

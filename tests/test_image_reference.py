@@ -8,7 +8,7 @@ from io import BytesIO
 
 import httpx
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from gps_art_wizzard.tools import image_reference
 
@@ -34,6 +34,16 @@ def _client(content: bytes, *, status: int = 200) -> httpx.Client:
 def _raster(format_name: str, *, size: tuple[int, int] = (48, 32)) -> bytes:
     output = BytesIO()
     Image.new("RGB", size, (20, 80, 160)).save(output, format=format_name)
+    return output.getvalue()
+
+
+def _icon_raster(format_name: str = "PNG") -> bytes:
+    output = BytesIO()
+    image = Image.new("RGB", (160, 120), "white")
+    drawing = ImageDraw.Draw(image)
+    drawing.rounded_rectangle((22, 24, 108, 98), radius=15, fill="black")
+    drawing.ellipse((88, 38, 145, 88), outline="black", width=14)
+    image.save(output, format=format_name)
     return output.getvalue()
 
 
@@ -75,6 +85,21 @@ def test_webp_link_is_preserved_as_a_multimodal_reference(monkeypatch) -> None:
     assert imported.shape is None
     assert imported.image_data_url is not None
     assert imported.image_data_url.startswith("data:image/png;base64,")
+
+
+def test_raster_image_also_has_an_immediate_routeable_fallback(monkeypatch) -> None:
+    _public_dns(monkeypatch)
+
+    imported = image_reference.import_image_reference(
+        "https://example.com/mug.png",
+        client=_client(_icon_raster()),
+    )
+
+    assert imported.shape is not None
+    assert imported.shape.source == "reference_raster"
+    assert imported.shape.closed is True
+    assert imported.shape.paths
+    assert all(path[0] == path[-1] for path in imported.shape.paths)
 
 
 @pytest.mark.parametrize("format_name", ["BMP", "TIFF", "GIF", "PNG", "JPEG"])

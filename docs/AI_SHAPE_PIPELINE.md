@@ -25,9 +25,10 @@ calls.
 ## Linked-image fast path
 
 A public image URL uses a dedicated visual path instead of being interpreted
-from its filename. SVG geometry is sampled for a deterministic fallback and
-also rendered as a model-visible PNG. Other files are identified from their
-contents with Pillow, not their extension. Every decodable raster is EXIF-
+from its filename. SVG geometry is sampled and used directly, avoiding a model
+round trip while preserving the exact source vectors. Other files are
+identified from their contents with Pillow, not their extension. Every
+decodable raster is EXIF-
 oriented, limited to 40 million source pixels, reduced to at most 1024 px on
 either axis, flattened onto white, and encoded once as PNG. Animated or layered
 inputs use their first rendered frame. Downloads remain limited to 5 MB and
@@ -36,13 +37,23 @@ The 64 most recent normalised URLs are cached per server process, so retrying
 the same link avoids another download and decode; cached values are copied
 before use.
 
-The authoritative reference image, semantic `ShapeSpec`, and exactly two GPS-
-art programs are handled in one strict-schema multimodal generation call. This
-replaces the previous sequential image-analysis and geometry calls. If an
-independent reviewer provider is configured, it receives the original image
-before the candidate thumbnails so it can compare the generated silhouette
-directly with the source. With only the OpenCode provider configured, the local
-geometry review is used and no redundant second-provider call is made.
+For raster input, a routeable local silhouette is prepared during that same
+decode. The authoritative reference image, semantic `ShapeSpec`, and exactly
+two GPS-art programs are then handled in one strict-schema multimodal call. The
+call tries only the primary provider, uses a 30-second provider deadline, and
+does not start an independent reviewer or repair call. If the provider times
+out or emits invalid geometry, generation continues immediately from the local
+silhouette instead of cascading through slow providers. A misplaced model
+`close` command is moved to the end of its stroke locally so an otherwise valid
+drawing does not require another request.
+
+OpenCode structured work defaults to the image-capable `gpt-5.4-mini`. A live
+minimal strict-schema probe in the development environment completed in 1.96 s
+on that model versus 9.46 s on `gpt-5.6-luna`; deployments can still override
+the model with `OPENCODE_STRUCTURED_MODEL`. The browser stops image requests
+after 120 seconds and other generation after 180 seconds, preserves the exact
+image payload for retry, and shows rotating progress messages plus elapsed time
+while work is in flight.
 
 This follows OpenCode's documented image-normalisation model and image-capable
 model metadata:

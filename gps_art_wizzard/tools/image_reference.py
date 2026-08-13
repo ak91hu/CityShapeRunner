@@ -16,7 +16,10 @@ from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
+import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
+from shapely import concave_hull
+from shapely.geometry import MultiPoint, MultiPolygon, Polygon
 from svgelements import SVG, Close
 from svgelements import Path as SvgPath
 from svgelements import Shape as SvgShape
@@ -95,10 +98,12 @@ def _import_public_image(url: str, client: httpx.Client) -> ImportedImageReferen
                 padding=28,
             ),
         )
+    image_data_url, fallback_shape = _normalise_raster_image(content, name=name)
     return ImportedImageReference(
         name=name,
         kind="raster",
-        image_data_url=_normalise_raster_image(content),
+        shape=fallback_shape,
+        image_data_url=image_data_url,
     )
 
 
@@ -206,7 +211,7 @@ def _detect_media_type(content: bytes) -> str:
     return "application/octet-stream"
 
 
-def _normalise_raster_image(content: bytes) -> str:
+def _normalise_raster_image(content: bytes, *, name: str) -> tuple[str, Shape | None]:
     """Decode a raster by content and produce a small provider-safe PNG."""
 
     try:
@@ -241,10 +246,102 @@ def _normalise_raster_image(content: bytes) -> str:
     background = Image.new("RGBA", rgba.size, "white")
     background.alpha_composite(rgba)
     normalised = background.convert("RGB")
+    fallback_shape = _shape_from_raster(normalised, name=name)
     output = BytesIO()
     normalised.save(output, format="PNG", compress_level=3)
     encoded = base64.b64encode(output.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+    return f"data:image/png;base64,{encoded}", fallback_shape
+
+
+def _shape_from_raster(image: Image.Image, *, name: str) -> Shape | None:
+    """Build a quick routeable silhouette for AI failure or timeout.
+
+    This is deliberately a fallback, not the primary visual interpreter. It
+    estimates the background from the border, keeps the largest contrasting
+    subject contour, and uses a topology-preserving concave hull.
+    """
+
+    preview = image.copy()
+    preview.thumbnail((192, 192), Image.Resampling.BILINEAR, reducing_gap=3.0)
+    rgb = np.asarray(preview.convert("RGB"), dtype=np.int16)
+    height, width = rgb.shape[:2]
+    if min(width, height) < 4:
+        return None
+
+    border = np.concatenate(
+        (rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]),
+        axis=0,
+    )
+    background = np.median(border, axis=0)
+    colour_distance = np.sqrt(
+        np.sum((rgb.astype(np.float32) - background) ** 2, axis=2)
+    )
+    # A fixed floor suppresses JPEG noise; the border percentile adapts to
+    # photographic or textured backgrounds without relying on the file type.
+    threshold = max(24.0, float(np.percentile(colour_distance, 72)))
+    mask = colour_distance >= threshold
+    coverage = float(mask.mean())
+    if coverage < 0.01 or coverage > 0.82:
+        grayscale = np.asarray(preview.convert("L"), dtype=np.float32)
+        pivot = float(np.median(grayscale))
+        darker = grayscale < pivot - 18
+        lighter = grayscale > pivot + 18
+        mask = darker if 0.01 <= darker.mean() <= lighter.mean() else lighter
+        coverage = float(mask.mean())
+    if coverage < 0.01 or coverage > 0.82:
+        return None
+
+    padded = np.pad(mask, 1, constant_values=False)
+    interior = mask.copy()
+    for y_offset in range(3):
+        for x_offset in range(3):
+            interior &= padded[
+                y_offset : y_offset + height,
+                x_offset : x_offset + width,
+            ]
+    boundary_y, boundary_x = np.nonzero(mask & ~interior)
+    if len(boundary_x) < 12:
+        return None
+    if len(boundary_x) > 2_500:
+        stride = math.ceil(len(boundary_x) / 2_500)
+        boundary_x = boundary_x[::stride]
+        boundary_y = boundary_y[::stride]
+
+    try:
+        hull = concave_hull(
+            MultiPoint(
+                [(float(x), float(-y)) for x, y in zip(boundary_x, boundary_y, strict=True)]
+            ),
+            ratio=0.08,
+            allow_holes=True,
+        )
+        if isinstance(hull, MultiPolygon):
+            hull = max(hull.geoms, key=lambda polygon: polygon.area)
+        if not isinstance(hull, Polygon) or hull.is_empty:
+            return None
+        simplified = hull.simplify(max(width, height) * 0.012, preserve_topology=True)
+        if not isinstance(simplified, Polygon) or simplified.is_empty:
+            return None
+    except Exception:  # noqa: BLE001 - optional best-effort fallback geometry
+        return None
+
+    rings = [simplified.exterior, *simplified.interiors]
+    paths: list[list[tuple[float, float]]] = []
+    for ring in sorted(rings, key=lambda item: abs(Polygon(item).area), reverse=True)[:4]:
+        coordinates = [(float(x), float(y)) for x, y in ring.coords]
+        if len(coordinates) > 96:
+            stride = math.ceil((len(coordinates) - 1) / 95)
+            coordinates = [*coordinates[:-1:stride], coordinates[-1]]
+        if len(coordinates) >= 4:
+            paths.append(coordinates)
+    if not paths:
+        return None
+    return Shape(
+        name=name,
+        paths=paths,
+        closed=True,
+        source="reference_raster",
+    )
 
 
 def _shape_from_svg(content: bytes, *, name: str) -> Shape:

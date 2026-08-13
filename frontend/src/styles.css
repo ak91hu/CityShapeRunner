@@ -5231,3 +5231,154 @@ input,
     width: 100%;
   }
 }
+
+/* Compact planner layout: keep the primary form above the fold and avoid a
+   tall empty intro column when optional tools expand. */
+.generator-stage {
+  grid-template-columns: minmax(15rem, 0.44fr) minmax(0, 1fr);
+  gap: clamp(1.25rem, 3vw, 3rem);
+  padding-block: clamp(1.25rem, 3.5vw, 2.75rem);
+}
+
+.planner-intro {
+  max-width: 25rem;
+  padding-top: 0.15rem;
+}
+
+.planner-intro h1 {
+  max-width: 14ch;
+  margin-bottom: 0.75rem;
+  font-size: clamp(2.1rem, 3.6vw, 3.2rem);
+}
+
+.planner-intro-copy {
+  margin-bottom: 0.85rem;
+  font-size: 0.96rem;
+  line-height: 1.5;
+}
+
+.planner-safety-note {
+  padding-top: 0.65rem;
+  font-size: 0.76rem;
+}
+
+.designer-card {
+  padding: clamp(1rem, 2vw, 1.5rem);
+}
+
+.card-heading {
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.75rem;
+}
+
+textarea {
+  min-height: 6.25rem;
+  padding-block: 0.8rem 1.8rem;
+}
+
+.field-help {
+  margin: 0.4rem 0 0.9rem;
+}
+
+.idea-picker,
+.idea-catalog {
+  margin-bottom: 0.8rem;
+}
+
+.image-reference-panel,
+.suggest-panel {
+  margin-top: 0.65rem;
+}
+
+.loading-card {
+  width: min(100%, 58rem);
+  margin: 1rem auto 0;
+  padding: 1rem 1.15rem;
+}
+
+.loading-heading-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.loading-heading-row > span {
+  color: var(--brand-dark);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.loading-message {
+  min-height: 1.5em;
+  margin: 0.35rem 0 0;
+  color: var(--ink);
+  font-weight: 680;
+}
+
+.loading-expectation {
+  margin: 0.15rem 0 0 !important;
+  color: var(--muted) !important;
+  font-size: 0.76rem !important;
+}
+
+@media (max-width: 68rem) {
+  .generator-stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    padding-block: 1.25rem 2rem;
+  }
+
+  .planner-intro {
+    max-width: none;
+    padding-top: 0;
+  }
+
+  .planner-intro h1 {
+    max-width: none;
+    font-size: clamp(2rem, 7vw, 3rem);
+  }
+
+  .planner-intro-copy {
+    max-width: 52rem;
+  }
+}
+
+@media (max-width: 38rem) {
+  .app-shell {
+    padding-inline: 0.75rem;
+  }
+
+  .site-header {
+    min-height: 4rem;
+  }
+
+  .generator-stage {
+    padding-block: 0.85rem 1.5rem;
+  }
+
+  .planner-intro h1 {
+    font-size: clamp(1.85rem, 9vw, 2.4rem);
+  }
+
+  .planner-intro-copy {
+    margin-bottom: 0.65rem;
+    font-size: 0.9rem;
+  }
+
+  .designer-card {
+    padding: 0.85rem;
+  }
+
+  .loading-card {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .loading-card > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}

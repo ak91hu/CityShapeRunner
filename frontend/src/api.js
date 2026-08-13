@@ -8,7 +8,10 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
+async function request(
+  path,
+  { signal, timeoutMs = 15_000, timeoutMessage, ...options } = {},
+) {
   const controller = new AbortController();
   let timedOut = false;
   let timeoutId = null;
@@ -52,7 +55,9 @@ async function request(path, { signal, timeoutMs = 15_000, ...options } = {}) {
     return data;
   } catch (error) {
     if (timedOut) {
-      throw new ApiError("The service didn’t respond in time. Please try again.");
+      throw new ApiError(
+        timeoutMessage || "The service didn’t respond in time. Please try again.",
+      );
     }
     if (signal?.aborted) {
       throw new DOMException("The request was cancelled.", "AbortError");
@@ -72,12 +77,13 @@ export function health(options = {}) {
 
 export function generate(prompt, options = {}) {
   const { payload = {}, ...requestOptions } = options;
+  const usesImage = Boolean(payload.reference_image_url);
   return request("/generate", {
     ...requestOptions,
-    // Custom drawings may include one bounded AI repair plus several measured
-    // street-network candidates. Keep waiting until the server responds or
-    // the user explicitly uses the existing Cancel action.
-    timeoutMs: null,
+    timeoutMs: usesImage ? 120_000 : 180_000,
+    timeoutMessage: usesImage
+      ? "The image route took too long. Try a simpler image or retry; the planner has stopped safely."
+      : "Route planning took too long. Try a simpler drawing or a shorter distance.",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, ...payload }),

@@ -127,7 +127,7 @@ class Shape:
     name: str
     paths: list[list[tuple[float, float]]]
     closed: bool
-    source: str = "template"  # template | text | llm | reference_svg | fallback
+    source: str = "template"  # template | text | llm | reference_svg | reference_raster | fallback
     spec: ShapeSpec | None = None
     semantic_verification: ShapeVerification | None = None
     recognition_features: list[str] = field(default_factory=list)

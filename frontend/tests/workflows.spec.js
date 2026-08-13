@@ -250,7 +250,7 @@ test("cancelling an in-flight generation restores the designer without an error"
   let requestStarted = false;
   await page.route("**/generate", async (route) => {
     requestStarted = true;
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await new Promise((resolve) => setTimeout(resolve, 7_000));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -262,6 +262,10 @@ test("cancelling an in-flight generation restores the designer without an error"
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
+  await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
+  await page.waitForTimeout(5_100);
+  await expect(page.getByText("Asking nearby streets to cooperate nicely.")).toBeVisible();
+  await expect(page.getByLabel(/seconds elapsed/)).toHaveText("5s");
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();

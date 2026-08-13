@@ -132,6 +132,7 @@ def try_complete(
     *,
     exclude_provider: str | None = None,
     pin_provider: bool = True,
+    max_provider_attempts: int | None = None,
     **kwargs,
 ):
     """Run an LLM call with provider fallback.
@@ -154,6 +155,8 @@ def try_complete(
     last_err: Exception | None = None
     attempted = 0
     for provider in providers:
+        if max_provider_attempts is not None and attempted >= max_provider_attempts:
+            break
         if _probe_in_cooldown(provider.name):
             continue
         if not provider.is_available():

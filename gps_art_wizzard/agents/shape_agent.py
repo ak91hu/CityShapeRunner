@@ -264,7 +264,12 @@ class ShapeAgent(BaseAgent):
     def run(self, state: WorkflowState) -> WorkflowState:
         if state.intent is None:
             raise RuntimeError("shape generation requires intent")
-        if state.reference_image_data_url:
+        if (
+            state.reference_kind == "svg"
+            and state.reference_shape is not None
+        ):
+            shape = deepcopy(state.reference_shape)
+        elif state.reference_image_data_url:
             shape = self._try_llm(state)
             if shape.source == "fallback" and state.reference_shape is not None:
                 shape = deepcopy(state.reference_shape)
@@ -402,6 +407,7 @@ class ShapeAgent(BaseAgent):
                 temperature=0.15,
                 max_tokens=4096,
                 images=reference_images,
+                max_provider_attempts=1,
             )
             if geometry_response.provider == "fallback":
                 return self._llm_fallback_shape(idea)
@@ -471,6 +477,12 @@ class ShapeAgent(BaseAgent):
                 spec=spec,
             )
         except (KeyError, TypeError, ValueError) as exc:
+            if reference_images:
+                self.log.warning(
+                    "Visual shape response was unusable; using the immediate image contour: %s",
+                    " ".join(str(exc).split())[:320],
+                )
+                return self._llm_fallback_shape(idea)
             repair_used = True
             repaired = self._repair_candidate(
                 idea=idea,
@@ -485,14 +497,20 @@ class ShapeAgent(BaseAgent):
                 return self._llm_fallback_shape(idea)
             candidates, preferred, geometry_response = [repaired], 0, repaired.response
 
-        verifications, recommended = self._verify_candidates(
-            idea=idea,
-            spec=spec,
-            candidates=candidates,
-            generator_provider=geometry_response.provider,
-            system=system,
-            reference_images=reference_images,
-        )
+        if reference_images:
+            verifications = {
+                candidate.index: _geometry_only_verification(candidate)
+                for candidate in candidates
+            }
+            recommended = None
+        else:
+            verifications, recommended = self._verify_candidates(
+                idea=idea,
+                spec=spec,
+                candidates=candidates,
+                generator_provider=geometry_response.provider,
+                system=system,
+            )
         selected = _select_candidate(candidates, verifications, preferred, recommended)
         selected_review = verifications.get(selected.index)
 
@@ -504,7 +522,7 @@ class ShapeAgent(BaseAgent):
             and selected_review.score is not None
             and selected_review.score < threshold
         )
-        if not repair_used and (diagnostics or semantically_weak):
+        if not reference_images and not repair_used and (diagnostics or semantically_weak):
             repaired = self._repair_candidate(
                 idea=idea,
                 spec=spec,
@@ -904,8 +922,9 @@ def _candidate_from_program(
 ) -> _GeneratedCandidate:
     strategy = _clean_text(raw.get("strategy"), max_length=120)
     required_ids = {feature.id for feature in spec.recognition_features}
+    program = _normalise_close_commands(raw.get("program"))
     compiled = shape_program.compile_shape_program(
-        raw.get("program"),
+        program,
         required_feature_ids=required_ids,
     )
     _validate_route_friendly_geometry(compiled.paths)
@@ -926,6 +945,42 @@ def _candidate_from_program(
         feature_warnings=compiled.warnings,
         response=response,
     )
+
+
+def _normalise_close_commands(program: object) -> object:
+    """Move a model-emitted close command to the end of its stroke.
+
+    Some otherwise valid structured responses place ``close`` immediately
+    before one or two final line commands. The drawing language has only one
+    subpath per stroke, so postponing that close preserves every authored
+    segment and restores the intended closed contour without another AI call.
+    """
+
+    if not isinstance(program, dict):
+        return program
+    normalised = deepcopy(program)
+    strokes = normalised.get("strokes")
+    if not isinstance(strokes, list):
+        return normalised
+    for stroke in strokes:
+        if not isinstance(stroke, dict):
+            continue
+        commands = stroke.get("commands")
+        if not isinstance(commands, list):
+            continue
+        close_commands = [
+            command
+            for command in commands
+            if isinstance(command, dict) and command.get("op") == "close"
+        ]
+        if not close_commands:
+            continue
+        stroke["commands"] = [
+            command
+            for command in commands
+            if not (isinstance(command, dict) and command.get("op") == "close")
+        ] + [close_commands[0]]
+    return normalised
 
 
 def _geometry_only_verification(candidate: _GeneratedCandidate) -> ShapeVerification:

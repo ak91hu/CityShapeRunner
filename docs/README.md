@@ -250,7 +250,7 @@ opencode) and put it in `.env`:
 ```bash
 OPENCODE_API_KEY=zen-...
 OPENCODE_BASE_URL=https://opencode.ai/zen/v1
-OPENCODE_STRUCTURED_MODEL=gpt-5.6-luna # /v1/responses, fast multimodal strict-schema tasks
+OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini # /v1/responses, fast multimodal strict-schema tasks
 LLM_MODEL=glm-5.2            # any /v1/chat/completions model: kimi-k2.6, deepseek-v4-flash, ...
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode,anthropic,openai,ollama

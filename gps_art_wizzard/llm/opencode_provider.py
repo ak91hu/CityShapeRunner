@@ -14,7 +14,7 @@ from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_respo
 
 _DEFAULT_MODEL = "glm-5.2"
 _DEFAULT_BASE_URL = "https://opencode.ai/zen/v1"
-_DEFAULT_STRUCTURED_MODEL = "gpt-5.6-luna"
+_DEFAULT_STRUCTURED_MODEL = "gpt-5.4-mini"
 
 
 class OpenCodeProvider:
@@ -39,7 +39,7 @@ class OpenCodeProvider:
         self._client = OpenAI(
             api_key=api_key,
             base_url=base_url or _DEFAULT_BASE_URL,
-            timeout=45.0,
+            timeout=30.0,
             max_retries=0,
         )
         self._model = model or _DEFAULT_MODEL

@@ -1171,7 +1171,38 @@ function InkproofCard({ points, overlayType, onOverlayChange }) {
   );
 }
 
-function LoadingState({ onCancel }) {
+const ROUTE_LOADING_MESSAGES = [
+  "Sketching the outline without colouring outside the city.",
+  "Asking nearby streets to cooperate nicely.",
+  "Untangling one suspiciously spaghetti-shaped junction.",
+  "Checking that the route looks intentional, not like a lost pigeon.",
+  "Measuring the final line and polishing its corners.",
+];
+
+const IMAGE_LOADING_MESSAGES = [
+  "Looking at the whole image, not just the first letter. Promise.",
+  "Turning pixels into a route-sized silhouette.",
+  "Negotiating with streets that refuse to curve artistically.",
+  "Keeping the useful details and evicting the tiny squiggles.",
+  "Giving the GPS art one last recognisability check.",
+];
+
+function LoadingState({ onCancel, kind = "route" }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const messages = kind === "image" ? IMAGE_LOADING_MESSAGES : ROUTE_LOADING_MESSAGES;
+  const messageIndex = Math.min(
+    messages.length - 1,
+    Math.floor(elapsedSeconds / 5),
+  );
+
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setElapsedSeconds((current) => current + 1),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <section className="loading-card" aria-live="polite" aria-busy="true">
       <div className="route-loader" aria-hidden="true">
@@ -1181,8 +1212,16 @@ function LoadingState({ onCancel }) {
         <span />
       </div>
       <div>
-        <h2>Finding routes</h2>
-        <p>Testing nearby streets against your drawing. Complex drawings can take longer.</p>
+        <div className="loading-heading-row">
+          <h2>{kind === "image" ? "Drawing from your image" : "Finding routes"}</h2>
+          <span aria-label={`${elapsedSeconds} seconds elapsed`}>{elapsedSeconds}s</span>
+        </div>
+        <p className="loading-message">{messages[messageIndex]}</p>
+        <p className="loading-expectation">
+          {kind === "image"
+            ? "Image tracing normally finishes within about a minute."
+            : "Complex drawings may need a little longer while streets are tested."}
+        </p>
       </div>
       <button type="button" className="button button--quiet" onClick={onCancel}>
         Cancel
@@ -2540,6 +2579,7 @@ export default function App() {
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingKind, setLoadingKind] = useState("route");
   const [imageUrl, setImageUrl] = useState("");
   const [imageCity, setImageCity] = useState(SUGGEST_CITIES[0]);
   const [imageSport, setImageSport] = useState("run");
@@ -2556,6 +2596,7 @@ export default function App() {
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
+  const lastGenerationRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
@@ -2605,6 +2646,8 @@ export default function App() {
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
+    lastGenerationRef.current = { prompt: cleanPrompt, payload: extraPayload };
+    setLoadingKind(extraPayload.reference_image_url ? "image" : "route");
     setLoading(true);
     setError("");
     setResult(null);
@@ -2916,7 +2959,7 @@ export default function App() {
               </div>
             </form>
 
-            <details className="image-reference-panel" open>
+            <details className="image-reference-panel">
               <summary>
                 <span>
                   <strong>Use an image link</strong>
@@ -3195,7 +3238,7 @@ export default function App() {
           </div>
         </section>
 
-        {loading && <LoadingState onCancel={cancelGeneration} />}
+        {loading && <LoadingState onCancel={cancelGeneration} kind={loadingKind} />}
 
         {error && (
           <section className="error-card" role="alert" tabIndex="-1" ref={errorRef}>
@@ -3208,7 +3251,10 @@ export default function App() {
               <button
                 type="button"
                 className="button button--secondary"
-                onClick={() => generate(prompt)}
+                onClick={() => {
+                  const previous = lastGenerationRef.current;
+                  generate(previous?.prompt ?? prompt, previous?.payload ?? {});
+                }}
               >
                 Try again
               </button>
