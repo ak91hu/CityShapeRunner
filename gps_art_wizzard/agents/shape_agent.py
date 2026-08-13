@@ -246,13 +246,16 @@ class ShapeAgent(BaseAgent):
     def run(self, state: WorkflowState) -> WorkflowState:
         if state.intent is None:
             raise RuntimeError("shape generation requires intent")
-        for tier in self._ordered_tiers(state):
-            shape = tier(state)
-            if shape is not None:
-                break
-        else:  # ultimate safety net — always produce a shape
-            name, paths, closed = shape_library.star()
-            shape = Shape(name=name, paths=[list(p) for p in paths], closed=closed, source="fallback")
+        if state.reference_shape is not None:
+            shape = deepcopy(state.reference_shape)
+        else:
+            for tier in self._ordered_tiers(state):
+                shape = tier(state)
+                if shape is not None:
+                    break
+            else:  # ultimate safety net — always produce a shape
+                name, paths, closed = shape_library.star()
+                shape = Shape(name=name, paths=[list(p) for p in paths], closed=closed, source="fallback")
         # Smooth jagged LLM paths before the single normalisation pass.
         # Templates and text are already sampled appropriately; extra passes
         # would inflate CPU work and route payloads without adding detail.
@@ -287,6 +290,8 @@ class ShapeAgent(BaseAgent):
         return shape.paths
 
     def _ordered_tiers(self, state: WorkflowState) -> list:
+        if state.reference_image_data_url:
+            return [self._try_llm]
         strategy = state.plan.shape_strategy if state.plan else "template"
         tiers = {
             "text": [self._try_text, self._try_template, self._try_llm],
@@ -336,8 +341,21 @@ class ShapeAgent(BaseAgent):
             return self._llm_fallback_shape("custom idea")
         idea = intent.shape or "an interesting shape"
         style = intent.style or "none"
-        cache_key = _custom_shape_cache_key(idea, style)
-        cached = _get_cached_custom_shape(cache_key, name=idea)
+        reference_images = (
+            [ImageInput(state.reference_image_data_url, detail="high")]
+            if state.reference_image_data_url
+            else []
+        )
+        reference_digest = (
+            hashlib.sha256(state.reference_image_data_url.encode()).hexdigest()
+            if state.reference_image_data_url
+            else ""
+        )
+        cache_key = _custom_shape_cache_key(idea, style, reference_digest)
+        cached = _get_cached_custom_shape(
+            cache_key,
+            name=state.reference_name or idea,
+        )
         if cached is not None:
             return cached
 
@@ -349,6 +367,13 @@ class ShapeAgent(BaseAgent):
             style=json.dumps(style, ensure_ascii=False),
             route_context=json.dumps(route_context, ensure_ascii=False),
         )
+        if reference_images:
+            spec_prompt += (
+                "\n\nThe attached image is the authoritative drawing reference. Identify the complete "
+                "visible subject and preserve its silhouette, holes, handles, negative space, and "
+                "distinctive proportions. Ignore colour, texture, shadows, and background. Do not "
+                "infer the drawing from the generic request wording when the image shows it."
+            )
         spec_response = try_complete(
             lambda: self._spec_fallback(idea),
             messages=[{"role": "user", "content": spec_prompt}],
@@ -356,6 +381,7 @@ class ShapeAgent(BaseAgent):
             json_mode=True,
             json_schema=_SHAPE_SPEC_JSON_SCHEMA,
             temperature=0.15,
+            images=reference_images or None,
         )
 
         # A compatibility bridge accepts a legacy combined geometry response.
@@ -383,6 +409,13 @@ class ShapeAgent(BaseAgent):
             route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
             references=json.dumps(references, ensure_ascii=False, separators=(",", ":")),
         )
+        if reference_images:
+            geometry_prompt += (
+                "\n\nTrace the attached image as the authoritative source. Preserve the whole outer "
+                "silhouette and any recognition-critical interior opening (for example a handle), "
+                "then simplify only enough to make the geometry routeable. Do not substitute a "
+                "catalog icon or a shape guessed from the words."
+            )
         if geometry_response is None:
             geometry_response = try_complete(
                 lambda: self._llm_fallback(idea),
@@ -392,6 +425,7 @@ class ShapeAgent(BaseAgent):
                 json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
                 temperature=0.25,
                 max_tokens=4096,
+                images=reference_images or None,
             )
         if geometry_response.provider == "fallback":
             return self._llm_fallback_shape(idea)
@@ -412,6 +446,7 @@ class ShapeAgent(BaseAgent):
                 candidate_payload=_safe_response_payload(geometry_response),
                 diagnostics={"geometry_errors": [" ".join(str(exc).split())[:320]]},
                 system=system,
+                reference_images=reference_images,
             )
             if repaired is None:
                 return self._llm_fallback_shape(idea)
@@ -443,6 +478,7 @@ class ShapeAgent(BaseAgent):
                 candidate_payload=selected.raw,
                 diagnostics=diagnostics or {"semantic_score_below": threshold},
                 system=system,
+                reference_images=reference_images,
             )
             if repaired is not None:
                 repair_reviews, _ = self._verify_candidates(
@@ -457,6 +493,8 @@ class ShapeAgent(BaseAgent):
                     selected, selected_review = repaired, repaired_review
 
         shape = selected.shape
+        if reference_images and state.reference_name:
+            shape.name = state.reference_name
         shape.spec = spec
         shape.recognition_features = [feature.label for feature in spec.recognition_features]
         shape.semantic_verification = selected_review
@@ -502,6 +540,7 @@ class ShapeAgent(BaseAgent):
         candidate_payload: object,
         diagnostics: dict[str, object],
         system: str,
+        reference_images: list[ImageInput] | None = None,
     ) -> _GeneratedCandidate | None:
         self.log.warning(
             "AI shape candidate needs one bounded targeted repair: %s",
@@ -515,6 +554,11 @@ class ShapeAgent(BaseAgent):
             diagnostics=json.dumps(diagnostics, ensure_ascii=False, separators=(",", ":")),
             route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
         )
+        if reference_images:
+            repair_prompt += (
+                "\n\nKeep the repaired candidate visually faithful to the attached source image; "
+                "do not invent or replace its silhouette."
+            )
         repaired = try_complete(
             lambda: self._llm_fallback(idea),
             messages=[{"role": "user", "content": repair_prompt}],
@@ -523,6 +567,7 @@ class ShapeAgent(BaseAgent):
             json_schema=_SHAPE_REPAIR_JSON_SCHEMA,
             temperature=0.15,
             max_tokens=3072,
+            images=reference_images or None,
         )
         if repaired.provider == "fallback":
             return None
@@ -1339,11 +1384,16 @@ def _sample_reference_path(path: geo.Path, max_points: int = 48) -> geo.Path:
     return sampled
 
 
-def _custom_shape_cache_key(idea: str, style: str) -> tuple[str, str]:
+def _custom_shape_cache_key(
+    idea: str,
+    style: str,
+    reference_digest: str = "",
+) -> tuple[str, str]:
     normalized = "\0".join(
         (
             " ".join(idea.casefold().split()),
             " ".join(style.casefold().split()),
+            reference_digest,
         )
     )
     return _CUSTOM_SHAPE_CACHE_VERSION, hashlib.sha256(normalized.encode()).hexdigest()

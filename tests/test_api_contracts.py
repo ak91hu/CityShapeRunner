@@ -21,6 +21,23 @@ def test_generate_request_normalises_unicode_and_collapses_whitespace() -> None:
     assert request.prompt == "a heart run in Budapest"
 
 
+def test_generate_request_accepts_a_public_image_reference_url() -> None:
+    request = GenerateRequest(
+        prompt="a custom image in Budapest",
+        reference_image_url="  https://example.com/drawing.svg  ",
+    )
+
+    assert request.reference_image_url == "https://example.com/drawing.svg"
+
+
+def test_generate_request_rejects_a_non_http_image_reference() -> None:
+    with pytest.raises(ValidationError, match="public HTTP or HTTPS"):
+        GenerateRequest(
+            prompt="a custom image in Budapest",
+            reference_image_url="file:///etc/example.svg",
+        )
+
+
 @pytest.mark.parametrize(
     ("prompt", "message"),
     [
@@ -188,6 +205,47 @@ def test_generate_endpoint_forwards_confirmed_intent_start_and_preferences(
     assert captured["start_direction_deg"] == 90
     assert captured["route_preferences"].avoid_steps is True
     assert captured["route_preferences"].prefer_quiet is True
+
+
+def test_generate_endpoint_imports_and_forwards_svg_geometry(monkeypatch) -> None:
+    captured = {}
+    reference = routes.image_reference.ImportedImageReference(
+        name="mug",
+        kind="svg",
+        shape=routes.Shape(
+            name="mug",
+            paths=[[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, 0.0)]],
+            closed=True,
+            source="reference_svg",
+        ),
+    )
+
+    monkeypatch.setattr(
+        routes.image_reference,
+        "import_image_reference",
+        lambda url: reference if url.endswith("mug.svg") else None,
+    )
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured image reference")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a custom image in Budapest, running, about 10 km",
+                "reference_image_url": "https://example.com/mug.svg",
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["reference_shape"].name == "mug"
+    assert captured["reference_image_data_url"] is None
+    assert captured["reference_name"] == "mug"
+    assert captured["reference_kind"] == "svg"
 
 
 def test_generate_endpoint_does_not_expose_unexpected_exception_details(monkeypatch) -> None:

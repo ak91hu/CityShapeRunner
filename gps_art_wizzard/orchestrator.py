@@ -24,7 +24,7 @@ from .config import get_settings
 from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
-from .state import FitDecision, Intent, LatLon, RoutePreferences, WorkflowState
+from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, WorkflowState
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +46,10 @@ class Orchestrator:
         start_label: str | None = None,
         start_direction_deg: float | None = None,
         route_preferences: RoutePreferences | None = None,
+        reference_shape: Shape | None = None,
+        reference_image_data_url: str | None = None,
+        reference_name: str | None = None,
+        reference_kind: str | None = None,
     ) -> WorkflowState:
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a string")
@@ -62,6 +66,10 @@ class Orchestrator:
             start_point=start_point,
             start_label=start_label,
             start_direction_deg=start_direction_deg,
+            reference_shape=copy.deepcopy(reference_shape),
+            reference_image_data_url=reference_image_data_url,
+            reference_name=reference_name,
+            reference_kind=reference_kind,
         )
         n = self.nodes
 
@@ -828,6 +836,10 @@ def generate(
     start_label: str | None = None,
     start_direction_deg: float | None = None,
     route_preferences: RoutePreferences | None = None,
+    reference_shape: Shape | None = None,
+    reference_image_data_url: str | None = None,
+    reference_name: str | None = None,
+    reference_kind: str | None = None,
 ) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
     return get_orchestrator().run(
@@ -837,4 +849,8 @@ def generate(
         start_label=start_label,
         start_direction_deg=start_direction_deg,
         route_preferences=route_preferences,
+        reference_shape=reference_shape,
+        reference_image_data_url=reference_image_data_url,
+        reference_name=reference_name,
+        reference_kind=reference_kind,
     )

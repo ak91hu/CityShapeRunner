@@ -472,24 +472,6 @@ const SUGGEST_CITIES = [
 const PROMPT_LIMIT = 320;
 const PROMPT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
 const PROMPT_MEANINGFUL_CHARACTER = /[\p{L}\p{N}]/u;
-const DEFAULT_ROUTE_PREFERENCES = {
-  avoid_steps: false,
-  avoid_ferries: false,
-  avoid_fords: false,
-  prefer_quiet: false,
-  prefer_green: false,
-};
-const START_DIRECTIONS = [
-  { value: "", label: "Automatic" },
-  { value: "0", label: "North" },
-  { value: "45", label: "North-east" },
-  { value: "90", label: "East" },
-  { value: "135", label: "South-east" },
-  { value: "180", label: "South" },
-  { value: "225", label: "South-west" },
-  { value: "270", label: "West" },
-  { value: "315", label: "North-west" },
-];
 
 function normaliseRoutePrompt(value) {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
@@ -524,6 +506,20 @@ function validateRoutePrompt(value) {
     };
   }
   return { value: cleaned, error: "" };
+}
+
+function validateImageReferenceUrl(value) {
+  const cleaned = value.trim();
+  if (!cleaned) return { value: "", error: "Enter a direct image link." };
+  try {
+    const parsed = new URL(cleaned);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return { value: cleaned, error: "Use a public HTTP or HTTPS image link." };
+    }
+    return { value: parsed.href, error: "" };
+  } catch {
+    return { value: cleaned, error: "Enter a complete image URL." };
+  }
 }
 
 function distanceLimits(sport) {
@@ -2544,11 +2540,11 @@ export default function App() {
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [startAddress, setStartAddress] = useState("");
-  const [startPoint, setStartPoint] = useState(null);
-  const [startLocationNotice, setStartLocationNotice] = useState("");
-  const [startDirection, setStartDirection] = useState("");
-  const [routePreferences, setRoutePreferences] = useState(DEFAULT_ROUTE_PREFERENCES);
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageCity, setImageCity] = useState(SUGGEST_CITIES[0]);
+  const [imageSport, setImageSport] = useState("run");
+  const [imageDistance, setImageDistance] = useState("10");
+  const [imageErrors, setImageErrors] = useState({});
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [suggestCity, setSuggestCity] = useState(SUGGEST_CITIES[0]);
@@ -2566,6 +2562,10 @@ export default function App() {
   const suggestCityRef = useRef(null);
   const suggestActivityRef = useRef(null);
   const suggestDistanceRef = useRef(null);
+  const imageUrlRef = useRef(null);
+  const imageCityRef = useRef(null);
+  const imageSportRef = useRef(null);
+  const imageDistanceRef = useRef(null);
 
   useEffect(() => {
     if (result) resultRef.current?.focus();
@@ -2598,7 +2598,7 @@ export default function App() {
     );
   }, [ideaQuery]);
 
-  const generate = useCallback(async (nextPrompt) => {
+  const generate = useCallback(async (nextPrompt, extraPayload = {}) => {
     const cleanPrompt = normaliseRoutePrompt(nextPrompt);
     if (!cleanPrompt) return;
 
@@ -2609,27 +2609,10 @@ export default function App() {
     setError("");
     setResult(null);
 
-    const payload = {};
-    if (startPoint) {
-      payload.start_point = {
-        latitude: startPoint.latitude,
-        longitude: startPoint.longitude,
-        label: startPoint.label,
-      };
-    } else if (startAddress.trim()) {
-      payload.start_address = startAddress.trim();
-    }
-    if (startDirection !== "") {
-      payload.start_direction_deg = Number(startDirection);
-    }
-    if (Object.values(routePreferences).some(Boolean)) {
-      payload.route_preferences = routePreferences;
-    }
-
     try {
       const response = await generateRoute(cleanPrompt, {
         signal: controller.signal,
-        payload,
+        payload: extraPayload,
       });
       setResult(response);
     } catch (generationError) {
@@ -2645,27 +2628,6 @@ export default function App() {
         setLoading(false);
       }
     }
-  }, [routePreferences, startAddress, startDirection, startPoint]);
-
-  const useCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setStartLocationNotice("This browser cannot provide your current location.");
-      return;
-    }
-    setStartLocationNotice("Finding your location…");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setStartPoint({
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          label: "Current location",
-        });
-        setStartAddress("");
-        setStartLocationNotice("Current location will be the route start.");
-      },
-      () => setStartLocationNotice("Location was not available. Enter a start address instead."),
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
-    );
   }, []);
 
   const focusPrompt = useCallback(() => {
@@ -2712,6 +2674,34 @@ export default function App() {
     setPrompt(suggestionPrompt);
     setPromptError("");
     generate(suggestionPrompt);
+  }
+
+  function handleImageImport(event) {
+    event.preventDefault();
+    if (loading) return;
+
+    const checkedUrl = validateImageReferenceUrl(imageUrl);
+    const { errors: selectionErrors, numericDistance } = validateSuggestion({
+      city: imageCity,
+      sport: imageSport,
+      distance: imageDistance,
+    });
+    const nextErrors = { ...selectionErrors, url: checkedUrl.error };
+    setImageErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) {
+      if (nextErrors.url) imageUrlRef.current?.focus();
+      else if (nextErrors.city) imageCityRef.current?.focus();
+      else if (nextErrors.sport) imageSportRef.current?.focus();
+      else imageDistanceRef.current?.focus();
+      return;
+    }
+
+    const activity = imageSport === "bike" ? "cycling" : "running";
+    const imagePrompt = `a custom image in ${imageCity}, ${activity}, about ${numericDistance} km`;
+    setImageUrl(checkedUrl.value);
+    setPrompt(imagePrompt);
+    setPromptError("");
+    generate(imagePrompt, { reference_image_url: checkedUrl.value });
   }
 
   function cancelGeneration() {
@@ -2915,100 +2905,6 @@ export default function App() {
                 </div>
               </details>
 
-              <details className="planner-controls" open>
-                <summary>
-                  <span>
-                    <strong>Start point, direction, and route preferences</strong>
-                    <small>Optional controls for where and how the route should begin.</small>
-                  </span>
-                  <b aria-hidden="true">+</b>
-                </summary>
-                <div className="planner-controls-body">
-                  <div className="start-controls">
-                    <label className="start-address-field" htmlFor="start-address">
-                      <span>Start address or place</span>
-                      <input
-                        id="start-address"
-                        type="text"
-                        value={startAddress}
-                        onChange={(event) => {
-                          setStartAddress(event.target.value);
-                          setStartPoint(null);
-                          setStartLocationNotice("");
-                        }}
-                        placeholder="e.g. Tatabánya railway station"
-                        maxLength={180}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="button button--secondary location-button"
-                      onClick={useCurrentLocation}
-                    >
-                      Use current location
-                    </button>
-                    {(startPoint || startAddress) && (
-                      <button
-                        type="button"
-                        className="button button--quiet"
-                        onClick={() => {
-                          setStartPoint(null);
-                          setStartAddress("");
-                          setStartLocationNotice("");
-                        }}
-                      >
-                        Clear start
-                      </button>
-                    )}
-                    <label className="start-direction-field" htmlFor="start-direction">
-                      <span>Preferred first direction</span>
-                      <select
-                        id="start-direction"
-                        value={startDirection}
-                        onChange={(event) => setStartDirection(event.target.value)}
-                      >
-                        {START_DIRECTIONS.map((direction) => (
-                          <option key={direction.value || "auto"} value={direction.value}>
-                            {direction.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  {startLocationNotice && (
-                    <p className="start-location-notice" role="status">{startLocationNotice}</p>
-                  )}
-                  <fieldset className="route-preferences">
-                    <legend>Prefer or avoid</legend>
-                    {[
-                      ["avoid_steps", "Avoid steps"],
-                      ["avoid_ferries", "Avoid ferries"],
-                      ["avoid_fords", "Avoid fords"],
-                      ["prefer_quiet", "Prefer quieter streets"],
-                      ["prefer_green", "Prefer greener paths"],
-                    ].map(([key, label]) => {
-                      const runOnly = key === "prefer_quiet" || key === "prefer_green";
-                      return (
-                        <label key={key}>
-                          <input
-                            type="checkbox"
-                            checked={routePreferences[key]}
-                            onChange={(event) => setRoutePreferences((current) => ({
-                              ...current,
-                              [key]: event.target.checked,
-                            }))}
-                          />
-                          <span>{label}{runOnly ? " (walking/running only)" : ""}</span>
-                        </label>
-                      );
-                    })}
-                  </fieldset>
-                  <p className="planner-controls-note">
-                    Avoidances are preferences when the street network has no practical alternative.
-                  </p>
-                </div>
-              </details>
-
               <div className="prompt-actions prompt-actions--single">
                 <button
                   type="submit"
@@ -3019,6 +2915,110 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            <details className="image-reference-panel" open>
+              <summary>
+                <span>
+                  <strong>Use an image link</strong>
+                  <small>Fit an SVG or image outline to streets in a city you choose.</small>
+                </span>
+                <b aria-hidden="true">+</b>
+              </summary>
+              <form className="image-reference-form" onSubmit={handleImageImport} noValidate>
+                <label className="image-url-field" htmlFor="image-reference-url">
+                  <span>Direct SVG or image URL</span>
+                  <input
+                    id="image-reference-url"
+                    ref={imageUrlRef}
+                    type="url"
+                    value={imageUrl}
+                    onChange={(event) => {
+                      setImageUrl(event.target.value);
+                      if (imageErrors.url) {
+                        setImageErrors((current) => ({
+                          ...current,
+                          url: validateImageReferenceUrl(event.target.value).error,
+                        }));
+                      }
+                    }}
+                    placeholder="https://example.com/drawing.svg"
+                    aria-describedby="image-url-help"
+                    aria-invalid={Boolean(imageErrors.url)}
+                    aria-errormessage={imageErrors.url ? "image-url-error" : undefined}
+                    disabled={loading}
+                    required
+                  />
+                </label>
+                <p id="image-url-help" className="field-help">
+                  SVG paths are used directly. PNG, JPG, WebP, and GIF outlines are traced from the image. Maximum 5 MB. Use an image you have permission to reuse.
+                </p>
+                {imageErrors.url && (
+                  <p id="image-url-error" className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {imageErrors.url}
+                  </p>
+                )}
+                <div className="image-reference-fields">
+                  <div className="field">
+                    <label htmlFor="image-city">Destination</label>
+                    <select
+                      id="image-city"
+                      ref={imageCityRef}
+                      value={imageCity}
+                      onChange={(event) => setImageCity(event.target.value)}
+                      disabled={loading}
+                    >
+                      {SUGGEST_CITY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.cities.map((cityName) => (
+                            <option key={cityName} value={cityName}>{cityName}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="image-activity">Travel mode</label>
+                    <select
+                      id="image-activity"
+                      ref={imageSportRef}
+                      value={imageSport}
+                      onChange={(event) => setImageSport(event.target.value)}
+                      disabled={loading}
+                    >
+                      <option value="run">Running</option>
+                      <option value="bike">Cycling</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="image-distance">Length</label>
+                    <div className="distance-input">
+                      <input
+                        id="image-distance"
+                        ref={imageDistanceRef}
+                        type="number"
+                        min={distanceLimits(imageSport).minimum}
+                        max={distanceLimits(imageSport).maximum}
+                        step="0.5"
+                        value={imageDistance}
+                        onChange={(event) => setImageDistance(event.target.value)}
+                        disabled={loading}
+                      />
+                      <span>km</span>
+                    </div>
+                  </div>
+                  <button type="submit" className="button button--secondary" disabled={loading}>
+                    {loading ? "Fitting image…" : "Fit image to city"}
+                  </button>
+                </div>
+                {(imageErrors.city || imageErrors.sport || imageErrors.distance) && (
+                  <p className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {imageErrors.city || imageErrors.sport || imageErrors.distance}
+                  </p>
+                )}
+              </form>
+            </details>
 
             <details className="suggest-panel">
               <summary>

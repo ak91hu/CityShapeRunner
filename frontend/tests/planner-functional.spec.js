@@ -136,26 +136,42 @@ test("bug is submitted as a shape without exposing a letter B interpretation", a
   expect(interpretationRequests).toBe(0);
 });
 
-test("start controls and route preferences reach generation", async ({ page }) => {
+test("broken start point, direction, and route preference controls are not shown", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByLabel("Drawing and location").fill("a heart run in Tatabánya, about 8 km");
 
-  await page.getByLabel("Start address or place").fill("Tata railway station");
-  await page.getByLabel("Preferred first direction").selectOption("90");
-  await page.getByRole("checkbox", { name: "Avoid steps" }).check();
-  await page.getByRole("checkbox", { name: "Prefer quieter streets" }).check();
+  await expect(page.getByText("Start point, direction, and route preferences", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Start address or place")).toHaveCount(0);
+  await expect(page.getByLabel("Preferred first direction")).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Avoid steps" })).toHaveCount(0);
   await page.getByRole("button", { name: "Find routes" }).click();
 
-  await expect.poll(() => capture.lastPayload()).toMatchObject({
+  await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a heart run in Tatabánya, about 8 km",
-    start_address: "Tata railway station",
-    start_direction_deg: 90,
-    route_preferences: {
-      avoid_steps: true,
-      prefer_quiet: true,
-    },
   });
+});
+
+test("an SVG or raster image link can be fitted to a selected city", async ({ page }) => {
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+
+  const imagePanel = page.locator(".image-reference-panel");
+  await imagePanel.getByLabel("Direct SVG or image URL").fill(
+    "https://www.premiumsvg.com/wimg1/mug-icon.webp",
+  );
+  await imagePanel.getByLabel("Destination").selectOption("Pécs");
+  await imagePanel.getByLabel("Travel mode").selectOption("bike");
+  await imagePanel.getByLabel("Length").fill("24");
+  await imagePanel.getByRole("button", { name: "Fit image to city" }).click();
+
+  await expect.poll(() => capture.lastPayload()).toEqual({
+    prompt: "a custom image in Pécs, cycling, about 24 km",
+    reference_image_url: "https://www.premiumsvg.com/wimg1/mug-icon.webp",
+  });
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+    "a custom image in Pécs, cycling, about 24 km",
+  );
 });
 
 test("mouse submission of an empty idea shows a persistent focused error", async ({ page }) => {

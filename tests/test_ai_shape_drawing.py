@@ -196,6 +196,52 @@ def test_full_ai_drawing_pipeline_uses_independent_rendered_review(monkeypatch):
     assert calls[2]["pin_provider"] is False
 
 
+def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeypatch):
+    _clear_custom_shape_cache()
+    geometry = {
+        "name": "mug icon",
+        "variants": [
+            {"strategy": "handle silhouette", "program": _program(raised=False)},
+            {"strategy": "bold outline", "program": _program(raised=True)},
+        ],
+        "preferred_variant": 1,
+    }
+    verification = {
+        "reviews": [_review(0, 0.72), _review(1, 0.9)],
+        "recommended_candidate": 1,
+    }
+    responses = iter([
+        LLMResponse(json.dumps(_spec_payload()), "generator", "vision-spec"),
+        LLMResponse(json.dumps(geometry), "generator", "vision-draw"),
+        LLMResponse(json.dumps(verification), "reviewer", "vision-review"),
+    ])
+    calls = []
+
+    def complete(*_args, **kwargs):
+        calls.append(kwargs)
+        return next(responses)
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    data_url = "data:image/webp;base64,UklGRgQAAABXRUJQ"
+    state = WorkflowState(
+        prompt="a custom image in Budapest, about 10 km",
+        intent=Intent("custom image", None, "Budapest", "run", 10, None),
+        plan=Plan(shape_strategy="template"),
+        reference_image_data_url=data_url,
+        reference_name="mug icon",
+        reference_kind="raster",
+    )
+
+    ShapeAgent().run(state)
+
+    assert calls[0]["images"][0].data_url == data_url
+    assert calls[1]["images"][0].data_url == data_url
+    assert "authoritative drawing reference" in calls[0]["messages"][0]["content"]
+    assert "Trace the attached image" in calls[1]["messages"][0]["content"]
+    assert state.shape is not None
+    assert state.shape.name == "mug icon"
+
+
 def test_weak_visual_review_triggers_one_targeted_repair(monkeypatch):
     _clear_custom_shape_cache()
     geometry = {

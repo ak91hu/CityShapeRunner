@@ -4825,44 +4825,14 @@ input,
   color: #704d00;
 }
 
-.start-address-field,
-.start-direction-field {
-  min-width: 0;
-  display: grid;
-  gap: 0.35rem;
-  color: var(--ink);
-  font-size: 0.72rem;
-  font-weight: 720;
-}
-
-.start-address-field > span,
-.start-direction-field > span {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.start-controls input,
-.start-controls select {
-  width: 100%;
-  min-height: 2.65rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--ink);
-  font: inherit;
-}
-
-.planner-controls {
+.image-reference-panel {
   margin-top: 0.85rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
-  background: var(--surface);
+  background: var(--surface-tint);
 }
 
-.planner-controls > summary {
+.image-reference-panel > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4872,98 +4842,90 @@ input,
   list-style: none;
 }
 
-.planner-controls > summary::-webkit-details-marker {
+.image-reference-panel > summary::-webkit-details-marker {
   display: none;
 }
 
-.planner-controls > summary span {
+.image-reference-panel > summary span {
   display: grid;
   gap: 0.15rem;
 }
 
-.planner-controls > summary strong {
+.image-reference-panel > summary strong {
   font-size: 0.78rem;
 }
 
-.planner-controls > summary small {
+.image-reference-panel > summary small {
   color: var(--muted);
   font-size: 0.65rem;
   font-weight: 500;
 }
 
-.planner-controls > summary b {
+.image-reference-panel > summary b {
   transition: transform 160ms ease;
 }
 
-.planner-controls[open] > summary b {
+.image-reference-panel[open] > summary b {
   transform: rotate(45deg);
 }
 
-.planner-controls-body {
+.image-reference-form {
+  display: grid;
+  gap: 0.65rem;
   padding: 0 0.9rem 0.9rem;
   border-top: 1px solid var(--line);
 }
 
-.start-controls {
+.image-url-field {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) auto auto minmax(9rem, 0.55fr);
-  gap: 0.6rem;
-  align-items: end;
+  gap: 0.35rem;
   margin-top: 0.8rem;
-}
-
-.start-controls .button {
-  min-height: 2.65rem;
-}
-
-.start-location-notice,
-.planner-controls-note {
-  margin: 0.55rem 0 0;
-  color: var(--muted);
-  font-size: 0.65rem;
-  line-height: 1.45;
-}
-
-.route-preferences {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin: 0.9rem 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.route-preferences legend {
-  width: 100%;
-  margin-bottom: 0.25rem;
   color: var(--ink);
   font-size: 0.72rem;
-  font-weight: 760;
+  font-weight: 720;
 }
 
-.route-preferences label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 2.35rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-tint);
-  color: var(--ink-soft);
-  font-size: 0.66rem;
-  cursor: pointer;
+.image-url-field input {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--ink);
+  font: inherit;
 }
 
-.route-preferences input {
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--brand);
+.image-reference-form > .field-help,
+.image-reference-form > .field-error {
+  margin: 0;
 }
 
-.route-preferences .preference-disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.image-reference-fields {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.2fr) minmax(7rem, 0.75fr) minmax(7rem, 0.65fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.distance-input {
+  position: relative;
+}
+
+.distance-input input {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.distance-input span {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .prompt-actions--single {
@@ -5235,20 +5197,13 @@ input,
 }
 
 @media (max-width: 68rem) {
-  .start-controls {
-    grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.5fr);
-  }
-
-  .start-controls .location-button,
-  .start-controls .button--quiet {
-    width: 100%;
-  }
+  .image-reference-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .image-reference-fields .button { grid-column: 1 / -1; width: 100%; }
 }
 
 @media (max-width: 48rem) {
-  .start-controls {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  .image-reference-fields { grid-template-columns: minmax(0, 1fr); }
+  .image-reference-fields .button { grid-column: auto; }
 
   .candidate-compare-heading {
     align-items: stretch;

@@ -127,7 +127,7 @@ class Shape:
     name: str
     paths: list[list[tuple[float, float]]]
     closed: bool
-    source: str = "template"  # template | text | llm | fallback
+    source: str = "template"  # template | text | llm | reference_svg | fallback
     spec: ShapeSpec | None = None
     semantic_verification: ShapeVerification | None = None
     recognition_features: list[str] = field(default_factory=list)
@@ -304,6 +304,10 @@ class WorkflowState:
     start_point: LatLon | None = None
     start_label: str | None = None
     start_direction_deg: float | None = None
+    reference_shape: Shape | None = None
+    reference_image_data_url: str | None = None
+    reference_name: str | None = None
+    reference_kind: str | None = None
 
     def snapshot(self) -> dict[str, Any]:
         """Compact, JSON-friendly snapshot for the API / history."""

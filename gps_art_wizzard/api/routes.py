@@ -32,6 +32,7 @@ from ..tools import (
     geo,
     geocoder,
     gpx_writer,
+    image_reference,
     ors_client,
     shape_library,
     shape_similarity,
@@ -93,6 +94,7 @@ class GenerateRequest(BaseModel):
     route_preferences: RoutePreferencesRequest = Field(
         default_factory=RoutePreferencesRequest
     )
+    reference_image_url: str | None = Field(default=None, max_length=2_048)
 
     @field_validator("prompt", mode="before")
     @classmethod
@@ -125,6 +127,18 @@ class GenerateRequest(BaseModel):
             return None
         cleaned = " ".join(unicodedata.normalize("NFKC", value).split()).strip()
         return cleaned or None
+
+    @field_validator("reference_image_url")
+    @classmethod
+    def normalise_reference_image_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = "".join(value.split()).strip()
+        if not cleaned:
+            return None
+        if not cleaned.casefold().startswith(("http://", "https://")):
+            raise ValueError("enter a public HTTP or HTTPS image URL")
+        return cleaned
 
     @model_validator(mode="after")
     def one_start_source(self) -> GenerateRequest:
@@ -724,6 +738,11 @@ def _state_to_response(state) -> dict:
             "start_label": state.start_label,
             "start_direction_deg": state.start_direction_deg,
             "route_preferences": asdict(state.route_preferences),
+            "image_reference": (
+                {"kind": state.reference_kind, "name": state.reference_name}
+                if state.reference_kind
+                else None
+            ),
         },
         gallery_publish_token=(
             cloudinary_gallery.maybe_issue_publish_token()
@@ -939,6 +958,14 @@ def generate_route(req: GenerateRequest) -> dict:
         else None
     )
     preferences = RoutePreferences(**req.route_preferences.model_dump())
+    imported_reference = None
+    if req.reference_image_url:
+        try:
+            imported_reference = image_reference.import_image_reference(
+                req.reference_image_url
+            )
+        except image_reference.ImageReferenceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     start_point = None
     start_label = None
     if req.start_point is not None:
@@ -960,6 +987,7 @@ def generate_route(req: GenerateRequest) -> dict:
             and start_point is None
             and req.start_direction_deg is None
             and not has_preferences
+            and imported_reference is None
         ):
             # Preserve the original domain call for ordinary prompts and for
             # lightweight integrations that wrap the one-argument function.
@@ -972,6 +1000,14 @@ def generate_route(req: GenerateRequest) -> dict:
                 start_label=start_label,
                 start_direction_deg=req.start_direction_deg,
                 route_preferences=preferences,
+                reference_shape=(
+                    imported_reference.shape if imported_reference else None
+                ),
+                reference_image_data_url=(
+                    imported_reference.image_data_url if imported_reference else None
+                ),
+                reference_name=(imported_reference.name if imported_reference else None),
+                reference_kind=(imported_reference.kind if imported_reference else None),
             )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
