@@ -40,7 +40,7 @@ from ..tools import geo, shape_library, shape_program, shape_uniqueness, text_sh
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v6"
+_CUSTOM_SHAPE_CACHE_VERSION = "v7"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
 
@@ -172,6 +172,24 @@ _SHAPE_SPEC_JSON_SCHEMA = {
     "additionalProperties": False,
 }
 
+_REFERENCE_SHAPE_JSON_SCHEMA = {
+    "type": "object",
+    "description": "One-pass visual analysis and route-native GPS-art drawing.",
+    "properties": {
+        "spec": _SHAPE_SPEC_JSON_SCHEMA,
+        "name": {"type": "string", "maxLength": 80},
+        "variants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA,
+        },
+        "preferred_variant": {"type": "integer", "minimum": 0, "maximum": 1},
+    },
+    "required": ["spec", "name", "variants", "preferred_variant"],
+    "additionalProperties": False,
+}
+
 _SHAPE_REPAIR_JSON_SCHEMA = {
     "type": "object",
     "properties": {"candidate": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA},
@@ -246,7 +264,11 @@ class ShapeAgent(BaseAgent):
     def run(self, state: WorkflowState) -> WorkflowState:
         if state.intent is None:
             raise RuntimeError("shape generation requires intent")
-        if state.reference_shape is not None:
+        if state.reference_image_data_url:
+            shape = self._try_llm(state)
+            if shape.source == "fallback" and state.reference_shape is not None:
+                shape = deepcopy(state.reference_shape)
+        elif state.reference_shape is not None:
             shape = deepcopy(state.reference_shape)
         else:
             for tier in self._ordered_tiers(state):
@@ -342,7 +364,7 @@ class ShapeAgent(BaseAgent):
         idea = intent.shape or "an interesting shape"
         style = intent.style or "none"
         reference_images = (
-            [ImageInput(state.reference_image_data_url, detail="high")]
+            [ImageInput(state.reference_image_data_url, detail="auto")]
             if state.reference_image_data_url
             else []
         )
@@ -361,62 +383,73 @@ class ShapeAgent(BaseAgent):
 
         system = self.system_prompt
         route_context = _route_context(state)
-        spec_prompt = render(
-            "shape_spec",
-            shape=json.dumps(idea, ensure_ascii=False),
-            style=json.dumps(style, ensure_ascii=False),
-            route_context=json.dumps(route_context, ensure_ascii=False),
-        )
-        if reference_images:
-            spec_prompt += (
-                "\n\nThe attached image is the authoritative drawing reference. Identify the complete "
-                "visible subject and preserve its silhouette, holes, handles, negative space, and "
-                "distinctive proportions. Ignore colour, texture, shadows, and background. Do not "
-                "infer the drawing from the generic request wording when the image shows it."
-            )
-        spec_response = try_complete(
-            lambda: self._spec_fallback(idea),
-            messages=[{"role": "user", "content": spec_prompt}],
-            system=system,
-            json_mode=True,
-            json_schema=_SHAPE_SPEC_JSON_SCHEMA,
-            temperature=0.15,
-            images=reference_images or None,
-        )
-
-        # A compatibility bridge accepts a legacy combined geometry response.
-        # New providers always take the explicit semantic-specification branch.
         geometry_response: LLMResponse | None = None
-        try:
-            spec = _shape_spec_from_response(spec_response, idea)
-        except (KeyError, TypeError, ValueError):
-            if spec_response.provider != "fallback" and _looks_like_geometry_response(spec_response):
-                spec = _heuristic_shape_spec(idea)
-                geometry_response = spec_response
-            else:
-                return self._llm_fallback_shape(idea)
-        if spec_response.provider == "fallback":
-            return self._llm_fallback_shape(idea)
-
-        candidate_count = _adaptive_candidate_count(spec)
-        references = _reference_shape_payloads(idea)
-        geometry_prompt = render(
-            "shape",
-            shape=json.dumps(idea, ensure_ascii=False),
-            style=json.dumps(style, ensure_ascii=False),
-            spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
-            candidate_count=candidate_count,
-            route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
-            references=json.dumps(references, ensure_ascii=False, separators=(",", ":")),
-        )
         if reference_images:
-            geometry_prompt += (
-                "\n\nTrace the attached image as the authoritative source. Preserve the whole outer "
-                "silhouette and any recognition-critical interior opening (for example a handle), "
-                "then simplify only enough to make the geometry routeable. Do not substitute a "
-                "catalog icon or a shape guessed from the words."
+            reference_prompt = render(
+                "shape_reference",
+                shape=json.dumps(idea, ensure_ascii=False),
+                style=json.dumps(style, ensure_ascii=False),
+                reference_name=json.dumps(state.reference_name or "linked image", ensure_ascii=False),
+                reference_kind=json.dumps(state.reference_kind or "image", ensure_ascii=False),
+                route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
             )
+            geometry_response = try_complete(
+                lambda: self._llm_fallback(idea),
+                messages=[{"role": "user", "content": reference_prompt}],
+                system=system,
+                json_mode=True,
+                json_schema=_REFERENCE_SHAPE_JSON_SCHEMA,
+                temperature=0.15,
+                max_tokens=4096,
+                images=reference_images,
+            )
+            if geometry_response.provider == "fallback":
+                return self._llm_fallback_shape(idea)
+            try:
+                reference_payload = extract_json(geometry_response.text)
+                if not isinstance(reference_payload, dict):
+                    raise ValueError("visual response must be an object")
+                spec = _shape_spec_from_payload(reference_payload.get("spec"), idea)
+            except (KeyError, TypeError, ValueError):
+                return self._llm_fallback_shape(idea)
+        else:
+            spec_prompt = render(
+                "shape_spec",
+                shape=json.dumps(idea, ensure_ascii=False),
+                style=json.dumps(style, ensure_ascii=False),
+                route_context=json.dumps(route_context, ensure_ascii=False),
+            )
+            spec_response = try_complete(
+                lambda: self._spec_fallback(idea),
+                messages=[{"role": "user", "content": spec_prompt}],
+                system=system,
+                json_mode=True,
+                json_schema=_SHAPE_SPEC_JSON_SCHEMA,
+                temperature=0.15,
+            )
+            try:
+                spec = _shape_spec_from_response(spec_response, idea)
+            except (KeyError, TypeError, ValueError):
+                if spec_response.provider != "fallback" and _looks_like_geometry_response(spec_response):
+                    spec = _heuristic_shape_spec(idea)
+                    geometry_response = spec_response
+                else:
+                    return self._llm_fallback_shape(idea)
+            if spec_response.provider == "fallback":
+                return self._llm_fallback_shape(idea)
+
         if geometry_response is None:
+            candidate_count = _adaptive_candidate_count(spec)
+            references = _reference_shape_payloads(idea)
+            geometry_prompt = render(
+                "shape",
+                shape=json.dumps(idea, ensure_ascii=False),
+                style=json.dumps(style, ensure_ascii=False),
+                spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
+                candidate_count=candidate_count,
+                route_context=json.dumps(route_context, ensure_ascii=False, separators=(",", ":")),
+                references=json.dumps(references, ensure_ascii=False, separators=(",", ":")),
+            )
             geometry_response = try_complete(
                 lambda: self._llm_fallback(idea),
                 messages=[{"role": "user", "content": geometry_prompt}],
@@ -458,6 +491,7 @@ class ShapeAgent(BaseAgent):
             candidates=candidates,
             generator_provider=geometry_response.provider,
             system=system,
+            reference_images=reference_images,
         )
         selected = _select_candidate(candidates, verifications, preferred, recommended)
         selected_review = verifications.get(selected.index)
@@ -487,6 +521,7 @@ class ShapeAgent(BaseAgent):
                     candidates=[repaired],
                     generator_provider=repaired.response.provider,
                     system=system,
+                    reference_images=reference_images,
                 )
                 repaired_review = repair_reviews.get(repaired.index)
                 if _repair_is_better(selected, selected_review, repaired, repaired_review):
@@ -590,6 +625,7 @@ class ShapeAgent(BaseAgent):
         candidates: list[_GeneratedCandidate],
         generator_provider: str,
         system: str,
+        reference_images: list[ImageInput] | None = None,
     ) -> tuple[dict[int, ShapeVerification], int | None]:
         deterministic = {
             candidate.index: _geometry_only_verification(candidate)
@@ -601,7 +637,7 @@ class ShapeAgent(BaseAgent):
             or any("program" not in candidate.raw for candidate in candidates)
         ):
             return deterministic, None
-        images = [
+        candidate_images = [
             ImageInput(
                 shape_program.render_paths_png_data_url(
                     _final_ai_preview_paths(candidate.shape.paths, candidate.shape.closed)
@@ -614,7 +650,16 @@ class ShapeAgent(BaseAgent):
             "shape_verify",
             shape=json.dumps(idea, ensure_ascii=False),
             spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
+            image_order=(
+                "Image 1 is the authoritative source image. Images 2 onward are GPS-art "
+                "candidates; image N+2 corresponds to candidate_index N. Compare each "
+                "candidate directly with the source image."
+                if reference_images
+                else "Every supplied image is a GPS-art candidate; image N+1 corresponds "
+                "to candidate_index N."
+            ),
         )
+        images = [*(reference_images or []), *candidate_images]
         response = try_complete(
             lambda: LLMResponse(text="{}", provider="fallback", model="geometry-checks"),
             messages=[{"role": "user", "content": prompt}],
@@ -759,6 +804,15 @@ def _shape_spec_from_response(resp: LLMResponse, idea: str) -> ShapeSpec:
         closed_silhouette=data["closed_silhouette"],
         aspect_ratio=aspect_ratio,
         ambiguity=ambiguity,
+    )
+
+
+def _shape_spec_from_payload(payload: object, idea: str) -> ShapeSpec:
+    if not isinstance(payload, dict):
+        raise ValueError("visual response must contain a ShapeSpec object")
+    return _shape_spec_from_response(
+        LLMResponse(text=json.dumps(payload), provider="embedded-visual-spec"),
+        idea,
     )
 
 

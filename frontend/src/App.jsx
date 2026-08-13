@@ -2920,13 +2920,13 @@ export default function App() {
               <summary>
                 <span>
                   <strong>Use an image link</strong>
-                  <small>Fit an SVG or image outline to streets in a city you choose.</small>
+                  <small>Let AI turn any supported image into GPS art for your city.</small>
                 </span>
                 <b aria-hidden="true">+</b>
               </summary>
               <form className="image-reference-form" onSubmit={handleImageImport} noValidate>
                 <label className="image-url-field" htmlFor="image-reference-url">
-                  <span>Direct SVG or image URL</span>
+                  <span>Direct image URL</span>
                   <input
                     id="image-reference-url"
                     ref={imageUrlRef}
@@ -2941,7 +2941,7 @@ export default function App() {
                         }));
                       }
                     }}
-                    placeholder="https://example.com/drawing.svg"
+                    placeholder="https://example.com/drawing.avif"
                     aria-describedby="image-url-help"
                     aria-invalid={Boolean(imageErrors.url)}
                     aria-errormessage={imageErrors.url ? "image-url-error" : undefined}
@@ -2950,7 +2950,7 @@ export default function App() {
                   />
                 </label>
                 <p id="image-url-help" className="field-help">
-                  SVG paths are used directly. PNG, JPG, WebP, and GIF outlines are traced from the image. Maximum 5 MB. Use an image you have permission to reuse.
+                  AI traces SVG plus all raster formats the server can decode, including PNG, JPG, WebP, GIF, AVIF, BMP, TIFF, ICO, and PSD. Images are resized for faster generation. Maximum 5 MB. Use an image you have permission to reuse.
                 </p>
                 {imageErrors.url && (
                   <p id="image-url-error" className="field-error" role="alert">
@@ -3008,7 +3008,7 @@ export default function App() {
                     </div>
                   </div>
                   <button type="submit" className="button button--secondary" disabled={loading}>
-                    {loading ? "Fitting image…" : "Fit image to city"}
+                    {loading ? "Generating from image…" : "Generate AI route"}
                   </button>
                 </div>
                 {(imageErrors.city || imageErrors.sport || imageErrors.distance) && (

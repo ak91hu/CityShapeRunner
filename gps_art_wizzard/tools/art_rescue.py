@@ -287,6 +287,7 @@ def rescue_analysis(
     art_match = 2 * coverage * precision / max(coverage + precision, 1e-9)
 
     missing_segments = []
+    missing_distances_m: list[float] = []
     repair_paths: list[list[LatLon]] = []
     for index, (start, end) in enumerate(_distance_runs(~covered), start=1):
         anchor_start = max(0, start - 1)
@@ -296,6 +297,7 @@ def rescue_analysis(
         if distance_m < max(12.0, tolerance_m * 0.6):
             continue
         repair_paths.append(repair)
+        missing_distances_m.append(distance_m)
         missing_segments.append(
             {
                 "id": f"missing-ink-{index}",
@@ -312,7 +314,7 @@ def rescue_analysis(
         )
 
     recorded_distance_m = sum(geo.path_distance_m(segment) for segment in original_segments)
-    missing_distance_m = sum(item["distance_m"] for item in missing_segments)
+    missing_distance_m = sum(missing_distances_m)
     return {
         "recording_count": len(recordings),
         "track_segment_count": len(original_segments),

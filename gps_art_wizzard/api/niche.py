@@ -193,16 +193,24 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
         for key, value in request.route_preferences.items()
         if key in allowed_preference_keys
     }
-    repair_options = {
-        "sport": request.sport,
-        "closed": request.closed,
-    }
-    if any(preference_values.values()):
-        repair_options["route_preferences"] = RoutePreferences(**preference_values)
-    routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-        deduped,
-        **repair_options,
+    route_preferences = (
+        RoutePreferences(**preference_values)
+        if any(preference_values.values())
+        else None
     )
+    if route_preferences is None:
+        routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+            deduped,
+            sport=request.sport,
+            closed=request.closed,
+        )
+    else:
+        routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+            deduped,
+            sport=request.sport,
+            closed=request.closed,
+            route_preferences=route_preferences,
+        )
     fidelity = shape_similarity.fidelity_between_routes(guide, routed, n=96)
     return {
         "points_preview": [[lat, lon] for lat, lon in routed],

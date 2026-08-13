@@ -1035,16 +1035,24 @@ def edit_route(req: EditedRouteRequest) -> dict:
         )
 
     edit_preferences = RoutePreferences(**req.route_preferences.model_dump())
-    edit_routing_options = {
-        "sport": req.sport,
-        "closed": req.closed,
-    }
-    if any(req.route_preferences.model_dump().values()):
-        edit_routing_options["route_preferences"] = edit_preferences
-    points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-        control_points,
-        **edit_routing_options,
+    active_edit_preferences = (
+        edit_preferences
+        if any(req.route_preferences.model_dump().values())
+        else None
     )
+    if active_edit_preferences is None:
+        points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+            control_points,
+            sport=req.sport,
+            closed=req.closed,
+        )
+    else:
+        points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+            control_points,
+            sport=req.sport,
+            closed=req.closed,
+            route_preferences=active_edit_preferences,
+        )
     temporary = WorkflowState(
         prompt="manual route edit",
         request_id=current_request_id(),

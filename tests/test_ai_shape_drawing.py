@@ -15,7 +15,7 @@ from gps_art_wizzard.agents.shape_agent import (
 from gps_art_wizzard.ai_shape_benchmark import AI_SHAPE_BENCHMARK_CASES
 from gps_art_wizzard.llm import LLMResponse
 from gps_art_wizzard.llm import factory as llm_factory
-from gps_art_wizzard.state import Intent, Plan, WorkflowState
+from gps_art_wizzard.state import Intent, Plan, Shape, WorkflowState
 from gps_art_wizzard.tools.shape_program import (
     compile_shape_program,
     render_paths_png_data_url,
@@ -211,8 +211,11 @@ def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeyp
         "recommended_candidate": 1,
     }
     responses = iter([
-        LLMResponse(json.dumps(_spec_payload()), "generator", "vision-spec"),
-        LLMResponse(json.dumps(geometry), "generator", "vision-draw"),
+        LLMResponse(
+            json.dumps({"spec": _spec_payload(), **geometry}),
+            "generator",
+            "vision-draw",
+        ),
         LLMResponse(json.dumps(verification), "reviewer", "vision-review"),
     ])
     calls = []
@@ -235,11 +238,51 @@ def test_raster_reference_is_authoritative_for_spec_and_geometry_prompts(monkeyp
     ShapeAgent().run(state)
 
     assert calls[0]["images"][0].data_url == data_url
+    assert calls[0]["images"][0].detail == "auto"
+    assert len(calls) == 2
+    assert len(calls[1]["images"]) == 3
     assert calls[1]["images"][0].data_url == data_url
-    assert "authoritative drawing reference" in calls[0]["messages"][0]["content"]
-    assert "Trace the attached image" in calls[1]["messages"][0]["content"]
+    assert "Treat the image as authoritative" in calls[0]["messages"][0]["content"]
+    assert calls[0]["json_schema"]["required"] == [
+        "spec",
+        "name",
+        "variants",
+        "preferred_variant",
+    ]
     assert state.shape is not None
     assert state.shape.name == "mug icon"
+
+
+def test_visual_svg_uses_sampled_geometry_when_ai_is_unavailable(monkeypatch):
+    _clear_custom_shape_cache()
+
+    def complete(fallback, **_kwargs):
+        return fallback()
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    fallback_shape = Shape(
+        name="linked mug",
+        paths=[[(0.0, 0.0), (1.0, 0.0), (0.5, 1.0), (0.0, 0.0)]],
+        closed=True,
+        source="reference_svg",
+    )
+    state = WorkflowState(
+        prompt="a custom image in Budapest, about 10 km",
+        intent=Intent("custom image", None, "Budapest", "run", 10, None),
+        plan=Plan(shape_strategy="template"),
+        reference_shape=fallback_shape,
+        reference_image_data_url="data:image/png;base64,aW1hZ2U=",
+        reference_name="linked mug",
+        reference_kind="svg",
+    )
+
+    ShapeAgent().run(state)
+
+    assert state.shape is not None
+    assert state.shape.name == "linked mug"
+    assert state.shape.source == "reference_svg"
+    assert len(state.shape.paths) == 1
+    assert state.shape.paths[0][0] == state.shape.paths[0][-1]
 
 
 def test_weak_visual_review_triggers_one_targeted_repair(monkeypatch):

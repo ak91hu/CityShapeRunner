@@ -22,6 +22,41 @@ calls.
    review metadata. The API exposes these fields and logs a structured
    `shape.ai.generated` event.
 
+## Linked-image fast path
+
+A public image URL uses a dedicated visual path instead of being interpreted
+from its filename. SVG geometry is sampled for a deterministic fallback and
+also rendered as a model-visible PNG. Other files are identified from their
+contents with Pillow, not their extension. Every decodable raster is EXIF-
+oriented, limited to 40 million source pixels, reduced to at most 1024 px on
+either axis, flattened onto white, and encoded once as PNG. Animated or layered
+inputs use their first rendered frame. Downloads remain limited to 5 MB and
+private-network destinations are rejected.
+The 64 most recent normalised URLs are cached per server process, so retrying
+the same link avoids another download and decode; cached values are copied
+before use.
+
+The authoritative reference image, semantic `ShapeSpec`, and exactly two GPS-
+art programs are handled in one strict-schema multimodal generation call. This
+replaces the previous sequential image-analysis and geometry calls. If an
+independent reviewer provider is configured, it receives the original image
+before the candidate thumbnails so it can compare the generated silhouette
+directly with the source. With only the OpenCode provider configured, the local
+geometry review is used and no redundant second-provider call is made.
+
+This follows OpenCode's documented image-normalisation model and image-capable
+model metadata:
+
+- <https://dev.opencode.ai/docs/config#image-attachments>
+- <https://opencode.ai/v2/docs/models>
+- <https://dev.opencode.ai/docs/zen>
+
+The accepted raster set is the set Pillow can decode in the deployed build,
+which is intentionally broader than a fixed PNG/JPEG/WebP allowlist:
+<https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html>.
+Pillow 12 also officially supports Python 3.14:
+<https://pillow.readthedocs.io/en/stable/installation/python-support.html>.
+
 Run the multilingual benchmark without street-routing calls:
 
 ```powershell

@@ -18,6 +18,12 @@ fallback instead of pretending that a stock icon is the requested object. See
 [Custom free-text shape generation](custom-shape-generation.md) for the research,
 decision pipeline, security boundaries, and remaining limitations.
 
+A public image link can also be used as the drawing source. SVG and every
+raster format supported by the installed Pillow build are normalised into a
+small AI-ready reference; one multimodal OpenCode call then analyses the whole
+visible subject and creates two route-native GPS-art alternatives. SVG sampling
+remains available only as a deterministic fallback when AI is unavailable.
+
 For a city-based suggestion, enter:
 “suggest a run in Debrecen, 10 km”. The planner uses available geographic
 context to choose a template, placement, and orientation likely to fit the
@@ -244,7 +250,7 @@ opencode) and put it in `.env`:
 ```bash
 OPENCODE_API_KEY=zen-...
 OPENCODE_BASE_URL=https://opencode.ai/zen/v1
-OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini # /v1/responses, strict JSON-schema tasks
+OPENCODE_STRUCTURED_MODEL=gpt-5.6-luna # /v1/responses, fast multimodal strict-schema tasks
 LLM_MODEL=glm-5.2            # any /v1/chat/completions model: kimi-k2.6, deepseek-v4-flash, ...
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode,anthropic,openai,ollama

@@ -7,29 +7,30 @@ import ipaddress
 import math
 import re
 import socket
+import warnings
+from copy import deepcopy
 from dataclasses import dataclass
+from functools import lru_cache
 from io import BytesIO
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
+from PIL import Image, ImageOps, UnidentifiedImageError
 from svgelements import SVG, Close
 from svgelements import Path as SvgPath
 from svgelements import Shape as SvgShape
 
 from ..state import Shape
+from . import shape_program
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_SVG_BYTES = 2 * 1024 * 1024
 MAX_REDIRECTS = 3
 MAX_SVG_SEGMENTS = 5_000
 MAX_SVG_PATHS = 8
-SUPPORTED_RASTER_TYPES = {
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-}
+MAX_RASTER_PIXELS = 40_000_000
+REFERENCE_IMAGE_MAX_DIMENSION = 1_024
 
 
 class ImageReferenceError(ValueError):
@@ -51,44 +52,53 @@ def import_image_reference(
 ) -> ImportedImageReference:
     """Download and import one bounded public image URL.
 
-    SVG geometry is sampled directly. PNG, JPEG, WebP and GIF files are
-    returned as inline image data for the existing multimodal shape agent.
+    SVG geometry is retained as a deterministic fallback and rendered for the
+    multimodal shape agent. Every raster format Pillow can safely decode is
+    normalised to a bounded PNG before it is sent to the model.
     """
 
-    supplied_client = client is not None
-    http_client = client or httpx.Client(
+    cleaned_url = " ".join(str(url).split())
+    if client is None:
+        return deepcopy(_import_public_image_cached(cleaned_url))
+    return _import_public_image(cleaned_url, client)
+
+
+@lru_cache(maxsize=64)
+def _import_public_image_cached(url: str) -> ImportedImageReference:
+    with httpx.Client(
         timeout=httpx.Timeout(10.0, connect=5.0),
         headers={
-            "Accept": "image/svg+xml,image/png,image/jpeg,image/webp,image/gif",
+            "Accept": "image/svg+xml,image/*,*/*;q=0.1",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 Chrome/140 Safari/537.36"
             ),
         },
-    )
-    try:
-        content, final_url = _download_public_image(url, http_client)
-    finally:
-        if not supplied_client:
-            http_client.close()
+    ) as client:
+        return _import_public_image(url, client)
+
+
+def _import_public_image(url: str, client: httpx.Client) -> ImportedImageReference:
+    content, final_url = _download_public_image(url, client)
 
     media_type = _detect_media_type(content)
     name = _reference_name(final_url)
     if media_type == "image/svg+xml":
+        shape = _shape_from_svg(content, name=name)
         return ImportedImageReference(
             name=name,
             kind="svg",
-            shape=_shape_from_svg(content, name=name),
+            shape=shape,
+            image_data_url=shape_program.render_paths_png_data_url(
+                shape.paths,
+                size=512,
+                padding=28,
+            ),
         )
-    if media_type not in SUPPORTED_RASTER_TYPES:
-        raise ImageReferenceError(
-            "Use a direct SVG, PNG, JPG, WebP, or GIF image link."
-        )
-    encoded = base64.b64encode(content).decode("ascii")
     return ImportedImageReference(
         name=name,
         kind="raster",
-        image_data_url=f"data:{media_type};base64,{encoded}",
+        image_data_url=_normalise_raster_image(content),
     )
 
 
@@ -154,14 +164,18 @@ def _require_public_http_url(url: str) -> None:
     if parsed.username or parsed.password:
         raise ImageReferenceError("Image URLs containing credentials are not supported.")
     try:
-        addresses = {
-            item[4][0]
-            for item in socket.getaddrinfo(
-                parsed.hostname,
-                port,
-                type=socket.SOCK_STREAM,
-            )
-        }
+        addresses: set[str] = set()
+        for item in socket.getaddrinfo(
+            parsed.hostname,
+            port,
+            type=socket.SOCK_STREAM,
+        ):
+            raw_address = item[4][0]
+            if not isinstance(raw_address, str):
+                raise ImageReferenceError(
+                    "The image link resolved to an invalid address."
+                )
+            addresses.add(raw_address)
     except socket.gaierror as exc:
         raise ImageReferenceError("The image link hostname could not be found.") from exc
     if not addresses:
@@ -190,6 +204,47 @@ def _detect_media_type(content: bytes) -> str:
     if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
         return "image/webp"
     return "application/octet-stream"
+
+
+def _normalise_raster_image(content: bytes) -> str:
+    """Decode a raster by content and produce a small provider-safe PNG."""
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(content)) as opened:
+                width, height = opened.size
+                if width <= 0 or height <= 0 or width * height > MAX_RASTER_PIXELS:
+                    raise ImageReferenceError(
+                        "The linked image dimensions are too large to process safely."
+                    )
+                opened.seek(0)
+                opened.load()
+                image = ImageOps.exif_transpose(opened).copy()
+    except ImageReferenceError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ImageReferenceError(
+            "The linked image dimensions are too large to process safely."
+        ) from exc
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ImageReferenceError(
+            "Use a direct SVG or a valid raster image link."
+        ) from exc
+
+    image.thumbnail(
+        (REFERENCE_IMAGE_MAX_DIMENSION, REFERENCE_IMAGE_MAX_DIMENSION),
+        Image.Resampling.LANCZOS,
+        reducing_gap=3.0,
+    )
+    rgba = image.convert("RGBA")
+    background = Image.new("RGBA", rgba.size, "white")
+    background.alpha_composite(rgba)
+    normalised = background.convert("RGB")
+    output = BytesIO()
+    normalised.save(output, format="PNG", compress_level=3)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def _shape_from_svg(content: bytes, *, name: str) -> Shape:

@@ -152,18 +152,18 @@ test("broken start point, direction, and route preference controls are not shown
   });
 });
 
-test("an SVG or raster image link can be fitted to a selected city", async ({ page }) => {
+test("a supported image link can generate an AI route in a selected city", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
 
   const imagePanel = page.locator(".image-reference-panel");
-  await imagePanel.getByLabel("Direct SVG or image URL").fill(
+  await imagePanel.getByLabel("Direct image URL").fill(
     "https://www.premiumsvg.com/wimg1/mug-icon.webp",
   );
   await imagePanel.getByLabel("Destination").selectOption("Pécs");
   await imagePanel.getByLabel("Travel mode").selectOption("bike");
   await imagePanel.getByLabel("Length").fill("24");
-  await imagePanel.getByRole("button", { name: "Fit image to city" }).click();
+  await imagePanel.getByRole("button", { name: "Generate AI route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a custom image in Pécs, cycling, about 24 km",

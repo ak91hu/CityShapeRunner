@@ -218,6 +218,7 @@ def test_generate_endpoint_imports_and_forwards_svg_geometry(monkeypatch) -> Non
             closed=True,
             source="reference_svg",
         ),
+        image_data_url="data:image/png;base64,iVBORw0KGgo=",
     )
 
     monkeypatch.setattr(
@@ -243,7 +244,7 @@ def test_generate_endpoint_imports_and_forwards_svg_geometry(monkeypatch) -> Non
 
     assert response.status_code == 422
     assert captured["reference_shape"].name == "mug"
-    assert captured["reference_image_data_url"] is None
+    assert captured["reference_image_data_url"].startswith("data:image/png;base64,")
     assert captured["reference_name"] == "mug"
     assert captured["reference_kind"] == "svg"
 
