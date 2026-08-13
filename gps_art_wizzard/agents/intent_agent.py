@@ -70,15 +70,54 @@ _SUGGESTION_PATTERNS = (
 )
 
 _INTENT_JSON_SCHEMA = {
+    "title": "GPS art route intent",
+    "description": (
+        "Semantic drawing intent and route metadata extracted from one user request."
+    ),
     "type": "object",
     "properties": {
-        "shape": {"type": ["string", "null"], "maxLength": 80},
-        "text": {"type": ["string", "null"], "maxLength": 20},
-        "city": {"type": ["string", "null"], "maxLength": 100},
-        "sport": {"type": "string", "enum": ["run", "bike"]},
-        "distance_km": {"type": ["number", "null"], "minimum": 0},
-        "style": {"type": ["string", "null"], "maxLength": 80},
-        "suggest": {"type": "boolean"},
+        "shape": {
+            "description": (
+                "Complete semantic subject to draw. Never an initial or abbreviation; "
+                "null only for explicit text or suggestion requests."
+            ),
+            "type": ["string", "null"],
+            "maxLength": 80,
+        },
+        "text": {
+            "description": (
+                "Characters explicitly requested as written text; never inferred from a "
+                "named object."
+            ),
+            "type": ["string", "null"],
+            "maxLength": 20,
+        },
+        "city": {
+            "description": "Named city or area, preserving accents; null when absent.",
+            "type": ["string", "null"],
+            "maxLength": 100,
+        },
+        "sport": {
+            "description": "Requested activity; running is the default.",
+            "type": "string",
+            "enum": ["run", "bike"],
+        },
+        "distance_km": {
+            "description": "Positive target distance in kilometres; null when absent.",
+            "type": ["number", "null"],
+            "minimum": 0,
+        },
+        "style": {
+            "description": (
+                "Purely visual or sizing guidance; semantic subject modifiers stay in shape."
+            ),
+            "type": ["string", "null"],
+            "maxLength": 80,
+        },
+        "suggest": {
+            "description": "True only when the user asks the planner to choose the drawing.",
+            "type": "boolean",
+        },
     },
     "required": [
         "shape",
@@ -105,16 +144,18 @@ class IntentAgent(BaseAgent):
             # and removes nondeterministic numeric interpretation.
             intent = fallback_intent
         else:
-            user = render("intent", prompt=state.prompt)
+            instructions = render("intent")
+            user = json.dumps({"route_request": state.prompt}, ensure_ascii=False)
             resp = try_complete(
                 lambda: fallback,
                 messages=[{"role": "user", "content": user}],
-                system=self.system_prompt,
+                system=f"{self.system_prompt}\n\n{instructions}",
                 json_mode=True,
                 json_schema=_INTENT_JSON_SCHEMA,
                 temperature=0.1,
             )
             intent = self._parse(resp.text)
+        intent = _preserve_described_drawing(state.prompt, fallback_intent, intent)
         state.intent = intent
         self._record(state, f"intent={intent}")
         return state
@@ -216,13 +257,13 @@ class IntentAgent(BaseAgent):
 
             custom_shape = _extract_custom_shape(text, city=city)
             hit = shape_library.find_by_keyword(low)
-            if hit and shape_library.template_match_covers_description(
+            if drawn_text:
+                shape = "text"
+            elif hit and shape_library.template_match_covers_description(
                 custom_shape,
                 hit[0],
             ):
                 shape = hit[0]
-            elif drawn_text:
-                shape = "text"
             else:
                 # Preserve a named, unsupported drawing instead of dropping it
                 # and forcing ShapeAgent to guess.  This also lets common custom
@@ -241,6 +282,22 @@ def _clean_optional_text(value: object, *, max_length: int) -> str | None:
         return None
     cleaned = " ".join(value.split()).strip()
     return cleaned[:max_length] or None
+
+
+def _preserve_described_drawing(
+    prompt: str,
+    locally_parsed: Intent,
+    intent: Intent,
+) -> Intent:
+    """Keep a described subject from being reduced to its first letter."""
+    low = prompt.casefold()
+    explicit_text_request = re.search(r"\b(?:write|spell|letter|text)\b", low)
+    described_shape = locally_parsed.shape
+    if described_shape and described_shape != "text" and not explicit_text_request:
+        intent.shape = described_shape
+        intent.text = None
+        intent.suggest = False
+    return intent
 
 
 def _extract_unlisted_city(text: str) -> str | None:

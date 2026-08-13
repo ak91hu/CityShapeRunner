@@ -130,16 +130,6 @@ export function removeGalleryImage(payload, options = {}) {
   });
 }
 
-export function interpretPrompt(prompt, options = {}) {
-  return request("/interpret", {
-    ...options,
-    timeoutMs: 20_000,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
-  });
-}
-
 export function requestTimedReadiness(payload, options = {}) {
   return request("/timed-readiness", {
     ...options,
@@ -174,16 +164,6 @@ export function analyseInkproof(payload, options = {}) {
   return request("/inkproof-analysis", {
     ...options,
     timeoutMs: 30_000,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function rescueGpsArt(payload, options = {}) {
-  return request("/art-rescue", {
-    ...options,
-    timeoutMs: 60_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

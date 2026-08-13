@@ -46,13 +46,14 @@ def test_pipeline_text_shape():
     assert any("explicit user acceptance" in error for error in state.errors)
 
 
-def test_unknown_shape_uses_an_explicit_idea_linked_offline_fallback():
+def test_unknown_shape_uses_the_complete_word_as_its_offline_fallback():
     _clear_custom_shape_cache()
     state = generate("a platypus in Budapest, 8 km")
     assert state.intent is not None
     assert state.intent.shape == "platypus"
     assert state.shape is not None
-    assert state.shape.name == "P label"
+    assert state.shape.name == "text:PLATYPUS"
+    assert state.shape.name != "P label"
     assert state.shape.source == "fallback"
     assert any("fallback" in error for error in state.errors)
 

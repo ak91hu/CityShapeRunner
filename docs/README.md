@@ -154,7 +154,8 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
   LLM error),
 - a **shape fallback** (template → text → validated model-drawn geometry, order
   set by the plan); invalid generated geometry gets one bounded repair attempt,
-  then an idea-linked letter fallback is explicitly labelled and recorded.
+  then the complete requested phrase is rendered as an explicitly labelled
+  fallback rather than being reduced to its initial.
 
 The result screen includes a candidate selector and a Leaflet route editor.
 The selector ranks routes that pass every automatic check ahead of review

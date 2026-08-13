@@ -4347,8 +4347,7 @@ input,
 .timed-readiness-card,
 .recognition-repair-card,
 .mural-card,
-.inkproof-card,
-.art-rescue-card {
+.inkproof-card {
   padding: 1rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
@@ -4358,8 +4357,7 @@ input,
 .street-canvas-card p,
 .mural-card p,
 .recognition-repair-card p,
-.inkproof-card p,
-.art-rescue-card p {
+.inkproof-card p {
   margin: 0.55rem 0;
   color: var(--ink-soft);
   font-size: 0.74rem;
@@ -4634,8 +4632,6 @@ input,
   }
 }
 
-/* Interpretation is optional, but it sits beside the main action so a user can
-   verify an expensive route request without hunting through another panel. */
 .prompt-actions {
   display: grid;
   grid-template-columns: minmax(10rem, 0.72fr) minmax(12rem, 1.28fr);
@@ -4643,27 +4639,10 @@ input,
   align-items: stretch;
 }
 
-.prompt-actions .generate-button,
-.prompt-actions .interpret-button {
+.prompt-actions .generate-button {
   width: 100%;
 }
 
-.interpretation-card {
-  display: grid;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
-  padding: 1rem;
-  border: 1px solid #9fcbbb;
-  border-radius: var(--radius-md);
-  background: #f0f8f4;
-}
-
-.interpretation-card h3 {
-  margin: 0.12rem 0 0;
-  font-size: 1rem;
-}
-
-.interpretation-card dl,
 .request-summary-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4671,7 +4650,6 @@ input,
   margin: 0;
 }
 
-.interpretation-card dl > div,
 .request-summary-facts > div {
   min-width: 0;
   padding: 0.65rem 0.7rem;
@@ -4680,7 +4658,6 @@ input,
   background: rgb(255 255 255 / 72%);
 }
 
-.interpretation-card dt,
 .request-summary-facts dt {
   color: var(--muted);
   font-size: 0.62rem;
@@ -4689,26 +4666,12 @@ input,
   text-transform: uppercase;
 }
 
-.interpretation-card dd,
 .request-summary-facts dd {
   margin: 0.2rem 0 0;
   overflow-wrap: anywhere;
   color: var(--ink);
   font-size: 0.78rem;
   font-weight: 750;
-}
-
-.interpretation-card > p,
-.interpretation-error {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 0.72rem;
-  line-height: 1.45;
-}
-
-.interpretation-error {
-  margin-top: 0.65rem;
-  color: var(--danger);
 }
 
 /* Put the user's interpreted request before scores. This makes a semantic
@@ -4797,7 +4760,6 @@ input,
 
 @media (max-width: 48rem) {
   .prompt-actions,
-  .interpretation-card dl,
   .request-summary-facts,
   .route-lab-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -4824,16 +4786,6 @@ input,
   }
 }
 
-/* Live intent confirmation keeps the AI inspectable without adding a manual
-   checkpoint to every route request. */
-.interpretation-live-status {
-  min-height: 1.35rem;
-  margin-top: 0.75rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.interpretation-heading,
 .candidate-compare-heading {
   display: flex;
   align-items: start;
@@ -4841,7 +4793,6 @@ input,
   gap: 1rem;
 }
 
-.interpretation-heading h3,
 .candidate-compare-heading h3 {
   margin: 0.12rem 0 0;
   font-size: 1.05rem;
@@ -4866,14 +4817,6 @@ input,
   color: #704d00;
 }
 
-.interpretation-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem;
-  margin-top: 0.85rem;
-}
-
-.interpretation-fields label,
 .start-address-field,
 .start-direction-field {
   min-width: 0;
@@ -4884,7 +4827,6 @@ input,
   font-weight: 720;
 }
 
-.interpretation-fields label > span:first-child,
 .start-address-field > span,
 .start-direction-field > span {
   display: flex;
@@ -4893,14 +4835,6 @@ input,
   gap: 0.5rem;
 }
 
-.interpretation-fields small {
-  color: var(--muted);
-  font-size: 0.6rem;
-  font-weight: 620;
-}
-
-.interpretation-fields input,
-.interpretation-fields select,
 .start-controls input,
 .start-controls select {
   width: 100%;
@@ -4911,62 +4845,6 @@ input,
   background: var(--surface-raised);
   color: var(--ink);
   font: inherit;
-}
-
-.distance-input {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center !important;
-  gap: 0.45rem !important;
-}
-
-.distance-input b {
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
-.clarification-row {
-  margin-top: 0.75rem;
-  padding: 0.7rem;
-  border: 1px solid #e6c871;
-  border-radius: var(--radius-sm);
-  background: var(--warning-surface);
-}
-
-.clarification-row > strong {
-  display: block;
-  color: #654000;
-  font-size: 0.72rem;
-}
-
-.clarification-row > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-}
-
-.clarification-option {
-  min-height: 2.35rem;
-  padding: 0.42rem 0.65rem;
-  border: 1px solid #c8a64c;
-  border-radius: 999px;
-  background: #fffdf8;
-  color: #5d4300;
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 720;
-  cursor: pointer;
-}
-
-.clarification-option[aria-pressed="true"] {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: #fff;
-}
-
-.interpretation-explainer {
-  margin-bottom: 0 !important;
 }
 
 .planner-controls {
@@ -5201,8 +5079,7 @@ input,
 }
 
 .concern-button:focus-visible,
-.candidate-card:focus-visible,
-.clarification-option:focus-visible {
+.candidate-card:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--brand) 35%, transparent);
   outline-offset: 2px;
 }
@@ -5229,14 +5106,7 @@ input,
   filter: drop-shadow(0 0 3px rgba(194, 65, 45, 0.7));
 }
 
-/* GPS-art-only resilience and rescue tools. */
-.art-rescue-card {
-  grid-column: 1 / -1;
-  background:
-    radial-gradient(circle at top right, rgba(192, 38, 211, 0.08), transparent 42%),
-    var(--surface);
-}
-
+/* GPS-art-only resilience tools. */
 .inkproof-card {
   background:
     radial-gradient(circle at top right, rgba(109, 40, 217, 0.08), transparent 42%),
@@ -5244,7 +5114,6 @@ input,
 }
 
 .inkproof-card > small,
-.art-rescue-card > small,
 .niche-result > small {
   display: block;
   margin-top: 0.65rem;
@@ -5253,17 +5122,14 @@ input,
   line-height: 1.45;
 }
 
-.niche-controls,
-.rescue-upload-row,
-.rescue-action-row {
+.niche-controls {
   display: flex;
   gap: 0.75rem;
   align-items: end;
   margin-top: 0.75rem;
 }
 
-.niche-controls label,
-.rescue-upload-row label {
+.niche-controls label {
   display: grid;
   flex: 1;
   gap: 0.3rem;
@@ -5272,9 +5138,7 @@ input,
   font-weight: 720;
 }
 
-.niche-controls select,
-.rescue-upload-row select,
-.file-picker input {
+.niche-controls select {
   min-height: 2.5rem;
   width: 100%;
   padding: 0.42rem 0.55rem;
@@ -5283,18 +5147,6 @@ input,
   background: var(--surface);
   color: var(--ink);
   font: inherit;
-}
-
-.file-picker input {
-  padding: 0.36rem;
-  font-size: 0.68rem;
-}
-
-.rescue-action-row {
-  align-items: center;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 0.68rem;
 }
 
 .niche-result {
@@ -5309,8 +5161,7 @@ input,
   margin: 0.5rem 0;
 }
 
-.niche-score-row,
-.rescue-metrics {
+.niche-score-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem 1rem;
@@ -5332,31 +5183,7 @@ input,
   font-weight: 800;
 }
 
-.rescue-metrics {
-  justify-content: flex-start;
-}
-
-.rescue-metrics span {
-  padding-right: 1rem;
-  border-right: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.66rem;
-}
-
-.rescue-metrics span:last-child {
-  padding-right: 0;
-  border-right: 0;
-}
-
-.rescue-metrics b {
-  display: block;
-  color: var(--ink);
-  font-size: 0.88rem;
-}
-
-.niche-map-toggle,
-.niche-downloads button,
-.missing-ink-list button {
+.niche-map-toggle {
   padding: 0.38rem 0.55rem;
   border: 1px solid color-mix(in srgb, #6d28d9 45%, var(--line));
   border-radius: 0.4rem;
@@ -5368,15 +5195,11 @@ input,
   cursor: pointer;
 }
 
-.niche-map-toggle:hover,
-.niche-downloads button:hover,
-.missing-ink-list button:hover {
+.niche-map-toggle:hover {
   background: #f5f3ff;
 }
 
-.niche-map-toggle:focus-visible,
-.niche-downloads button:focus-visible,
-.missing-ink-list button:focus-visible {
+.niche-map-toggle:focus-visible {
   outline: 3px solid color-mix(in srgb, #6d28d9 35%, transparent);
   outline-offset: 2px;
 }
@@ -5395,36 +5218,8 @@ input,
   line-height: 1.45;
 }
 
-.niche-downloads {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.6rem;
-}
-
-.missing-ink-list {
-  margin: 0.7rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.missing-ink-list li {
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.45rem 0;
-  border-top: 1px solid var(--line);
-  color: var(--ink-soft);
-  font-size: 0.68rem;
-}
-
 .legend-line--inkproof {
   border-top: 4px dashed #6d28d9;
-}
-
-.legend-line--missing {
-  border-top: 4px dotted #c026d3;
 }
 
 .route-analysis-segment {
@@ -5443,12 +5238,10 @@ input,
 }
 
 @media (max-width: 48rem) {
-  .interpretation-fields,
   .start-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .interpretation-heading,
   .candidate-compare-heading {
     align-items: stretch;
     flex-direction: column;
@@ -5466,15 +5259,12 @@ input,
     scroll-snap-align: start;
   }
 
-  .niche-controls,
-  .rescue-upload-row,
-  .rescue-action-row {
+  .niche-controls {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .niche-controls .button,
-  .rescue-action-row .button {
+  .niche-controls .button {
     width: 100%;
   }
 }

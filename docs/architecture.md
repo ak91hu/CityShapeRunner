@@ -121,7 +121,7 @@ explicit without coupling the current runtime to one.
 
 | Missing | Behaviour |
 |---------|-----------|
-| No LLM key | an unsupported drawing becomes an explicitly labelled one-character vector fallback linked to the requested idea |
+| No LLM key | an unsupported drawing becomes an explicitly labelled full-word vector fallback; it is never reduced to its initial |
 | No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide with a strong obstacle warning; explicit acceptance is required before GPX download |
 | LLM returns malformed or invalid data | executable geometry checks request one bounded repair, then use the explicit deterministic fallback |
 | Validation never reaches threshold | orchestrator returns the best iteration + a `below_threshold` flag |

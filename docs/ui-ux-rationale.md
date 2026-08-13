@@ -17,22 +17,17 @@ Everything else—candidate diagnostics, placement parameters, earlier attempts,
 and gallery publishing—is supporting information. The visual hierarchy should
 reflect that difference.
 
-The AI interpretation is shown as an editable, field-by-field preview while a
-person types. High-confidence fields do not interrupt the journey; an ambiguous
-term offers only the relevant alternatives. The result page shows route
+The prompt goes directly to the generation pipeline; internal interpretation is
+not exposed as another form for the user to review. The result page shows route
 alternatives side by side with likeness, distance, climb, and readiness instead
 of hiding those trade-offs in a select. Readiness findings are buttons: choosing
 one highlights and fits its mapped segment, while a visible reset returns to the
 full route. Start-point, first-direction, and routing preferences stay together
 in one optional disclosure before the primary action.
 
-The optional result lab now separates two moments that ordinary route tools
-often mix together. “Inkproof” is explicitly labelled “before you go” and asks
-for expected GPS accuracy; “Missing Ink” is labelled “after the activity” and
-accepts multiple completed GPX files. Both return a small score summary first,
-then use a single map toggle for the exact fragile or missing sections. Repair
-downloads remain inside the result that produced them, and the upload control
-states that traces are processed in memory rather than retained.
+The optional result lab keeps pre-route tools focused on improving the route.
+Inkproof asks for expected GPS accuracy, returns a small score summary, and uses
+a single map toggle for the exact fragile sections.
 
 ## Anti-slop content and visual standard
 

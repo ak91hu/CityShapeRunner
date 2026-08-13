@@ -3,7 +3,6 @@ import {
   analyseInkproof,
   editRoute,
   generate as generateRoute,
-  interpretPrompt,
   createMuralPlan,
   listGallery,
   publishGalleryImage,
@@ -11,7 +10,6 @@ import {
   repairRecognition,
   requestTimedReadiness,
   removeGalleryImage,
-  rescueGpsArt,
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
@@ -768,13 +766,6 @@ function MetricCard({ label, value, detail, tone = "neutral" }) {
   );
 }
 
-function confidenceLabel(value) {
-  if (!Number.isFinite(value)) return "Checked";
-  if (value >= 0.9) return "High confidence";
-  if (value >= 0.7) return "Likely";
-  return "Assumed; check";
-}
-
 function RouteReadinessCard({
   readiness,
   roadRouted,
@@ -1149,126 +1140,6 @@ function InkproofCard({ points, overlayType, onOverlayChange }) {
       )}
       {error && <p className="editor-error" role="alert">{error}</p>}
       <small>No paid map call: the test runs from route geometry only.</small>
-    </section>
-  );
-}
-
-function ArtRescueCard({ points, shapeName, city, sport, overlayType, onOverlayChange }) {
-  const [files, setFiles] = useState([]);
-  const [tolerance, setTolerance] = useState("25");
-  const [analysis, setAnalysis] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const showing = overlayType === "missing";
-
-  const overlay = useCallback((result) => ({
-    type: "missing",
-    segments: (result?.missing_segments ?? []).map((segment) => ({
-      ...segment,
-      kind: "missing",
-    })),
-  }), []);
-
-  const chooseFiles = (event) => {
-    const selected = [...(event.target.files ?? [])];
-    setFiles(selected);
-    setAnalysis(null);
-    setError("");
-    onOverlayChange(null);
-  };
-
-  const analyse = async () => {
-    if (files.length < 1 || busy) return;
-    const oversized = files.find((file) => file.size > 2_000_000);
-    if (oversized) {
-      setError(`${oversized.name} is larger than the 2 MB in-memory limit.`);
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const recordings = await Promise.all(files.map(async (file) => ({
-        name: file.name,
-        gpx: await file.text(),
-      })));
-      const response = await rescueGpsArt({
-        planned_points: points,
-        recordings,
-        tolerance_m: Number(tolerance),
-        name: `${shapeName} in ${city}`,
-        sport: sport === "bike" ? "bike" : "run",
-      });
-      setAnalysis(response);
-      onOverlayChange(response.missing_segments?.length ? overlay(response) : null);
-    } catch (requestError) {
-      setError(requestError.message || "We couldn’t compare these recordings with the route.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="art-rescue-card" aria-labelledby="art-rescue-title">
-      <div>
-        <span className="eyebrow">Free · after the activity</span>
-        <h3 id="art-rescue-title">Missing Ink rescue</h3>
-        <p>Combine interrupted or multi-day recordings, then create GPX missions only for the strokes still missing.</p>
-      </div>
-      <div className="rescue-upload-row">
-        <label className="file-picker">
-          <span>Recorded GPX files</span>
-          <input type="file" accept=".gpx,application/gpx+xml" multiple onChange={chooseFiles} />
-        </label>
-        <label>
-          Match tolerance
-          <select value={tolerance} onChange={(event) => setTolerance(event.target.value)}>
-            <option value="15">Strict · 15 m</option>
-            <option value="25">Balanced · 25 m</option>
-            <option value="40">Forgiving · 40 m</option>
-          </select>
-        </label>
-      </div>
-      <div className="rescue-action-row">
-        <span>{files.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Choose up to 12 GPX files"}</span>
-        <button type="button" className="button button--secondary" onClick={analyse} disabled={!files.length || busy}>
-          {busy ? "Finding missing ink..." : "Analyse completed art"}
-        </button>
-      </div>
-      {analysis && (
-        <div className="niche-result" role="status">
-          <div className="rescue-metrics">
-            <span><b>{formatPercent(analysis.coverage)}</b> covered</span>
-            <span><b>{formatPercent(analysis.art_match)}</b> art match</span>
-            <span><b>{formatMetric(analysis.missing_distance_km)} km</b> left</span>
-          </div>
-          <p>{analysis.message}</p>
-          <div className="niche-downloads">
-            <button type="button" onClick={() => saveFile(`${safeFilePart(shapeName)}-combined.gpx`, analysis.merged_recording_gpx, "application/gpx+xml")}>Combined GPX</button>
-            {analysis.missing_ink_gpx && (
-              <button type="button" onClick={() => saveFile(`${safeFilePart(shapeName)}-missing-ink.gpx`, analysis.missing_ink_gpx, "application/gpx+xml")}>Missing Ink pack</button>
-            )}
-            {analysis.missing_segments?.length > 0 && (
-              <button type="button" className="niche-map-toggle" onClick={() => onOverlayChange(showing ? null : overlay(analysis))}>
-                {showing ? "Hide missing ink" : "Show missing ink on map"}
-              </button>
-            )}
-          </div>
-          {analysis.missing_segments?.length > 0 && (
-            <ol className="missing-ink-list">
-              {analysis.missing_segments.map((segment) => (
-                <li key={segment.id}>
-                  <span>{segment.label} · {segment.distance_m >= 1000 ? `${formatMetric(segment.distance_m / 1000)} km` : `${Math.round(segment.distance_m)} m`}</span>
-                  <button type="button" onClick={() => saveFile(`${safeFilePart(segment.label)}.gpx`, segment.gpx, "application/gpx+xml")}>GPX</button>
-                </li>
-              ))}
-            </ol>
-          )}
-          {analysis.authenticity && <small>{analysis.authenticity}</small>}
-          <small>{analysis.privacy}</small>
-        </div>
-      )}
-      {error && <p className="editor-error" role="alert">{error}</p>}
-      <small>Track segments stay separate, so travel between sessions never becomes a false line.</small>
     </section>
   );
 }
@@ -2157,9 +2028,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             {labOverlay?.type === "inkproof" && (
               <span><span className="legend-line legend-line--inkproof" aria-hidden="true" /> Fragile ink</span>
             )}
-            {labOverlay?.type === "missing" && (
-              <span><span className="legend-line legend-line--missing" aria-hidden="true" /> Missing ink</span>
-            )}
             <span>
               <span className="legend-dot legend-dot--start" aria-hidden="true" /> Start
             </span>
@@ -2595,18 +2463,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               setLabOverlay(overlayValue);
             }}
           />
-          <ArtRescueCard
-            key={`rescue-${activeRouteId}`}
-            points={activeRoute.points_preview ?? []}
-            shapeName={shapeName}
-            city={city}
-            sport={result.intent?.sport}
-            overlayType={labOverlay?.type}
-            onOverlayChange={(overlayValue) => {
-              setActiveConcernCode(null);
-              setLabOverlay(overlayValue);
-            }}
-          />
           <TimedReadinessCard points={activeRoute.points_preview ?? []} />
           <section className="recognition-repair-card" aria-labelledby="repair-title">
             <div>
@@ -2657,9 +2513,6 @@ export default function App() {
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [interpretation, setInterpretation] = useState(null);
-  const [interpretBusy, setInterpretBusy] = useState(false);
-  const [interpretError, setInterpretError] = useState("");
   const [startAddress, setStartAddress] = useState("");
   const [startPoint, setStartPoint] = useState(null);
   const [startLocationNotice, setStartLocationNotice] = useState("");
@@ -2676,7 +2529,6 @@ export default function App() {
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
-  const interpretRequestRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
@@ -2699,7 +2551,6 @@ export default function App() {
   useEffect(
     () => () => {
       requestRef.current?.abort();
-      interpretRequestRef.current?.abort();
     },
     [],
   );
@@ -2716,44 +2567,6 @@ export default function App() {
     );
   }, [ideaQuery]);
 
-  const requestInterpretation = useCallback(async (value) => {
-    const validation = validateRoutePrompt(value);
-    if (validation.error) return;
-    const controller = new AbortController();
-    interpretRequestRef.current?.abort();
-    interpretRequestRef.current = controller;
-    setInterpretBusy(true);
-    setInterpretError("");
-    try {
-      const response = await interpretPrompt(validation.value, { signal: controller.signal });
-      setInterpretation(response);
-    } catch (reviewError) {
-      if (reviewError.name !== "AbortError") {
-        setInterpretError(
-          reviewError.message || "We couldn’t check that idea. You can still find routes.",
-        );
-      }
-    } finally {
-      if (interpretRequestRef.current === controller) {
-        interpretRequestRef.current = null;
-        setInterpretBusy(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (loading) return undefined;
-    const validation = validateRoutePrompt(prompt);
-    if (validation.error) {
-      interpretRequestRef.current?.abort();
-      setInterpretation(null);
-      setInterpretBusy(false);
-      return undefined;
-    }
-    const timer = window.setTimeout(() => requestInterpretation(validation.value), 650);
-    return () => window.clearTimeout(timer);
-  }, [loading, prompt, requestInterpretation]);
-
   const generate = useCallback(async (nextPrompt) => {
     const cleanPrompt = normaliseRoutePrompt(nextPrompt);
     if (!cleanPrompt) return;
@@ -2765,19 +2578,7 @@ export default function App() {
     setError("");
     setResult(null);
 
-    const confirmedIntent = interpretation?.prompt === cleanPrompt
-      ? {
-          shape: interpretation.intent?.shape ?? null,
-          text: interpretation.intent?.text ?? null,
-          city: interpretation.intent?.city ?? null,
-          sport: interpretation.intent?.sport === "bike" ? "bike" : "run",
-          distance_km: Number(interpretation.intent?.distance_km) || null,
-          style: interpretation.intent?.style ?? null,
-          suggest: Boolean(interpretation.intent?.suggest),
-        }
-      : null;
     const payload = {};
-    if (confirmedIntent) payload.intent_override = confirmedIntent;
     if (startPoint) {
       payload.start_point = {
         latitude: startPoint.latitude,
@@ -2813,53 +2614,7 @@ export default function App() {
         setLoading(false);
       }
     }
-  }, [interpretation, routePreferences, startAddress, startDirection, startPoint]);
-
-  const updateInterpretation = useCallback((field, value) => {
-    setInterpretation((current) => {
-      if (!current) return current;
-      const nextIntent = { ...current.intent };
-      if (field === "drawing") {
-        nextIntent.shape = value;
-        nextIntent.text = null;
-        nextIntent.suggest = false;
-        return {
-          ...current,
-          intent: nextIntent,
-          drawing_label: value,
-          drawing_kind: "custom",
-          confidence: { ...current.confidence, drawing: 1 },
-        };
-      }
-      nextIntent[field] = value;
-      return {
-        ...current,
-        intent: nextIntent,
-        confidence: {
-          ...current.confidence,
-          [field === "distance_km" ? "distance" : field]: 1,
-        },
-      };
-    });
-  }, []);
-
-  const applyClarification = useCallback((clarification, option) => {
-    setInterpretation((current) => {
-      if (!current) return current;
-      const patch = option.intent_patch ?? {};
-      return {
-        ...current,
-        intent: { ...current.intent, ...patch },
-        drawing_label: option.label,
-        drawing_kind: patch.text ? "text" : "template",
-        confidence: { ...current.confidence, [clarification.field]: 1 },
-        clarifications: current.clarifications.map((item) =>
-          item === clarification ? { ...item, selected: option.value, resolved: true } : item,
-        ),
-        needs_clarification: false,
-      };
-    });
-  }, []);
+  }, [routePreferences, startAddress, startDirection, startPoint]);
 
   const useCurrentLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -3005,8 +2760,6 @@ export default function App() {
                   onChange={(event) => {
                     const nextPrompt = event.target.value;
                     setPrompt(nextPrompt);
-                    setInterpretation(null);
-                    setInterpretError("");
                     if (promptError) setPromptError(validateRoutePrompt(nextPrompt).error);
                   }}
                   onBlur={(event) => {
@@ -3063,8 +2816,6 @@ export default function App() {
                       aria-pressed={activeIdea === idea.label}
                       onClick={() => {
                         setPrompt(idea.prompt);
-                        setInterpretation(null);
-                        setInterpretError("");
                         setPromptError("");
                       }}
                       disabled={loading}
@@ -3113,8 +2864,6 @@ export default function App() {
                               aria-pressed={activeIdea === idea.label}
                               onClick={() => {
                                 setPrompt(idea.prompt);
-                                setInterpretation(null);
-                                setInterpretError("");
                                 setPromptError("");
                               }}
                               disabled={loading}
@@ -3134,108 +2883,6 @@ export default function App() {
                   )}
                 </div>
               </details>
-
-              <div className="interpretation-live-status" aria-live="polite">
-                {interpretBusy
-                  ? "Understanding your route idea…"
-                  : interpretation
-                    ? "Understanding updated automatically. You can correct any field."
-                    : "The planner will check your meaning as you type."}
-              </div>
-              {interpretation && (
-                <section className="interpretation-card" aria-labelledby="interpretation-title">
-                  <div className="interpretation-heading">
-                    <div>
-                      <span className="eyebrow">Live understanding</span>
-                      <h3 id="interpretation-title">Check what the planner will use</h3>
-                    </div>
-                    <span className={interpretation.needs_clarification ? "status-warn" : "status-good"}>
-                      {interpretation.needs_clarification ? "Needs an answer" : "Ready to use"}
-                    </span>
-                  </div>
-                  <div className="interpretation-fields">
-                    <label>
-                      <span>Drawing <small>{confidenceLabel(interpretation.confidence?.drawing)}</small></span>
-                      <input
-                        type="text"
-                        value={interpretation.intent.text ?? interpretation.intent.shape ?? ""}
-                        onChange={(event) => updateInterpretation("drawing", event.target.value)}
-                        maxLength={80}
-                      />
-                    </label>
-                    <label>
-                      <span>Place <small>{confidenceLabel(interpretation.confidence?.city)}</small></span>
-                      <input
-                        type="text"
-                        value={interpretation.intent.city ?? ""}
-                        onChange={(event) => updateInterpretation("city", event.target.value)}
-                        maxLength={100}
-                      />
-                    </label>
-                    <label>
-                      <span>Activity <small>{confidenceLabel(interpretation.confidence?.sport)}</small></span>
-                      <select
-                        value={interpretation.intent.sport}
-                        onChange={(event) => updateInterpretation("sport", event.target.value)}
-                      >
-                        <option value="run">Running</option>
-                        <option value="bike">Cycling</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Distance <small>{confidenceLabel(interpretation.confidence?.distance)}</small></span>
-                      <span className="distance-input">
-                        <input
-                          type="number"
-                          min={interpretation.intent.sport === "bike" ? 10 : 3}
-                          max={interpretation.intent.sport === "bike" ? 200 : 60}
-                          step="0.5"
-                          value={interpretation.intent.distance_km ?? ""}
-                          onChange={(event) => updateInterpretation("distance_km", event.target.value)}
-                        />
-                        <b>km</b>
-                      </span>
-                    </label>
-                  </div>
-                  {(interpretation.clarifications ?? []).map((clarification) => (
-                    <div className="clarification-row" key={`${clarification.field}-${clarification.question}`}>
-                      <strong>{clarification.question}</strong>
-                      {clarification.options?.length > 0 && (
-                        <div>
-                          {clarification.options.map((option) => (
-                            <button
-                              type="button"
-                              key={option.value}
-                              className="clarification-option"
-                              aria-pressed={clarification.selected === option.value}
-                              onClick={() => applyClarification(clarification, option)}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  <p className="interpretation-explainer">
-                    {interpretation.drawing_kind === "template"
-                      ? "Matched to a tested route template."
-                      : interpretation.drawing_kind === "custom"
-                        ? "This is a custom subject; AI will create and visually check the outline."
-                        : interpretation.drawing_kind === "text"
-                          ? "Letters will use the route-ready vector alphabet."
-                          : "The planner will choose a shape that suits the nearby streets."}
-                    {interpretation.defaults_applied?.length > 0
-                      ? ` Default ${interpretation.defaults_applied.join(" and ")} added.`
-                      : ""}
-                  </p>
-                </section>
-              )}
-              {interpretError && (
-                <p className="interpretation-error" role="status">
-                  {interpretError}
-                </p>
-              )}
 
               <details className="planner-controls" open>
                 <summary>
@@ -3310,19 +2957,17 @@ export default function App() {
                       ["prefer_green", "Prefer greener paths"],
                     ].map(([key, label]) => {
                       const runOnly = key === "prefer_quiet" || key === "prefer_green";
-                      const disabled = runOnly && interpretation?.intent?.sport === "bike";
                       return (
-                        <label key={key} className={disabled ? "preference-disabled" : ""}>
+                        <label key={key}>
                           <input
                             type="checkbox"
                             checked={routePreferences[key]}
-                            disabled={disabled}
                             onChange={(event) => setRoutePreferences((current) => ({
                               ...current,
                               [key]: event.target.checked,
                             }))}
                           />
-                          <span>{label}{disabled ? " (walking/running only)" : ""}</span>
+                          <span>{label}{runOnly ? " (walking/running only)" : ""}</span>
                         </label>
                       );
                     })}
@@ -3337,7 +2982,7 @@ export default function App() {
                 <button
                   type="submit"
                   className="button button--primary generate-button"
-                  disabled={loading || interpretation?.needs_clarification}
+                  disabled={loading}
                 >
                   <span>{loading ? "Finding routes…" : "Find routes"}</span>
                 </button>

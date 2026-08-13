@@ -120,10 +120,7 @@ def test_interpret_endpoint_exposes_the_bug_as_an_insect_template() -> None:
         "distance": 0.99,
     }
     assert payload["needs_clarification"] is False
-    assert payload["clarifications"][0]["selected"] == "bug"
-    assert [
-        option["label"] for option in payload["clarifications"][0]["options"]
-    ] == ["Bug (insect)", "Letter B"]
+    assert payload["clarifications"] == []
     assert payload["intent"] == {
         "shape": "bug",
         "text": None,

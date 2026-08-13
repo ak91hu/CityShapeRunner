@@ -14,12 +14,11 @@ options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is before offering an immediate download or asking for explicit review.
 
-The free-text planner is continuously interpreted into editable drawing,
-place, activity, and distance fields. Confidence is shown per field, ambiguous
-terms expose a bounded correction (for example, `bug` means the insect unless
-the user chooses the letter B), and the confirmed structured intent is sent to
-generation. Optional controls can anchor the route at a current location or
-address, set its first direction, avoid steps/ferries/fords, and prefer quieter
+The free-text planner sends the complete request directly to generation, where
+the intent pipeline resolves the drawing, place, activity, and distance. In a
+drawing request, `bug` always selects the insect template; a B route requires
+an explicit `letter B` request. Optional controls can anchor the route at a
+current location or address, set its first direction, avoid steps/ferries/fords, and prefer quieter
 or greener walking streets. Result alternatives appear together as comparison
 cards; route-readiness issues can be selected to zoom the map to their exact
 preview segments.
@@ -59,7 +58,8 @@ Compound requests reuse a related catalog contour as an anatomy/proportion
 anchor without copying it unchanged. The preferred valid alternative wins;
 both invalid alternatives trigger at most one bounded repair. Only successful
 generated shapes enter the 128-entry cache. If no model is available, the
-result uses an explicit idea-linked letter fallback instead of relabelling a
+result uses an explicit full-word text fallback instead of reducing the request
+to its initial or relabelling a
 stock icon as the requested object. See the
 [custom-shape research and decision record](docs/custom-shape-generation.md).
 
@@ -87,14 +87,8 @@ anchors; and Time-aware Readiness combines daylight with an optional hourly
 weather check. Groups can split one continuous route into balanced Community
 GPS Mural sections with a GPX for each participant. Inkproof runs correlated
 GPS-drift simulations before departure and highlights details likely to blur.
-After an activity, Missing Ink Rescue compares up to twelve interrupted or
-multi-day GPX recordings with the selected street route, preserves real GPX
-track-segment gaps instead of drawing false connecting lines, and exports both
-a combined recording and individual or bundled repair missions for only the
-uncovered strokes. The combined file never inserts synthetic points into the
-completed activity; missing lines remain separate, untimed routes to perform
-later. These analyses need no paid map call, account, or retained trace. The
-privacy model and endpoint contracts are in
+These analyses need no paid map call or account. The privacy model and endpoint
+contracts are in
 [GPS Art Intelligence](docs/gps-art-intelligence.md).
 
 ## Research basis

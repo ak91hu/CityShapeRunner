@@ -185,10 +185,11 @@ provider is sticky for the rest of the run.
 
 ### Shape-generation fallback (ShapeAgent)
 Tier order is set by the plan; each tier only runs if the previous yielded
-nothing. The ultimate safety net is an idea-linked one-character vector label
-with `source="fallback"` and an explicit state error. If no usable ASCII glyph
-can be derived, the star remains the final emergency geometry; neither fallback
-is relabelled as the unsupported requested shape.
+nothing. The ultimate safety net is a vector rendering of the complete
+ASCII-normalised requested phrase with `source="fallback"` and an explicit state
+error. It must never reduce a described subject to its initial. If no usable
+ASCII word can be derived, the star remains the final emergency geometry;
+neither fallback is relabelled as the unsupported requested shape.
 
 ## State
 `WorkflowState` (dataclass) is the single shared object threaded through the

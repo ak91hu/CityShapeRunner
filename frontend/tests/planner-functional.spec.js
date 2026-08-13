@@ -111,99 +111,36 @@ test("a custom free-text drawing is submitted without catalog selection", async 
   });
 });
 
-test("the planner previews bug as an insect template before generation", async ({ page }) => {
+test("bug is submitted as a shape without exposing a letter B interpretation", async ({ page }) => {
   const capture = await mockGeneration(page);
+  let interpretationRequests = 0;
   await page.route("**/interpret", async (route) => {
+    interpretationRequests += 1;
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({
-        prompt: "a bug run in Tatabánya, about 8 km",
-        intent: {
-          shape: "bug",
-          text: null,
-          city: "Tatabánya",
-          sport: "run",
-          distance_km: 8,
-          style: null,
-          suggest: false,
-        },
-        drawing_label: "bug",
-        drawing_kind: "template",
-        defaults_applied: [],
-        confidence: { drawing: 0.98, city: 0.98, sport: 0.98, distance: 0.99 },
-        needs_clarification: false,
-        clarifications: [
-          {
-            field: "drawing",
-            question: "We read ‘bug’ as the insect. Is that right?",
-            required: false,
-            selected: "bug",
-            options: [
-              { label: "Bug (insect)", value: "bug", intent_patch: { shape: "bug", text: null } },
-              { label: "Letter B", value: "letter-b", intent_patch: { shape: "text", text: "B" } },
-            ],
-          },
-        ],
-      }),
+      body: JSON.stringify({}),
     });
   });
   await page.goto("/");
 
   const prompt = page.getByLabel("Drawing and location");
   await prompt.fill("a bug run in Tatabánya, about 8 km");
-
-  const preview = page.locator(".interpretation-card");
-  await expect(preview).toBeVisible();
-  await expect(preview.locator('input[type="text"]').nth(0)).toHaveValue("bug");
-  await expect(preview.locator('input[type="text"]').nth(1)).toHaveValue("Tatabánya");
-  await expect(preview).toContainText("Running");
-  await expect(preview.getByRole("spinbutton")).toHaveValue("8");
-  await expect(preview).toContainText("Matched to a tested route template");
-  await expect(preview).toContainText("We read ‘bug’ as the insect");
-  await expect(preview.getByRole("button", { name: "Bug (insect)" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(page.getByText("Live understanding")).toHaveCount(0);
+  await expect(page.getByText("Letter B", { exact: true })).toHaveCount(0);
   expect(capture.requests).toHaveLength(0);
 
   await page.getByRole("button", { name: "Find routes" }).click();
-  await expect.poll(() => capture.lastPayload()).toMatchObject({
+  await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a bug run in Tatabánya, about 8 km",
-    intent_override: {
-      shape: "bug",
-      text: null,
-      city: "Tatabánya",
-      sport: "run",
-      distance_km: 8,
-    },
   });
+  expect(interpretationRequests).toBe(0);
 });
 
-test("confirmed AI fields, start controls, and route preferences reach generation", async ({ page }) => {
+test("start controls and route preferences reach generation", async ({ page }) => {
   const capture = await mockGeneration(page);
-  await page.route("**/interpret", (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify({
-      prompt: "a heart run in Tatabánya, about 8 km",
-      intent: {
-        shape: "heart", text: null, city: "Tatabánya", sport: "run",
-        distance_km: 8, style: null, suggest: false,
-      },
-      drawing_label: "heart",
-      drawing_kind: "template",
-      defaults_applied: [],
-      confidence: { drawing: 0.98, city: 0.98, sport: 0.98, distance: 0.99 },
-      needs_clarification: false,
-      clarifications: [],
-    }),
-  }));
   await page.goto("/");
   await page.getByLabel("Drawing and location").fill("a heart run in Tatabánya, about 8 km");
 
-  const preview = page.locator(".interpretation-card");
-  await expect(preview).toBeVisible();
-  await preview.locator('input[type="text"]').nth(1).fill("Tata");
-  await preview.getByRole("spinbutton").fill("9.5");
   await page.getByLabel("Start address or place").fill("Tata railway station");
   await page.getByLabel("Preferred first direction").selectOption("90");
   await page.getByRole("checkbox", { name: "Avoid steps" }).check();
@@ -212,12 +149,6 @@ test("confirmed AI fields, start controls, and route preferences reach generatio
 
   await expect.poll(() => capture.lastPayload()).toMatchObject({
     prompt: "a heart run in Tatabánya, about 8 km",
-    intent_override: {
-      shape: "heart",
-      city: "Tata",
-      sport: "run",
-      distance_km: 9.5,
-    },
     start_address: "Tata railway station",
     start_direction_deg: 90,
     route_preferences: {

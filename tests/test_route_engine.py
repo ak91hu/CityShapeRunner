@@ -101,7 +101,12 @@ def test_intent_fallback_distinguishes_a_shape_from_written_text():
     assert intent.distance_km == 8.0
 
     text_intent = agent._parse(agent._fallback("write HI in Berlin").text)
+    assert text_intent.shape == "text"
     assert text_intent.text == "HI"
+
+    object_word_as_text = agent._parse(agent._fallback("write BUG in Berlin").text)
+    assert object_word_as_text.shape == "text"
+    assert object_word_as_text.text == "BUG"
 
 
 def test_bug_prompt_is_understood_as_an_insect_template_not_a_letter():
@@ -115,6 +120,82 @@ def test_bug_prompt_is_understood_as_an_insect_template_not_a_letter():
     assert intent.sport == "run"
     assert intent.distance_km == pytest.approx(8.0)
     assert shape_library.find_by_keyword(intent.shape)[0] == "bug"
+
+    letter_intent = agent._parse(
+        agent._fallback("draw the letter B in Tatabánya, about 8 km").text
+    )
+    assert letter_intent.shape == "text"
+    assert letter_intent.text == "B"
+
+
+@pytest.mark.parametrize("described_shape", ["bug", "platypus", "robot"])
+def test_described_shape_cannot_be_reinterpreted_as_its_initial_by_an_llm(
+    monkeypatch,
+    described_shape,
+):
+    def misread_bug(*_args, **_kwargs):
+        return LLMResponse(
+            text=json.dumps(
+                {
+                    "shape": "text",
+                    "text": described_shape[0].upper(),
+                    "city": None,
+                    "sport": "run",
+                    "distance_km": None,
+                    "style": None,
+                    "suggest": False,
+                }
+            ),
+            provider="test",
+            model="misreading-model",
+        )
+
+    monkeypatch.setattr("gps_art_wizzard.agents.intent_agent.try_complete", misread_bug)
+    state = WorkflowState(prompt=described_shape)
+
+    IntentAgent().run(state)
+
+    assert state.intent is not None
+    assert state.intent.shape == described_shape
+    assert state.intent.text is None
+
+
+def test_intent_model_receives_high_priority_rules_and_isolated_request_data(monkeypatch):
+    captured = {}
+
+    def capture_request(*_args, **kwargs):
+        captured.update(kwargs)
+        return LLMResponse(
+            text=json.dumps(
+                {
+                    "shape": "text",
+                    "text": "Q",
+                    "city": None,
+                    "sport": "run",
+                    "distance_km": None,
+                    "style": None,
+                    "suggest": False,
+                }
+            ),
+            provider="test",
+            model="captured-model",
+        )
+
+    monkeypatch.setattr("gps_art_wizzard.agents.intent_agent.try_complete", capture_request)
+    prompt = "quokka carrying a lantern"
+    state = WorkflowState(prompt=prompt)
+
+    IntentAgent().run(state)
+
+    assert "# Classification order" in captured["system"]
+    assert "NEVER replace a named subject with its first letter" in captured["system"]
+    assert prompt not in captured["system"]
+    assert json.loads(captured["messages"][0]["content"]) == {"route_request": prompt}
+    schema = captured["json_schema"]
+    assert "Complete semantic subject" in schema["properties"]["shape"]["description"]
+    assert state.intent is not None
+    assert state.intent.shape == prompt
+    assert state.intent.text is None
 
 
 @pytest.mark.parametrize(

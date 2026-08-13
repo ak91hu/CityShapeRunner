@@ -771,31 +771,6 @@ def _interpretation_guidance(
     }
     clarifications: list[dict] = []
 
-    # In a route-drawing context "bug" defaults to the catalogued insect.
-    # The alternatives stay one click away without forcing every clear request
-    # through an interrupting modal.
-    if re.search(r"\bbug\b", low) and (intent.shape or "").casefold() == "bug":
-        clarifications.append(
-            {
-                "field": "drawing",
-                "question": "We read ‘bug’ as the insect. Is that right?",
-                "required": False,
-                "selected": "bug",
-                "options": [
-                    {
-                        "label": "Bug (insect)",
-                        "value": "bug",
-                        "intent_patch": {"shape": "bug", "text": None},
-                    },
-                    {
-                        "label": "Letter B",
-                        "value": "letter-b",
-                        "intent_patch": {"shape": "text", "text": "B"},
-                    },
-                ],
-            }
-        )
-
     if not intent.shape and not intent.text and not intent.suggest:
         clarifications.append(
             {

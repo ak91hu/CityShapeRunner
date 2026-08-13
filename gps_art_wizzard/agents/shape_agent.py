@@ -1250,16 +1250,16 @@ def _is_simple_path(path: geo.Path) -> bool:
 
 
 def _label_fallback_shape(idea: str) -> Shape:
-    """Return an honest, idea-linked offline fallback instead of a fake icon."""
+    """Render the described words when semantic outline generation is unavailable."""
 
     ascii_idea = unicodedata.normalize("NFKD", idea).encode("ascii", "ignore").decode()
-    match = re.search(r"[A-Za-z0-9]", ascii_idea)
-    if match:
-        glyph = match.group(0).upper()
-        paths, closed = text_shapes.text_to_shape(glyph)
+    words = re.findall(r"[A-Za-z0-9]+", ascii_idea)
+    if words:
+        label = " ".join(words).upper()
+        paths, closed = text_shapes.text_to_shape(label)
         if any(len(path) >= 2 for path in paths):
             return Shape(
-                name=f"{glyph} label",
+                name=f"text:{label}",
                 paths=[list(path) for path in paths],
                 closed=closed,
                 source="fallback",

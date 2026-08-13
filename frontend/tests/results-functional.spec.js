@@ -261,56 +261,12 @@ test("Inkproof forecasts GPS drift and highlights fragile drawing details", asyn
   await expect(page.locator(".route-analysis-segment--inkproof")).toHaveCount(0);
 });
 
-test("Missing Ink compares multiple GPX sessions without adding false strokes", async ({ page }) => {
-  let requestBody;
-  await page.route("**/art-rescue", async (route) => {
-    requestBody = route.request().postDataJSON();
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        recording_count: 2,
-        track_segment_count: 2,
-        coverage: 0.74,
-        precision: 0.96,
-        art_match: 0.84,
-        tolerance_m: 25,
-        recorded_distance_km: 14.2,
-        missing_distance_km: 1.35,
-        missing_segments: [{
-          id: "missing-ink-1",
-          label: "Missing ink 1",
-          distance_m: 1350,
-          points_preview: [[47.4986, 19.0461], [47.4943, 19.0478]],
-          gpx: "<gpx><trk><trkseg /></trk></gpx>",
-        }],
-        recorded_segments_preview: [],
-        merged_recording_gpx: "<gpx><trk><trkseg /><trkseg /></trk></gpx>",
-        missing_ink_gpx: "<gpx><trk><trkseg /></trk></gpx>",
-        message: "1 separate repair mission can complete the drawing.",
-        authenticity: "The combined GPX contains recorded points only; repair routes are separate and untimed.",
-        privacy: "Files were analysed in memory and were not stored.",
-      }),
-    });
-  });
+test("post-activity Missing Ink tools are not shown to users", async ({ page }) => {
   await openGeneratedRoute(page);
-  await page.getByLabel("Recorded GPX files").setInputFiles([
-    { name: "morning.gpx", mimeType: "application/gpx+xml", buffer: Buffer.from("<gpx><trk /></gpx>") },
-    { name: "evening.gpx", mimeType: "application/gpx+xml", buffer: Buffer.from("<gpx><trk /></gpx>") },
-  ]);
-  await page.getByRole("button", { name: "Analyse completed art" }).click();
 
-  const card = page.locator(".art-rescue-card");
-  await expect(card).toContainText("74% covered");
-  expect(requestBody.recordings).toHaveLength(2);
-  expect(requestBody.recordings[0].name).toBe("morning.gpx");
-  expect(requestBody.tolerance_m).toBe(25);
-  await expect(card).toContainText("84% art match");
-  await expect(card).toContainText("1.35 km left");
-  await expect(card.getByRole("button", { name: "Combined GPX" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Missing Ink pack" })).toBeVisible();
-  await expect(page.locator(".route-analysis-segment--missing")).toHaveCount(1);
-  await expect(card).toContainText("recorded points only");
-  await expect(card).toContainText("not stored");
+  await expect(page.locator(".art-rescue-card")).toHaveCount(0);
+  await expect(page.getByText("Free · after the activity", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Missing Ink rescue", { exact: true })).toHaveCount(0);
 });
 
 test("community mural creates separate downloadable artist sections", async ({ page }) => {

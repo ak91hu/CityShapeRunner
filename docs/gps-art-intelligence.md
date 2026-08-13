@@ -82,10 +82,10 @@ and [GPX Rescue tools](https://gpxrescue.eu/en/).
 The researched mainstream tools already cover waypoint planning, route
 preferences, cue sheets, navigation, generic GPX import/export, route merging,
 and image overlays. GPS Art Wizard does not present those as unique. Its niche
-is measuring what survives as a recognisable drawing and helping finish the
-art after real-world recording problems without manufacturing a completed
-activity. Inkproof and Missing Ink are free, accountless, and use the route
-data already present in the result page.
+is measuring what survives as a recognisable drawing. Inkproof is free,
+accountless, and uses the route data already present in the result page. The
+experimental Missing Ink endpoint is API-only and is not exposed in the user
+interface.
 
 These layers do not claim that a route is safe, open, or suitable in all
 conditions. They provide transparent planning evidence and keep the final

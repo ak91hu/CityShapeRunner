@@ -188,10 +188,10 @@ poison later requests.
 
 ### 9. Degrade honestly
 
-Without a working model provider, the app creates a one-character vector label
-derived from the idea—for example `P label` for “platypus”—and marks its source
-as `fallback`. It does not rename a star as a platypus. The result screen and
-fit decision retain the requested drawing name and explain the substitution.
+Without a working model provider, the app renders the complete ASCII-normalised
+requested phrase—for example `text:PLATYPUS`, never `P label`—and marks its
+source as `fallback`. It does not rename a star as a platypus. The result screen
+and fit decision retain the requested drawing name and explain the substitution.
 
 ### 10. Keep road evidence authoritative
 
