@@ -38,7 +38,7 @@ decorative, or vague enough to get in the user's way.
 
 The interface therefore follows these rules:
 
-- Headings name the task or state: “Plan a GPS art route”, “Checks passed”,
+- Headings name the task or state: “Create GPS art on real streets”, “Checks passed”,
   “Review before download”, and “Street route unavailable”. They do not make
   lifestyle claims.
 - Labels name the requested information, and buttons state the action and
@@ -69,14 +69,52 @@ and [GOV.UK images](https://design-system.service.gov.uk/styles/images/).
 
 ## Research findings and design decisions
 
+### 2026-08 service-design audit
+
+This refresh treats route creation as one end-to-end service rather than a set
+of product features. GOV.UK's Service Standard says that users should succeed
+first time with minimum help and receive a consistent experience across the
+devices they use. Its service-design introduction adds that a good service
+minimises steps, makes its purpose and starting action clear, uses familiar
+conventions, and never leaves the user at a dead end. The Design Council's
+Double Diamond reinforces separating evidence gathering and problem definition
+from solution development.
+
+The audit mapped each visible touchpoint to the user's next decision:
+
+| Touchpoint | Friction found | Implemented response |
+|---|---|---|
+| Arrival | “Planner” and “lab” describe the product's machinery rather than the user's outcome. | The navigation now says “Create route”, the heading promises GPS art on real streets, and the decorative “Live route lab” label was removed. |
+| Route request | Three valid starting methods were present without a clear relationship. | Free text remains the single primary path. Separate fields and image input are grouped under “Other ways to start”; the simpler structured path appears before the specialist image path. |
+| Form completion | Optional shape choices could be mistaken for a required step. | The common-shape legend now marks the choices as optional, while labels remain visible above every input. |
+| Waiting | Users need reassurance without fabricated server progress. | The real elapsed time, cancel action, plain-language messages, reduced-motion handling, and illustrative-stage disclosure remain; internal “lab” terminology does not. |
+| Review and export | A plausible picture can still be an unusable route. | The existing route checks, explicit review state, editing path, and fail-closed export remain the visible decision sequence. |
+| Return visit | The former CSS-drawn mark and favicon did not share one clear identity. | A scalable route-shaped mark with visible start and finish points now unifies the header and favicon. Rounded geometry keeps it friendly; restrained colour and a simple silhouette keep it legible at small sizes. |
+
+This is an evidence-based heuristic audit of the implemented service, not a
+substitute for observing target users. The next research round should watch
+first-time runners and cyclists complete the full idea → wait → review → export
+journey, then measure first-attempt completion, correction rate, time to the
+primary action, and whether users understand why an export can be unavailable.
+
+Sources: [GOV.UK — Make the service simple to use](https://www.gov.uk/service-manual/service-standard/point-4-make-the-service-simple-to-use),
+[GOV.UK — Designing good government services](https://www.gov.uk/service-manual/design/introduction-designing-government-services),
+[GOV.UK — Map and understand a user's whole problem](https://www.gov.uk/service-manual/design/map-a-users-whole-problem),
+[GOV.UK — Structuring forms](https://www.gov.uk/service-manual/design/form-structure),
+[Design Council — Double Diamond](https://www.designcouncil.org.uk/resources/the-double-diamond/),
+[Nielsen Norman Group — usability heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/),
+[Baymard — form design research](https://baymard.com/learn/form-design), and
+[Parhi, Karlson, and Bederson — one-handed target-size study](https://www.microsoft.com/en-us/research/wp-content/uploads/2006/01/parhi-mobileHCI06.pdf).
+
 ### Keep the primary task obvious
 
 Apple's iOS guidance recommends limiting onscreen controls so people can focus
 on the primary task, while keeping secondary actions discoverable. The planner
-now opens with a task-specific heading and one short explanation beside a
-clearly bounded input area. The generic three-step story, decorative gradient,
-ornamental labels, and competing card treatments were removed in favour of a
-neutral canvas, consistent borders, and one primary action.
+now opens with an outcome-specific heading and one short explanation beside a
+clearly bounded input area. One free-text request and one primary action stay
+visible; separate-field and image starts are labelled, collapsed alternatives.
+The generic three-step story, ornamental labels, and competing card treatments
+remain excluded in favour of a neutral canvas and consistent borders.
 
 Source: [Apple Human Interface Guidelines — Designing for iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios/).
 
@@ -98,7 +136,16 @@ uses a 44-pixel practical floor and generally renders primary form controls at
 48 pixels. Map edit handles increased from 28 to 44 pixels; primary buttons,
 idea choices, radios, selects, and map zoom controls are larger as well.
 
-Sources: [WCAG 2.2 target-size guidance](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum) and [WCAG 2.2](https://www.w3.org/TR/WCAG22/).
+Parhi, Karlson, and Bederson's controlled one-handed touchscreen study found
+that discrete targets around 9.2 mm were sufficient without degrading
+performance or preference. The interface therefore keeps the standard's
+44-pixel practical floor and uses 48-pixel mobile targets for idea choices and
+collapsed alternative-start controls instead of treating 24 pixels as a design
+target.
+
+Sources: [WCAG 2.2 target-size guidance](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum),
+[WCAG 2.2](https://www.w3.org/TR/WCAG22/), and
+[the one-handed target-size study](https://www.microsoft.com/en-us/research/wp-content/uploads/2006/01/parhi-mobileHCI06.pdf).
 
 ### Match the control to the question
 

@@ -1,0 +1,64 @@
+:root {
+  --md-primary-fg-color: #08705d;
+  --md-primary-fg-color--light: #168774;
+  --md-primary-fg-color--dark: #055548;
+  --md-accent-fg-color: #d95d39;
+  --gps-surface: #f3f8f6;
+  --gps-border: #c9dfd8;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #12937b;
+  --md-accent-fg-color: #f27b58;
+  --gps-surface: #172522;
+  --gps-border: #2d4a43;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 2rem;
+  width: 2rem;
+}
+
+.md-typeset .hero {
+  background: linear-gradient(135deg, var(--gps-surface), transparent);
+  border: 1px solid var(--gps-border);
+  border-radius: 1rem;
+  margin: 1rem 0 2rem;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.md-typeset .hero h1 {
+  color: var(--md-default-fg-color);
+  margin: 0 0 0.4rem;
+}
+
+.md-typeset .hero p {
+  font-size: 1.05rem;
+  max-width: 46rem;
+}
+
+.md-typeset .doc-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  margin: 1.25rem 0;
+}
+
+.md-typeset .doc-card {
+  border: 1px solid var(--gps-border);
+  border-radius: 0.8rem;
+  padding: 1rem 1.1rem;
+}
+
+.md-typeset .doc-card h3 {
+  margin: 0 0 0.35rem;
+}
+
+.md-typeset .doc-card p {
+  margin: 0;
+}
+
+.md-typeset code {
+  overflow-wrap: anywhere;
+}

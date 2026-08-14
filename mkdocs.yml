@@ -1,0 +1,118 @@
+site_name: GPS Art Wizard
+site_description: Architecture, API, operations, and engineering documentation for GPS Art Wizard.
+site_url: https://ak91hu.github.io/CityShapeRunner/
+repo_url: https://github.com/ak91hu/CityShapeRunner
+repo_name: ak91hu/CityShapeRunner
+edit_uri: edit/master/docs/
+copyright: GPS Art Wizard technical documentation
+
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Use dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Use light mode
+
+nav:
+  - Home: index.md
+  - Start here:
+      - Developer quick start: getting-started.md
+      - Complete project guide: project-overview.md
+      - Repository guide: AGENTS.md
+  - Architecture:
+      - System architecture: architecture.md
+      - AI shape pipeline: AI_SHAPE_PIPELINE.md
+      - Custom shape generation: custom-shape-generation.md
+      - GPS-art intelligence: gps-art-intelligence.md
+      - Shape-template uniqueness: shape-template-uniqueness.md
+  - Reference:
+      - HTTP API: api-reference.md
+      - Configuration: configuration-reference.md
+      - Hungarian shape catalog: hungarian-shape-catalog.md
+      - City and shape recommendations: city-shape-recommendations.md
+      - Balaton city coverage: balaton-city-coverage.md
+  - Quality and operations:
+      - Testing: testing.md
+      - CI/CD and documentation: ci-cd.md
+      - Production deployment: deployment.md
+      - Production gallery testing: production-gallery-testing.md
+      - Cloudinary gallery plan: cloudinary-map-gallery-plan.md
+      - UI/UX rationale: ui-ux-rationale.md
+  - Algorithms and research:
+      - Algorithm audit (2026-08): gps-art-algorithm-audit-2026-08.md
+      - GPS-art research: gps-art-research.md
+      - Niche positioning (2026-08): niche-positioning-2026-08.md
+      - Lessons learned (2026-07-30): 2026-07-30-lessons-learned.md
+  - Agent skills:
+      - Planning: skill-planning.md
+      - Prompt engineering: skill-prompt-engineering.md
+      - Shape design: skill-shape-design.md
+      - Route placement: skill-route-placement.md
+      - Street snapping: skill-snap-and-roads.md
+      - Refinement heuristics: skill-refinement-heuristics.md
+      - Validation metrics: skill-validation-metrics.md
+
+plugins:
+  - search:
+      lang: en
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ak91hu/CityShapeRunner
+      name: GPS Art Wizard on GitHub

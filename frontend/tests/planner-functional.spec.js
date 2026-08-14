@@ -9,7 +9,10 @@ test.beforeEach(async ({ page }) => {
 test("primary navigation links reach each planner section", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Plan a GPS art route" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Create GPS art on real streets" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Create route" })).toBeVisible();
   await expect(page.locator(".journey-list, .eyebrow, .step-label, .keyboard-hint")).toHaveCount(0);
   await expect(page.getByText(/surprise me|need inspiration/i)).toHaveCount(0);
   await expect(page.getByText("Map data © OpenStreetMap contributors")).toHaveCount(1);
@@ -40,6 +43,8 @@ test("the planner uses a compact responsive layout with optional panels collapse
   await page.goto("/");
 
   await expect(page.locator(".image-reference-panel")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".suggest-panel")).not.toHaveAttribute("open", "");
+  await expect(page.getByText("Other ways to start")).toBeVisible();
   const spacing = await page.locator(".generator-stage").evaluate((element) => {
     const style = getComputedStyle(element);
     return {
@@ -56,6 +61,91 @@ test("the planner uses a compact responsive layout with optional panels collapse
     (element) => element.scrollWidth - element.clientWidth,
   );
   expect(horizontalOverflow).toBeLessThanOrEqual(1);
+});
+
+test("the header mark and favicon share one scalable route identity", async ({ page }) => {
+  await page.goto("/");
+
+  const home = page.getByRole("link", { name: "GPS Art Wizard home" });
+  const mark = home.locator(".brand-mark");
+  const markPath = await mark.locator("path").getAttribute("d");
+  await expect(home).toHaveAttribute("href", "/");
+  await expect(mark).toHaveAttribute("aria-hidden", "true");
+  await expect(mark.locator("svg")).toHaveAttribute("viewBox", "0 0 48 48");
+  await expect(mark.locator("rect")).toHaveCount(1);
+  await expect(mark.locator("circle")).toHaveCount(2);
+  await expect(page.locator(".brand-mark i")).toHaveCount(0);
+
+  const faviconResponse = await page.request.get(new URL("/favicon.svg", page.url()).href);
+  expect(faviconResponse.ok()).toBe(true);
+  const favicon = await faviconResponse.text();
+  const faviconPath = favicon.match(/<path d="([^"]+)"/)?.[1];
+  const compactPath = (value) => value?.replace(/\s+/g, "");
+  expect(compactPath(faviconPath)).toBe(compactPath(markPath));
+  expect(favicon.match(/<circle\b/g)).toHaveLength(2);
+});
+
+test("alternative starts keep visual, DOM, and keyboard order aligned", async ({ page }) => {
+  await page.goto("/");
+
+  const prompt = page.getByLabel("Drawing and location");
+  const initialPrompt = await prompt.inputValue();
+  const simplePanel = page.locator(".suggest-panel");
+  const imagePanel = page.locator(".image-reference-panel");
+  const simpleSummary = simplePanel.locator(":scope > summary");
+  const imageSummary = imagePanel.locator(":scope > summary");
+  const domOrder = await page.evaluate(() => {
+    const simple = document.querySelector(".suggest-panel");
+    const image = document.querySelector(".image-reference-panel");
+    return Boolean(
+      simple
+        && image
+        && (simple.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING),
+    );
+  });
+  expect(domOrder).toBe(true);
+
+  const simpleBox = await simplePanel.boundingBox();
+  const imageBox = await imagePanel.boundingBox();
+  expect(simpleBox).not.toBeNull();
+  expect(imageBox).not.toBeNull();
+  expect(simpleBox.y).toBeLessThan(imageBox.y);
+
+  await simpleSummary.focus();
+  await expect(simpleSummary).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(imageSummary).toBeFocused();
+
+  await simpleSummary.click();
+  await expect(page.getByLabel("City")).toBeVisible();
+  await simpleSummary.click();
+  await imageSummary.click();
+  await expect(page.getByLabel("Direct image URL")).toBeVisible();
+  await expect(prompt).toHaveValue(initialPrompt);
+  await expect(page.locator(".result, .loading-card")).toHaveCount(0);
+});
+
+test("primary planner controls keep a 44 pixel activation floor", async ({ page }) => {
+  await page.goto("/");
+
+  const controls = page.locator([
+    ".brand",
+    ".site-header nav a",
+    ".idea-chip",
+    ".generate-button",
+    ".suggest-panel > summary",
+    ".image-reference-panel > summary",
+  ].join(", "));
+  const visibleBoxes = [];
+  for (const control of await controls.all()) {
+    if (await control.isVisible()) visibleBoxes.push(await control.boundingBox());
+  }
+  expect(visibleBoxes.length).toBeGreaterThan(8);
+  for (const box of visibleBoxes) {
+    expect(box).not.toBeNull();
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
 });
 
 test("the route idea exposes its help and character count to assistive technology", async ({

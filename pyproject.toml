@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "gps-art-wizzard"
 version = "0.1.0"
 description = "GPS art route planner that generates and validates GPX-exportable shape candidates for real street networks."
-readme = "docs/README.md"
+readme = "docs/project-overview.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "GPS Art Wizard" }]
@@ -33,6 +33,10 @@ dev = [
     "pytest-asyncio==1.4.0",
     "ruff==0.16.0",
     "mypy==2.3.0",
+]
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.7.7",
 ]
 all = ["openai==2.49.0", "anthropic==0.120.0"]
 

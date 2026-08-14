@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title">
+  <title id="title">GPS Art Wizard route mark</title>
   <rect x="2" y="2" width="44" height="44" rx="13" fill="#e7f2ed" stroke="#08705d" stroke-width="2"/>
   <path d="M9 31C14 17 20 16 24 28C28 16 34 17 39 31C35 36 30 39 24 42C18 39 13 36 9 31Z"
-        fill="none" stroke="#08705d" stroke-width="3.5" stroke-linecap="round"
-        stroke-linejoin="round"/>
+        fill="none" stroke="#08705d" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="9" cy="31" r="3.5" fill="#d95d39" stroke="#fff" stroke-width="1.5"/>
   <circle cx="39" cy="31" r="3.5" fill="#08705d" stroke="#fff" stroke-width="1.5"/>
 </svg>

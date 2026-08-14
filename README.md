@@ -1,6 +1,7 @@
 # GPS Art Wizard
 
 [![CI](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml)
+[![Technical docs](https://img.shields.io/badge/docs-MkDocs-08705d)](https://ak91hu.github.io/CityShapeRunner/)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node.js 24](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.140-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -185,7 +186,7 @@ The platform's native Loki log sink forwards that stream to Grafana Cloud,
 where entries can be searched by request ID, event, severity, environment, or
 release revision without placing Grafana credentials in the application.
 
-Start with the [complete project guide](docs/README.md). Production operators
+Start with the [complete project guide](docs/project-overview.md). Production operators
 should also read the [deployment guide](docs/deployment.md). The dated
 [2026-07-30 development and production lessons](docs/2026-07-30-lessons-learned.md)
 record the first Northflank incidents, measured performance fix, Grafana
@@ -277,6 +278,13 @@ the browser once with `cd frontend && npx playwright install chromium`. See the
 Playwright debugging, and the Windows temporary-directory workaround.
 
 ## Hosting
+
+The searchable [MkDocs technical documentation](https://ak91hu.github.io/CityShapeRunner/)
+is built with warnings treated as errors on every CI run and deployed to GitHub
+Pages only after the backend, frontend, production-container, and documentation
+jobs all pass on `master`. For local authoring, install `.[docs]` and run
+`python -m mkdocs serve`; the [CI/CD guide](docs/ci-cd.md) documents the release
+gate and one-time Pages configuration.
 
 The recommended hobby deployment is the
 [Northflank Developer Sandbox with Grafana Cloud Logs](docs/deployment.md#northflank-developer-sandbox).

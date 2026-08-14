@@ -16,7 +16,7 @@ WORKDIR /build
 # "all" to include every hosted provider SDK.
 ARG INSTALL_EXTRAS=opencode
 COPY pyproject.toml ./
-COPY docs/README.md ./docs/README.md
+COPY docs/project-overview.md ./docs/project-overview.md
 COPY gps_art_wizzard/ ./gps_art_wizzard/
 RUN if [ -n "${INSTALL_EXTRAS}" ]; then \
         python -m pip install --prefix=/runtime ".[${INSTALL_EXTRAS}]"; \

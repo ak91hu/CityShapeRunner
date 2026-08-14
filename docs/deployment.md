@@ -5,6 +5,12 @@ and serves the resulting static assets from the same FastAPI process as the API.
 Node, npm caches, source maps from development, test files, and Python build
 tools are not copied into the runtime image.
 
+Application and documentation releases are separate. Northflank builds and
+deploys the application container from `master`; GitHub Actions builds this
+MkDocs site on every change and publishes it to GitHub Pages only after all CI
+jobs pass on a `master` push. See [CI/CD and documentation delivery](ci-cd.md)
+for the exact dependency gate, permissions, Pages setup, and rollback path.
+
 ## Northflank Developer Sandbox
 
 The repository is prepared for a

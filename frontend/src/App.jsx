@@ -1238,10 +1238,6 @@ function LoadingState({ onCancel, kind = "route" }) {
       aria-busy="true"
     >
       <div className="loading-visual" aria-hidden="true">
-        <div className="loading-map-label">
-          <span />
-          Live route lab
-        </div>
         <svg className="gps-route-animation" viewBox="0 0 360 190">
           <defs>
             <pattern id="loading-map-grid" width="28" height="28" patternUnits="userSpaceOnUse">
@@ -1278,7 +1274,6 @@ function LoadingState({ onCancel, kind = "route" }) {
       <div className="loading-content">
         <div className="loading-heading-row">
           <div>
-            <span className="eyebrow">Planner in motion</span>
             <h2 id="loading-title">
               {kind === "image" ? "Drawing from your image" : "Finding routes"}
             </h2>
@@ -2900,16 +2895,19 @@ export default function App() {
       <header className="site-header">
         <a className="brand" href="/" aria-label="GPS Art Wizard home">
           <span className="brand-mark" aria-hidden="true">
-            <i />
-            <i />
-            <i />
+            <svg className="brand-mark-svg" viewBox="0 0 48 48">
+              <rect x="2" y="2" width="44" height="44" rx="13" />
+              <path d="M9 31 C14 17 20 16 24 28 C28 16 34 17 39 31 C35 36 30 39 24 42 C18 39 13 36 9 31 Z" />
+              <circle cx="9" cy="31" r="3.5" />
+              <circle cx="39" cy="31" r="3.5" />
+            </svg>
           </span>
           <span>
             GPS Art <strong>Wizard</strong>
           </span>
         </a>
         <nav aria-label="Primary navigation">
-          <a href="#route-designer">Planner</a>
+          <a href="#route-designer">Create route</a>
           <a href="#gallery">Gallery</a>
         </nav>
       </header>
@@ -2921,10 +2919,10 @@ export default function App() {
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
-            <h1 id="designer-title">Plan a GPS art route</h1>
+            <h1 id="designer-title">Create GPS art on real streets</h1>
             <p className="planner-intro-copy">
-              Bring an idea. Choose a classic shape or something completely yours. Add a city, activity,
-              and distance, and we’ll test it against nearby streets.
+              Describe a drawing and a place. We’ll fit it to connected streets, compare the
+              strongest routes, and prepare the one you can actually follow.
             </p>
             <p className="planner-safety-note">
               Check access, crossings, traffic, surfaces, and current conditions before using a
@@ -2935,8 +2933,8 @@ export default function App() {
           <div className="designer-card">
             <div className="card-heading">
               <div>
-                <h2>Route idea</h2>
-                <p>Got a shape in mind? Describe it, even if it isn’t in the catalog.</p>
+                <h2>Describe your route</h2>
+                <p>Include the drawing, city, activity, and approximate distance in one sentence.</p>
               </div>
             </div>
 
@@ -2988,7 +2986,8 @@ export default function App() {
                 id="prompt-help"
                 className={`field-help${promptError ? " field-help--with-error" : ""}`}
               >
-                Try: a flying pig in Budapest, running, 10 km. Custom ideas are welcome.
+                Example: a flying pig in Budapest, running, 10 km. Any shape, letter, number, or
+                original idea is welcome.
               </p>
               {promptError && (
                 <p id="prompt-error" className="field-error" role="alert">
@@ -2998,7 +2997,7 @@ export default function App() {
               )}
 
               <fieldset className="idea-picker">
-                <legend>Common shapes</legend>
+                <legend>Starting shapes <span className="optional-label">Optional</span></legend>
                 <div className="idea-list">
                   {FEATURED_IDEAS.map((idea) => (
                     <button
@@ -3083,118 +3082,23 @@ export default function App() {
                   disabled={loading}
                 >
                   <span>{loading ? "Finding routes…" : "Find routes"}</span>
+                  <span className="button-arrow" aria-hidden="true">→</span>
                 </button>
               </div>
             </form>
 
-            <details className="image-reference-panel">
-              <summary>
-                <span>
-                  <strong>Use an image link</strong>
-                  <small>Let AI turn any supported image into GPS art for your city.</small>
-                </span>
-                <b aria-hidden="true">+</b>
-              </summary>
-              <form className="image-reference-form" onSubmit={handleImageImport} noValidate>
-                <label className="image-url-field" htmlFor="image-reference-url">
-                  <span>Direct image URL</span>
-                  <input
-                    id="image-reference-url"
-                    ref={imageUrlRef}
-                    type="url"
-                    value={imageUrl}
-                    onChange={(event) => {
-                      setImageUrl(event.target.value);
-                      if (imageErrors.url) {
-                        setImageErrors((current) => ({
-                          ...current,
-                          url: validateImageReferenceUrl(event.target.value).error,
-                        }));
-                      }
-                    }}
-                    placeholder="https://example.com/drawing.avif"
-                    aria-describedby="image-url-help"
-                    aria-invalid={Boolean(imageErrors.url)}
-                    aria-errormessage={imageErrors.url ? "image-url-error" : undefined}
-                    disabled={loading}
-                    required
-                  />
-                </label>
-                <p id="image-url-help" className="field-help">
-                  AI traces SVG plus all raster formats the server can decode, including PNG, JPG, WebP, GIF, AVIF, BMP, TIFF, ICO, and PSD. Images are resized for faster generation. Maximum 5 MB. Use an image you have permission to reuse.
-                </p>
-                {imageErrors.url && (
-                  <p id="image-url-error" className="field-error" role="alert">
-                    <span aria-hidden="true">!</span>
-                    {imageErrors.url}
-                  </p>
-                )}
-                <div className="image-reference-fields">
-                  <div className="field">
-                    <label htmlFor="image-city">Destination</label>
-                    <select
-                      id="image-city"
-                      ref={imageCityRef}
-                      value={imageCity}
-                      onChange={(event) => setImageCity(event.target.value)}
-                      disabled={loading}
-                    >
-                      {SUGGEST_CITY_GROUPS.map((group) => (
-                        <optgroup key={group.label} label={group.label}>
-                          {group.cities.map((cityName) => (
-                            <option key={cityName} value={cityName}>{cityName}</option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="image-activity">Travel mode</label>
-                    <select
-                      id="image-activity"
-                      ref={imageSportRef}
-                      value={imageSport}
-                      onChange={(event) => setImageSport(event.target.value)}
-                      disabled={loading}
-                    >
-                      <option value="run">Running</option>
-                      <option value="bike">Cycling</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="image-distance">Length</label>
-                    <div className="distance-input">
-                      <input
-                        id="image-distance"
-                        ref={imageDistanceRef}
-                        type="number"
-                        min={distanceLimits(imageSport).minimum}
-                        max={distanceLimits(imageSport).maximum}
-                        step="0.5"
-                        value={imageDistance}
-                        onChange={(event) => setImageDistance(event.target.value)}
-                        disabled={loading}
-                      />
-                      <span>km</span>
-                    </div>
-                  </div>
-                  <button type="submit" className="button button--secondary" disabled={loading}>
-                    {loading ? "Generating from image…" : "Generate AI route"}
-                  </button>
-                </div>
-                {(imageErrors.city || imageErrors.sport || imageErrors.distance) && (
-                  <p className="field-error" role="alert">
-                    <span aria-hidden="true">!</span>
-                    {imageErrors.city || imageErrors.sport || imageErrors.distance}
-                  </p>
-                )}
-              </form>
-            </details>
+            <div className="alternate-starts-heading">
+              <strong>Other ways to start</strong>
+              <span>Use separate fields or begin with an image.</span>
+            </div>
 
             <details className="suggest-panel">
               <summary>
-                Choose city, activity, and distance
-                <span aria-hidden="true">+</span>
+                <span>
+                  <strong>Choose city, activity, and distance</strong>
+                  <small>We’ll suggest a shape that suits your route.</small>
+                </span>
+                <b aria-hidden="true">+</b>
               </summary>
               <form className="suggest-form" onSubmit={handleSuggest} noValidate>
                 <div className="suggest-fields">
@@ -3361,6 +3265,112 @@ export default function App() {
                     Find a route
                   </button>
                 </div>
+              </form>
+            </details>
+
+            <details className="image-reference-panel">
+              <summary>
+                <span>
+                  <strong>Use an image link</strong>
+                  <small>Let AI turn any supported image into GPS art for your city.</small>
+                </span>
+                <b aria-hidden="true">+</b>
+              </summary>
+              <form className="image-reference-form" onSubmit={handleImageImport} noValidate>
+                <label className="image-url-field" htmlFor="image-reference-url">
+                  <span>Direct image URL</span>
+                  <input
+                    id="image-reference-url"
+                    ref={imageUrlRef}
+                    type="url"
+                    value={imageUrl}
+                    onChange={(event) => {
+                      setImageUrl(event.target.value);
+                      if (imageErrors.url) {
+                        setImageErrors((current) => ({
+                          ...current,
+                          url: validateImageReferenceUrl(event.target.value).error,
+                        }));
+                      }
+                    }}
+                    placeholder="https://example.com/drawing.avif"
+                    aria-describedby="image-url-help"
+                    aria-invalid={Boolean(imageErrors.url)}
+                    aria-errormessage={imageErrors.url ? "image-url-error" : undefined}
+                    disabled={loading}
+                    required
+                  />
+                </label>
+                <p id="image-url-help" className="field-help">
+                  AI traces SVG plus all raster formats the server can decode, including PNG, JPG,
+                  WebP, GIF, AVIF, BMP, TIFF, ICO, and PSD. Images are resized for faster generation.
+                  Maximum 5 MB. Use an image you have permission to reuse.
+                </p>
+                {imageErrors.url && (
+                  <p id="image-url-error" className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {imageErrors.url}
+                  </p>
+                )}
+                <div className="image-reference-fields">
+                  <div className="field">
+                    <label htmlFor="image-city">Destination</label>
+                    <select
+                      id="image-city"
+                      ref={imageCityRef}
+                      value={imageCity}
+                      onChange={(event) => setImageCity(event.target.value)}
+                      disabled={loading}
+                    >
+                      {SUGGEST_CITY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.cities.map((cityName) => (
+                            <option key={cityName} value={cityName}>{cityName}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="image-activity">Travel mode</label>
+                    <select
+                      id="image-activity"
+                      ref={imageSportRef}
+                      value={imageSport}
+                      onChange={(event) => setImageSport(event.target.value)}
+                      disabled={loading}
+                    >
+                      <option value="run">Running</option>
+                      <option value="bike">Cycling</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="image-distance">Length</label>
+                    <div className="distance-input">
+                      <input
+                        id="image-distance"
+                        ref={imageDistanceRef}
+                        type="number"
+                        min={distanceLimits(imageSport).minimum}
+                        max={distanceLimits(imageSport).maximum}
+                        step="0.5"
+                        value={imageDistance}
+                        onChange={(event) => setImageDistance(event.target.value)}
+                        disabled={loading}
+                      />
+                      <span>km</span>
+                    </div>
+                  </div>
+                  <button type="submit" className="button button--secondary" disabled={loading}>
+                    {loading ? "Generating from image…" : "Generate AI route"}
+                  </button>
+                </div>
+                {(imageErrors.city || imageErrors.sport || imageErrors.distance) && (
+                  <p className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {imageErrors.city || imageErrors.sport || imageErrors.distance}
+                  </p>
+                )}
               </form>
             </details>
           </div>

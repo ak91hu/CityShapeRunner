@@ -263,7 +263,7 @@ test("cancelling an in-flight generation restores the designer without an error"
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
-  await expect(page.getByText("Live route lab")).toBeVisible();
+  await expect(page.getByText("Live route lab")).toHaveCount(0);
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
   await expect(page.getByText("Timing is illustrative")).toBeVisible();
   await expect(page.getByRole("list", { name: "Typical planning stages" })).toBeVisible();
@@ -279,6 +279,45 @@ test("cancelling an in-flight generation restores the designer without an error"
   await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.locator(".result")).toHaveCount(0);
+});
+
+test("reduced motion keeps route generation informative without moving graphics", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await installEmptyGallery(page);
+  let requestStarted = false;
+  await page.route("**/generate", async (route) => {
+    requestStarted = true;
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(buildResult()),
+    }).catch(() => {});
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Find routes" }).click();
+  await expect.poll(() => requestStarted).toBe(true);
+  await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
+  await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+
+  const animationNames = await page.locator([
+    ".gps-route-line",
+    ".gps-route-traveller",
+    ".gps-route-traveller-halo",
+    ".loading-progress-track > span",
+  ].join(", ")).evaluateAll((elements) =>
+    elements.map((element) => getComputedStyle(element).animationName));
+  expect(animationNames).toEqual(["none", "none", "none", "none"]);
+  await expect(page.locator(".gps-route-traveller")).toHaveCSS("offset-distance", "72%");
+
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("switching route options updates quality, distance, and export state", async ({ page }) => {

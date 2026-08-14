@@ -3618,7 +3618,6 @@ footer {
   content: "";
 }
 
-.loading-map-label,
 .loading-visual-caption {
   position: relative;
   z-index: 2;
@@ -3631,19 +3630,6 @@ footer {
   font-weight: 820;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.loading-map-label {
-  justify-content: flex-start;
-}
-
-.loading-map-label > span {
-  width: 0.48rem;
-  height: 0.48rem;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 0.28rem rgb(224 121 75 / 14%);
-  animation: gps-signal 1.8s ease-out infinite;
 }
 
 .loading-visual-caption {
@@ -3934,12 +3920,6 @@ footer {
   100% { transform: translateX(245%); }
 }
 
-@keyframes gps-signal {
-  0%,
-  100% { box-shadow: 0 0 0 0.2rem rgb(224 121 75 / 15%); }
-  55% { box-shadow: 0 0 0 0.45rem rgb(224 121 75 / 4%); }
-}
-
 @media (max-width: 48rem) {
   .loading-card--journey {
     min-height: 0;
@@ -3978,8 +3958,7 @@ footer {
   .gps-route-line,
   .gps-route-traveller,
   .gps-route-traveller-halo,
-  .loading-progress-track > span,
-  .loading-map-label > span {
+  .loading-progress-track > span {
     animation: none !important;
   }
 
@@ -5806,5 +5785,251 @@ textarea {
   .loading-card > .button {
     grid-column: 1 / -1;
     width: 100%;
+  }
+}
+
+/* Outcome-first service flow and unified GPS-art identity. */
+.brand {
+  min-height: 2.75rem;
+  gap: 0.65rem;
+}
+
+.brand-mark {
+  width: 2.5rem;
+  height: 2.5rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  transform: none;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  display: none;
+}
+
+.brand-mark-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 2px 3px rgb(20 58 48 / 12%));
+}
+
+.brand-mark-svg rect {
+  fill: var(--brand-soft);
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.brand-mark-svg path {
+  fill: none;
+  stroke: var(--brand);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5;
+}
+
+.brand-mark-svg circle {
+  stroke: white;
+  stroke-width: 1.5;
+}
+
+.brand-mark-svg circle:first-of-type {
+  fill: var(--accent);
+}
+
+.brand-mark-svg circle:last-of-type {
+  fill: var(--brand);
+}
+
+.site-header nav a {
+  min-height: 2.75rem;
+  padding-inline: 0.9rem;
+}
+
+.planner-intro h1 {
+  max-width: 16ch;
+}
+
+.designer-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.designer-card > .card-heading {
+  order: 0;
+}
+
+.designer-card > form {
+  order: 1;
+}
+
+.alternate-starts-heading {
+  order: 2;
+  display: grid;
+  gap: 0.15rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.alternate-starts-heading strong {
+  font-size: 0.84rem;
+}
+
+.alternate-starts-heading span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.designer-card > .suggest-panel {
+  order: 3;
+}
+
+.designer-card > .image-reference-panel {
+  order: 4;
+}
+
+.suggest-panel,
+.image-reference-panel {
+  margin-top: 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-tint);
+}
+
+.suggest-panel > summary,
+.image-reference-panel > summary {
+  min-height: 3.5rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.suggest-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+}
+
+.suggest-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.suggest-panel > summary > span {
+  display: grid;
+  gap: 0.15rem;
+  color: var(--ink);
+  font-size: inherit;
+  transform: none;
+  transition: none;
+}
+
+.suggest-panel[open] > summary > span {
+  transform: none;
+}
+
+.suggest-panel > summary strong {
+  font-size: 0.78rem;
+}
+
+.suggest-panel > summary small {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+
+.suggest-panel > summary b,
+.image-reference-panel > summary b {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--brand-dark);
+  font-size: 1rem;
+  transition: transform 160ms ease;
+}
+
+.suggest-panel[open] > summary b,
+.image-reference-panel[open] > summary b {
+  transform: rotate(45deg);
+}
+
+.suggest-panel .suggest-form {
+  padding: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.optional-label {
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 560;
+}
+
+.idea-chip,
+.activity-option,
+.site-header nav a {
+  min-height: 2.75rem;
+}
+
+.generate-button {
+  gap: 1rem;
+  font-size: 0.95rem;
+}
+
+.button-arrow {
+  font-size: 1.15rem;
+  line-height: 1;
+  transition: transform 150ms ease;
+}
+
+.generate-button:hover:not(:disabled) .button-arrow {
+  transform: translateX(0.18rem);
+}
+
+.loading-visual {
+  padding-top: 1rem;
+}
+
+@media (max-width: 38rem) {
+  .brand {
+    font-size: 0.94rem;
+  }
+
+  .brand-mark {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .site-header nav a {
+    padding-inline: 0.65rem;
+  }
+
+  .idea-chip,
+  .activity-option,
+  .generate-button,
+  .suggest-panel > summary,
+  .image-reference-panel > summary {
+    min-height: 3rem;
+  }
+
+  .alternate-starts-heading {
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-arrow,
+  .suggest-panel > summary b,
+  .image-reference-panel > summary b {
+    transition: none;
   }
 }

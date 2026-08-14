@@ -1,4 +1,4 @@
-# GPS Art Wizard
+# GPS Art Wizard project guide
 
 Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 158 catalog
 options, or enter a city, activity, and distance. The planner creates and places

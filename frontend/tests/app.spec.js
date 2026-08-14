@@ -313,7 +313,7 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
 
   await expect(page).toHaveTitle(/GPS Art Wizard/);
   await expect(
-    page.getByRole("heading", { level: 1, name: /Plan a GPS art route/ }),
+    page.getByRole("heading", { level: 1, name: /Create GPS art on real streets/ }),
   ).toBeVisible();
   await expect(page.getByLabel("Drawing and location")).toBeVisible();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();

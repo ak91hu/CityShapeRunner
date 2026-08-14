@@ -58,9 +58,9 @@ browser projects execute serially.
 
 ### Browser tests and live services
 
-The default Playwright run contains 83 logical browser tests. Each test runs in
+The default Playwright run contains 87 logical browser tests. Each test runs in
 desktop Chromium and a Pixel 7-sized Chromium project, so a complete run reports
-166 executions.
+174 executions.
 
 These tests are deterministic functional UI tests, not live-service smoke tests.
 They intercept the HTTP boundary for route generation, editing, acceptance, and
@@ -121,8 +121,8 @@ covered.
 | Gallery tokens, PNG safety, and Cloudinary boundaries | `tests/test_gallery.py` |
 | Skill discovery and prompt injection | `tests/test_skills.py` |
 | Main route creation, structured-action placement, animated/cancellable waiting state, fail-closed straight-line previews, and responsive result UI | `frontend/tests/app.spec.js` |
-| Validation, activity limits, cancellation, keyboard flow, candidate switching, edit/export safety, reviewed-route telemetry resilience, GPX/TCX downloads, and gallery failure/pagination/removal | `frontend/tests/workflows.spec.js` |
-| Planner navigation, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 158-option catalog, and grouped 230-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
+| Validation, activity limits, cancellation, reduced-motion waiting, keyboard flow, candidate switching, edit/export safety, reviewed-route telemetry resilience, GPX/TCX downloads, and gallery failure/pagination/removal | `frontend/tests/workflows.spec.js` |
+| Planner navigation, shared header/favicon identity, meaningful visual/DOM/focus order, 44-pixel target floor, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 158-option catalog, and grouped 230-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
 | Result focus, route options, metrics, verification, route facts, history, and audit disclosures | `frontend/tests/results-functional.spec.js` |
 | Keyboard editing, closed-loop synchronization, reset/busy states, edited routes, and scoped approval | `frontend/tests/editor-export-functional.spec.js` |
 | Gallery empty/error/configuration states, pagination, ownership/removal, consent, PNG capture, and mocked publishing | `frontend/tests/gallery-resilience-functional.spec.js` |
