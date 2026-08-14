@@ -4,7 +4,7 @@
 
 A recommendation is a shortlist for measurement, not a claim that a shape is
 guaranteed to work throughout a city. The application scores every one of its
-144 route templates, shortlists the best three continuous and geometrically
+145 route templates, shortlists the best three continuous and geometrically
 diverse candidates for the existing placement/routing pipeline, and keeps the best
 candidate actually measured on the activity-specific street graph. A primary
 candidate that already passes every gate can end the search early.
@@ -40,7 +40,7 @@ more corners without forcing impractically short street segments. Cycling has
 its own capacity adjustment instead of reusing the running result.
 
 The catalog also contains 16 researched Hungary-friendly motifs. Their example
-cities are discovery shortcuts, not hard-coded ranking bonuses: the same 144-way
+cities are discovery shortcuts, not hard-coded ranking bonuses: the same 145-way
 geometry score and live routing checks apply. See
 [Hungary-friendly GPS-art shapes](hungarian-shape-catalog.md) for the cultural
 sources, city pairings, distance guidance, and duplicate audit.
@@ -91,7 +91,7 @@ receive a bear merely because of its symbolism: the bear must compete on the
 same geometric and routing evidence as every other template. The actual
 shortlist also changes with distance and activity.
 
-## Audit of all 144 route templates
+## Audit of all 145 route templates
 
 The registry audit below is generated from geometry. “Disconnected” shapes
 remain available when the user explicitly requests them, but they are not used
@@ -111,7 +111,7 @@ unwanted transfer lines.
 
 ## Runtime decision sequence
 
-1. Analyse the complete 144-template registry; cached immutable geometry
+1. Analyse the complete 145-template registry; cached immutable geometry
    profiles make later requests inexpensive.
 2. Derive continuous city traits from the curated local geography profile.
 3. Cap supported detail using activity and distance.

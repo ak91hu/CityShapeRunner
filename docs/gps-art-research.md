@@ -1280,7 +1280,7 @@ activity/distance capacity; cycling is modelled separately because walkable and
 drivable networks can differ in circuity and connectivity
 ([Boeing, 2017](https://arxiv.org/abs/1708.00836)).
 
-All 144 templates receive a score. Automatic suggestions choose three
+All 145 templates receive a score. Automatic suggestions choose three
 high-scoring, continuous candidates from different geometry families. Templates
 with disconnected strokes remain available for explicit requests, but they do
 not enter the automatic shortlist because their transfer legs can create lines

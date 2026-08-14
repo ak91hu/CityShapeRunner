@@ -69,8 +69,8 @@ requests and high-detail shapes receive longer presets. Hungarian aliases and
 common inflected request forms are registered for terms such as `paprikát`,
 `Rubik-kockát`, `szürkemarhát`, `kürtőskalácsot`, and `gyógyfürdőt`.
 
-The production uniqueness audit now compares all 10,296 pairs in the
-144-template registry after removing translation, scale, rotation, route start,
+The production uniqueness audit now compares all 10,440 pairs in the
+145-template registry after removing translation, scale, rotation, route start,
 and traversal direction. No new pair reaches the `0.02` duplicate threshold;
 the closest new relation is puzzle cube versus drum at approximately `0.079`.
 This proves that the authored route targets differ. Final routes can still

@@ -36,12 +36,12 @@ runs:
 | `plan` | PlanningAgent | ShapeAgent, PlacementAgent, PreflightAgent |
 | `shape` | ShapeAgent | PlacementAgent, PreflightAgent, ValidationAgent |
 | `route_draft` | PlacementAgent / PreflightAgent / RefinementAgent | SnapAgent |
-| `placement_candidates` | PreflightAgent | RefinementAgent |
+| `placement_candidates` | PreflightAgent | Orchestrator road recovery, RefinementAgent |
 | `preflight_candidates` | PreflightAgent | API diagnostics |
 | `candidates` | ValidationAgent | API acceptance filter, audit, selector/editor |
 | `snapped` | SnapAgent | ValidationAgent, ExportAgent |
 | `validation` | ValidationAgent | Orchestrator (loop control), RefinementAgent |
-| `export` | ExportAgent | API (in-memory geometry for the selected drawable route; persistence remains gated) |
+| `export` | ExportAgent | API (only `snapped=true` geometry crosses the public response boundary; persistence remains gated) |
 | `iterations`, `history` | Orchestrator | RefinementAgent |
 | `errors` | any | Orchestrator |
 
@@ -110,7 +110,12 @@ explicit without coupling the current runtime to one.
   measured scale correction and damped square-root bracket are tried. Tested
   scale/rotation/offset/tolerance signatures are remembered, so an already measured
   candidate cannot consume the remaining iteration budget repeatedly.
-- Smart suggestions score the complete 144-template registry against continuous
+- Road recovery: nearest-edge preflight proves proximity, not graph
+  connectivity. If the first Directions candidate validates with
+  `on_roads=false`, the orchestrator routes the remaining preflight-ranked
+  drafts in order and selects the first connected result. Only after a street
+  route exists can normal quality refinement begin.
+- Smart suggestions score the complete 145-template registry against continuous
   city traits, activity, and distance. Up to three high-scoring continuous
   shapes from different geometry families are measured on the real road
   network. A primary route that already passes both quality gates is accepted
@@ -122,17 +127,19 @@ explicit without coupling the current runtime to one.
 | Missing | Behaviour |
 |---------|-----------|
 | No LLM key | an unsupported drawing becomes an explicitly labelled full-word vector fallback; it is never reduced to its initial |
-| No ORS key | Preflight is skipped; SnapAgent returns a `snapped=False` guide with a strong obstacle warning; explicit acceptance is required before GPX download |
+| No ORS key | Preflight is skipped and SnapAgent creates an internal `snapped=False` diagnostic; `POST /generate` returns HTTP 503 with no candidate or GPX/TCX export |
+| ORS cannot connect the first placement | orchestrator tries every remaining preflight-ranked placement before returning HTTP 503 |
+| ORS cannot connect edited control points | `POST /edit-route` returns HTTP 503 before GPX/TCX serialisation; the editor keeps the user's points for retry |
 | LLM returns malformed or invalid data | executable geometry checks request one bounded repair, then use the explicit deterministic fallback |
 | Validation never reaches threshold | orchestrator returns the best iteration + a `below_threshold` flag |
-| Any automatic verification gate fails | selected-shape attempt remains selectable and editable; its measurements are explained and explicit acceptance enables GPX |
+| Any quality gate other than road connectivity fails | a road-routed selected-shape attempt remains selectable and editable; its measurements are explained and explicit acceptance enables GPX |
 | Geocoder rate-limited | city centre falls back to the configured default city |
 
 ## Testing strategy
 
 - `tests/test_pipeline.py`: offline end-to-end (no keys) using the sample
-  prompt, asserting the guide is marked non-routable, retained for review with
-  an acceptance-required GPX, and the loop terminates.
+  prompt, asserting the internal guide is marked non-routable and the loop
+  terminates without claiming street connectivity.
 - `tests/test_skills.py`: skill discovery, routing, and prompt injection.
 - `tests/test_route_engine.py`: parser boundaries, geometry edge cases,
   explicit offline-city substitution, direction-independent similarity,
@@ -143,24 +150,25 @@ explicit without coupling the current runtime to one.
   invalid prompt handling.
 - `tests/test_api_contracts.py`: request whitespace normalisation, Pydantic
   coordinate and length boundaries, legacy acceptance compatibility, safe
-  422/500 error mapping, request-ID propagation, oversized edit rejection,
-  and the health/gallery capability contract.
+  422/500 error mapping, fail-closed 503 generation, request-ID propagation,
+  oversized edit rejection, and the health/gallery capability contract.
 - `tests/test_config.py`: boolean/list environment parsing, YAML overlay
   application, environment precedence, numeric distance defaults, and the
   explicit settings-cache lifecycle.
-- `tests/test_pipeline.py` and API tests verify that a gate-passing candidate
-  ranks ahead of a higher-average failed candidate, while all final-shape
-  routes remain selectable and reviewable.
+- Pipeline and API tests verify that a gate-passing candidate ranks ahead of a
+  higher-average failed candidate, unrouted candidates never become selectable
+  or downloadable, and road recovery tries the remaining shortlist.
 - Unit tests for shape templates, geo maths, routing helpers, validation, and
   API serialisation run without paid services. Gallery tests cover token
   tampering/expiry, PNG sanitisation, Cloudinary response filtering, and
   deletion authorization without contacting Cloudinary.
 - Playwright functional tests exercise the built user interface with explicit
-  desktop/mobile/tablet assertions, including the searchable 157-option catalog,
+  desktop/mobile/tablet assertions, including the searchable 158-option catalog,
   grouped 50-city Hungary and 136-city Europe structured picker,
-  generator focus, prompt limits and keyboard submission, cancellation,
-  responsive containment, result wording, candidate switching, editor success
-  and failure recovery, safe download gates, gallery storage failures,
+  generator focus, prompt limits and keyboard submission, the animated waiting
+  journey and cancellation, responsive containment, result wording, candidate
+  switching, editor success and failure recovery, fail-closed straight-line
+  previews, safe download gates, gallery storage failures,
   publication, pagination/removal, and gallery layout. Their API responses are
   deterministic and do not consume external service quotas.
 

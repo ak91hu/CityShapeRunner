@@ -67,8 +67,26 @@ benchmark remain in [GPS-art research](gps-art-research.md).
 | Routed-line simplification | Refinement-controlled tolerance on successful road geometry only | Improved. Tolerance is now applied in a local metre projection instead of longitude/latitude degrees, and simplification cannot introduce a crossing into a simple route. |
 | Similarity | Shared metric frame; arc-length resampling; direction/start variants; discrete Fréchet, Hausdorff, coverage, tangent/turn, multiscale landmark, reversal, extent, and length-ratio terms | Retained. No single proximity metric is allowed to hide lost corners, doubled-back segments, collapse, or wrong proportions. This matches the invariant-relation findings without claiming to implement Li–Fu's graph-retrieval algorithm. |
 | Validation | Independent selected-shape, road, overall, fidelity, coverage, landmark, reversal, distance, and closure gates | Retained. A weighted average cannot compensate for failure of an identity-critical condition. |
-| Ranking/refinement | Passing routes first; measured scale/rotation/offset updates; next diverse preflight candidate; monotonic best-candidate retention; bounded attempts | Retained. Every update uses observed routed error, never an unbounded model loop. |
-| Export/editor | Full selected route, explicit acceptance below target, manual waypoint correction | Retained. Human correction is a necessary escape hatch for the unresolved graph-search and semantic-recognition limits. |
+| Ranking/refinement | Passing routes first; connectivity recovery across the remaining diverse preflight shortlist; measured scale/rotation/offset updates; monotonic best-candidate retention; bounded attempts | Strengthened. A failed first Directions placement no longer promotes its straight-line guide; remaining road-ranked placements are tried before quality refinement. Every numeric update uses observed routed error, never an unbounded model loop. |
+| Export/editor | Full connected selected route, explicit acceptance below target, manual waypoint correction | Strengthened. Human correction remains available for quality problems, but graph-connectivity failure is not user-waivable: generated and edited routes fail closed with HTTP 503 and no GPS export. |
+
+## Public street-routing safety boundary
+
+The application keeps `snapped=False` geometry internally so offline pipeline
+tests and routing diagnostics remain deterministic. That internal preview is
+not a product route. The public boundary enforces four rules:
+
+1. unsnapped candidates are omitted from the route selector;
+2. top-level GPX, TCX, and persisted file paths require `snapped=True`;
+3. `/generate` returns HTTP 503 after the bounded placement shortlist is
+   exhausted without a connected route;
+4. `/edit-route` returns HTTP 503 before serialisation if edited control points
+   cannot be connected.
+
+This distinction preserves debuggability without turning a visually accurate
+overlay across buildings, water, or inaccessible land into a downloadable GPS
+track. Explicit acceptance remains available only for a connected route that
+misses one or more non-connectivity quality targets.
 
 ## Free-text-specific safety and quality contract
 

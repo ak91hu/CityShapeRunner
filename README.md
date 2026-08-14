@@ -12,7 +12,9 @@
 Turn a run or ride into a drawing. Describe an idea—or choose from 158 catalog
 options—and GPS Art Wizard tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
-route is before offering an immediate download or asking for explicit review.
+route is. Only a route returned by the connected street router can reach the
+download flow; a road-routed result that misses a quality target requires
+explicit review.
 
 The free-text planner sends the complete request directly to generation, where
 the intent pipeline resolves the drawing, place, activity, and distance. In a
@@ -28,8 +30,10 @@ vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
 Balaton shore municipalities, and 136 other European cities, optional LLM planning,
 OpenRouteService street routing, quantitative shape validation, and guarded
 GPX/TCX export. Every fully routed result is retained as a selectable candidate.
-Quality thresholds rank and warn instead of deleting a route, so lower-scoring
-results remain available for comparison, manual correction, and export.
+Quality thresholds rank and warn instead of deleting a fully routed result, so
+lower-scoring street routes remain available for comparison, manual correction,
+and reviewed export. A straight-line diagnostic is never exposed as a
+selectable or downloadable GPS route.
 
 The structured planner contains 230 unique destinations: Siófok belongs to both
 the Hungarian top-50 and official Balaton coverage, but appears only once in the
@@ -69,6 +73,10 @@ translation/rotation/scale placements. A quality-and-diversity selector sends
 seven distinct alternatives to the full router, while every
 preflight score remains in the diagnostics. Eighteen curvature-preserving
 guide points per placement improve the proxy without adding Directions calls.
+If Directions rejects the top-ranked placement, the orchestrator tries the
+remaining road-fit shortlist before giving up. If none produces a connected
+street polyline, `POST /generate` fails closed with HTTP 503 instead of placing
+the original drawing over buildings, water, or other unroutable areas.
 
 Recognition is evaluated from outline coverage, characteristic turns,
 salient tips and notches, unintended U-turns, street-detour stretch, and
@@ -77,6 +85,13 @@ intended dashed contour on the routed line. If
 an explicitly requested drawing misses a recommended target, the planner
 measures simpler city-aware templates and recommends the strongest result
 without removing the original.
+
+Generation remains a synchronous, quality-preserving search, so complex shapes
+can take time. While it runs, the web app shows an elapsed timer, an animated
+GPS-art route, rotating route-specific messages and facts, four illustrative
+planning stages, and a cancel action. The stages communicate what normally
+happens without claiming server-side percentage progress; reduced-motion
+preferences disable the nonessential animation.
 
 ## GPS Art Intelligence
 
@@ -107,7 +122,7 @@ to operations available through the hosted OpenRouteService API.
 | European street networks vary substantially in orientation order, connectivity, segment length, and circuity ([Boeing, 2019](https://doi.org/10.1007/s41109-019-0189-1)). | Every catalogued city has a bounded local search area and obstacle-aware context; the transform search measures several positions and bearings rather than labelling an entire city “grid-like”. |
 | Walkable and drivable networks can differ materially in circuity even within one city ([Boeing, 2017](https://arxiv.org/abs/1708.00836)). | Shape detail capacity is calculated separately for running and cycling and is combined with requested distance rather than treating activity as a display label. |
 | Useful alternative sets must control overlap, or a top-*k* list can contain near-duplicates ([Nassir et al., 2014](https://doi.org/10.3141/2430-18)). | The seven expensive routing slots balance proxy quality with separation in position, rotation, and scale. |
-| Map matching requires plausible transitions and sequence continuity, not only independent nearest points ([Newson & Krumm, 2009](https://doi.org/10.1145/1653771.1653818); [Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Batched snapping is treated only as a cheap proxy. Guides are submitted to activity-specific Directions routing and whole-curve validation before they are labelled road-routed; a failed routing attempt remains an explicit manual-review fallback. |
+| Map matching requires plausible transitions and sequence continuity, not only independent nearest points ([Newson & Krumm, 2009](https://doi.org/10.1145/1653771.1653818); [Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Batched snapping is treated only as a cheap proxy. Guides are submitted to activity-specific Directions routing and whole-curve validation before they are labelled road-routed; failed placements trigger the remaining shortlist, and an exhausted search returns no GPS export. |
 
 These studies justify the architecture and metrics, but they do not prove that
 a generated route is recognisable, safe, legal, or optimal in every city.
@@ -130,17 +145,20 @@ remain in the audit summary instead of being mixed into that selector.
 documented engineering thresholds. It is not scientific proof of
 recognisability, legality, accessibility, or safety. A route that misses a
 target remains selectable and exportable after the user reviews and explicitly
-accepts that exact geometry. A straight-line guide returned without road
-routing follows the same review path and is clearly marked as not road-routed.
+accepts that exact geometry, but only when Directions returned a connected
+street route. A straight-line diagnostic returned internally without road
+routing never enters the API candidate selector, and the public response never
+contains downloadable GPX/TCX data for it.
 
 The built-in Leaflet editor exposes numbered draggable control points for every
 candidate. After a correction, `/edit-route` routes the guide through the
 activity-specific street graph again, recalculates quality and distance, and
-returns a new GPX/TCX. If road routing is unavailable, the edited guide is
-still exportable with a prominent manual-review warning. Moving a point marks
-the editor as having pending changes and disables downloads until the user
-updates the street route or discards those changes; closing an unchanged editor
-does not imply that anything was discarded.
+returns a new GPX/TCX only after successful street routing. If routing is
+unavailable or the edited points cannot be connected, `/edit-route` returns
+HTTP 503 and creates no GPS file. Moving a point marks the editor as having
+pending changes and disables downloads until the user updates the street route
+or discards those changes; closing an unchanged editor does not imply that
+anything was discarded.
 
 The complete map can also be rotated manually from −180° to 180°, in 1° slider
 steps or 15° buttons, with a one-click north-up reset. Tiles, intended outline,

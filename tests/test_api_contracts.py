@@ -297,6 +297,116 @@ def test_generate_endpoint_blocks_an_unrouted_straight_line(monkeypatch) -> None
     }
 
 
+@pytest.mark.parametrize(
+    "snapped_route",
+    [
+        SimpleNamespace(snapped=True, points=[], total_distance_m=8_000.0),
+        SimpleNamespace(
+            snapped=True,
+            points=[(47.5, 19.0)],
+            total_distance_m=8_000.0,
+        ),
+        SimpleNamespace(
+            snapped=True,
+            points=[(47.5, 19.0), (47.501, 19.001)],
+            total_distance_m=0.0,
+        ),
+        SimpleNamespace(
+            snapped=True,
+            points=[(95.0, 19.0), (47.501, 19.001)],
+            total_distance_m=8_000.0,
+        ),
+    ],
+)
+def test_generate_endpoint_rejects_a_malformed_claimed_street_route(
+    monkeypatch,
+    snapped_route,
+) -> None:
+    monkeypatch.setattr(
+        routes,
+        "generate",
+        lambda _prompt: SimpleNamespace(
+            snapped=snapped_route,
+            shape=SimpleNamespace(name="heart"),
+            intent=SimpleNamespace(city="Budapest"),
+            candidate_count=1,
+            preflight_count=1,
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={"prompt": "a heart run in Budapest, about 8 km"},
+        )
+
+    assert response.status_code == 503
+    assert "unsafe straight-line GPS track" in response.json()["detail"]
+
+
+def test_generate_endpoint_hides_response_serialisation_errors(monkeypatch) -> None:
+    monkeypatch.setattr(
+        routes,
+        "generate",
+        lambda _prompt: SimpleNamespace(
+            snapped=SimpleNamespace(
+                snapped=True,
+                points=[(47.5, 19.0), (47.501, 19.001)],
+                total_distance_m=8_000.0,
+            ),
+        ),
+    )
+
+    def fail_response(_state):
+        raise RuntimeError("response-secret-value")
+
+    monkeypatch.setattr(routes, "_state_to_response", fail_response)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={"prompt": "a heart run in Budapest, about 8 km"},
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "The street route was created, but its response could not be prepared."
+    }
+    assert "response-secret-value" not in response.text
+
+
+def test_route_acceptance_rejects_a_non_street_route(caplog) -> None:
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/route-acceptance",
+            json={
+                "generation_request_id": "request-unsafe",
+                "route_id": "candidate-unsafe",
+                "shape_name": "heart",
+                "snapped": False,
+                "failed_gates": ["road_network"],
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "Only a route matched to connected streets can be approved for "
+            "GPS export. Generate or edit the route again first."
+        )
+    }
+    rejection = next(
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "route.user.acceptance.rejected"
+    )
+    assert rejection.candidate_id == "candidate-unsafe"
+    assert rejection.reason == "not_street_routed"
+    assert not any(
+        getattr(record, "event", None) == "route.user.accepted"
+        for record in caplog.records
+    )
+
+
 def test_edit_endpoint_rejects_a_guide_over_one_thousand_kilometres(
     monkeypatch,
 ) -> None:
@@ -318,6 +428,133 @@ def test_edit_endpoint_rejects_a_guide_over_one_thousand_kilometres(
     assert response.json()["detail"] == (
         "Edited route guides must stay within a 1,000 km total span."
     )
+
+
+@pytest.mark.parametrize(
+    ("points", "distance_m", "snapped"),
+    [
+        ([], 100.0, True),
+        ([(47.5, 19.0)], 100.0, True),
+        ([(47.5, 19.0), (47.501, 19.001)], 0.0, True),
+        ([(47.5, 19.0), (47.501, 19.001)], float("nan"), True),
+        ([(47.5, 19.0), (47.501, 181.0)], 100.0, True),
+        ([(47.5, 19.0), (47.501, 19.001)], 100.0, False),
+    ],
+)
+def test_edit_endpoint_blocks_malformed_or_unrouted_router_output_before_export(
+    monkeypatch,
+    points,
+    distance_m,
+    snapped,
+) -> None:
+    monkeypatch.setattr(
+        routes.ors_client,
+        "snap_route_detailed",
+        lambda *_args, **_kwargs: (
+            points,
+            distance_m,
+            snapped,
+            SimpleNamespace(),
+        ),
+    )
+
+    def must_not_continue(*_args, **_kwargs):
+        pytest.fail("invalid router output must be blocked before validation/export")
+
+    monkeypatch.setattr(routes.ValidationAgent, "run", must_not_continue)
+    monkeypatch.setattr(routes.gpx_writer, "to_gpx", must_not_continue)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/edit-route",
+            json={
+                "control_points": [[47.5, 19.0], [47.501, 19.001]],
+                "sport": "run",
+                "name": "Edited route",
+            },
+        )
+
+    assert response.status_code == 503
+    assert "no GPS file was created" in response.json()["detail"]
+
+
+def test_edit_endpoint_maps_an_unexpected_router_error_to_a_safe_503(
+    monkeypatch,
+) -> None:
+    def fail_router(*_args, **_kwargs):
+        raise RuntimeError("router-secret-value")
+
+    monkeypatch.setattr(routes.ors_client, "snap_route_detailed", fail_router)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/edit-route",
+            json={
+                "control_points": [[47.5, 19.0], [47.501, 19.001]],
+                "sport": "run",
+                "name": "Edited route",
+            },
+        )
+
+    assert response.status_code == 503
+    assert "no GPS file was created" in response.json()["detail"]
+    assert "router-secret-value" not in response.text
+
+
+def test_edit_endpoint_hides_unexpected_validation_errors(monkeypatch) -> None:
+    routed = [(47.5, 19.0), (47.5005, 19.0005), (47.501, 19.001)]
+    monkeypatch.setattr(
+        routes.ors_client,
+        "snap_route_detailed",
+        lambda *_args, **_kwargs: (routed, 200.0, True, SimpleNamespace()),
+    )
+
+    def fail_validation(*_args, **_kwargs):
+        raise RuntimeError("validation-secret-value")
+
+    monkeypatch.setattr(routes.ValidationAgent, "run", fail_validation)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/edit-route",
+            json={
+                "control_points": routed,
+                "sport": "run",
+                "name": "Edited route",
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Edited route validation failed."}
+    assert "validation-secret-value" not in response.text
+
+
+def test_edit_endpoint_hides_unexpected_gpx_export_errors(monkeypatch) -> None:
+    routed = [(47.5, 19.0), (47.5005, 19.0005), (47.501, 19.001)]
+    monkeypatch.setattr(
+        routes.ors_client,
+        "snap_route_detailed",
+        lambda *_args, **_kwargs: (routed, 200.0, True, SimpleNamespace()),
+    )
+
+    def fail_gpx(*_args, **_kwargs):
+        raise RuntimeError("gpx-secret-value")
+
+    monkeypatch.setattr(routes.gpx_writer, "to_gpx", fail_gpx)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/edit-route",
+            json={
+                "control_points": routed,
+                "sport": "run",
+                "name": "Edited route",
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": (
+            "The edited street route was created, but its GPS file could not be prepared."
+        )
+    }
+    assert "gpx-secret-value" not in response.text
 
 
 @pytest.mark.parametrize("configured", [True, False])

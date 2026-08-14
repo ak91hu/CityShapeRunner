@@ -6,7 +6,7 @@ import logging
 import math
 import re
 import unicodedata
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -380,9 +380,54 @@ def _route_details(
     }
 
 
+def _is_connected_route_geometry(
+    points: object,
+    total_distance_m: object,
+    *,
+    snapped: bool,
+) -> bool:
+    """Validate the minimum public contract for a street-routed polyline."""
+
+    if not snapped or not isinstance(points, list | tuple) or len(points) < 2:
+        return False
+    if isinstance(total_distance_m, bool) or not isinstance(
+        total_distance_m, int | float
+    ):
+        return False
+    distance = float(total_distance_m)
+    if not math.isfinite(distance) or distance <= 0:
+        return False
+    for point in points:
+        if not isinstance(point, list | tuple) or len(point) < 2:
+            return False
+        try:
+            lat, lon = float(point[0]), float(point[1])
+        except (TypeError, ValueError):
+            return False
+        if (
+            not math.isfinite(lat)
+            or not math.isfinite(lon)
+            or not -90 <= lat <= 90
+            or not -180 <= lon <= 180
+        ):
+            return False
+    return True
+
+
+def _has_connected_route(route: object | None) -> bool:
+    if route is None or not bool(getattr(route, "snapped", False)):
+        return False
+    return _is_connected_route_geometry(
+        getattr(route, "points", None),
+        getattr(route, "total_distance_m", None),
+        snapped=True,
+    )
+
+
 def _state_to_response(state) -> dict:
     snapped = state.snapped
     export = state.export
+    primary_street_routed = _has_connected_route(snapped)
     all_pts = snapped.points if snapped else []
     preview = [[p[0], p[1]] for p in _even_sample(all_pts, _MAX_PREVIEW_POINTS)]
     ideal_points = state.route_draft.waypoints if state.route_draft else []
@@ -409,8 +454,18 @@ def _state_to_response(state) -> dict:
     other_shape_count = 0
     for original_index, candidate in ranked_candidates:
         validation = candidate.validation
+        candidate_street_routed = _is_connected_route_geometry(
+            candidate.points,
+            candidate.total_distance_m,
+            snapped=candidate.snapped,
+        )
+        verification_validation = (
+            validation
+            if candidate_street_routed or not validation.on_roads
+            else replace(validation, on_roads=False)
+        )
         verification = quality_gate_report(
-            validation,
+            verification_validation,
             closed=candidate.closed,
             candidate_shape=candidate.shape_name,
             selected_shape=selected_shape,
@@ -428,7 +483,7 @@ def _state_to_response(state) -> dict:
             shape_name=candidate.shape_name,
             shape_source=candidate.shape_source,
             sport=sport,
-            snapped=candidate.snapped,
+            snapped=candidate_street_routed,
             closed=candidate.closed,
             distance_km=distance_km,
             target_distance_km=validation.target_distance_km,
@@ -473,7 +528,7 @@ def _state_to_response(state) -> dict:
             candidate.shape_name,
             "yes" if selected_shape_match else "no",
             decision,
-            "yes" if candidate.snapped else "no",
+            "yes" if candidate_street_routed else "no",
             validation.score * 100,
             validation.shape_fidelity * 100,
             distance_km,
@@ -488,7 +543,7 @@ def _state_to_response(state) -> dict:
                 "verified": verification["passed"],
                 "failed_gates": verification["failed_gates"],
                 "selected_shape_match": selected_shape_match,
-                "snapped": candidate.snapped,
+                "snapped": candidate_street_routed,
                 "score": validation.score,
                 "fidelity": validation.shape_fidelity,
                 "distance_km": distance_km,
@@ -507,7 +562,7 @@ def _state_to_response(state) -> dict:
             continue
         # A guide that did not route through the street graph is diagnostic
         # evidence only. Never expose it as a selectable/downloadable GPS route.
-        if not candidate.snapped:
+        if not candidate_street_routed:
             continue
         if verification["passed"]:
             verified_count += 1
@@ -553,7 +608,7 @@ def _state_to_response(state) -> dict:
                     )
                 ],
                 "distance_km": distance_km,
-                "snapped": candidate.snapped,
+                "snapped": candidate_street_routed,
                 "closed": candidate.closed,
                 "target_distance_km": validation.target_distance_km,
                 "validation": validation.__dict__,
@@ -567,7 +622,7 @@ def _state_to_response(state) -> dict:
                 "tcx": candidate_tcx,
                 "gallery_publish_token": (
                     cloudinary_gallery.maybe_issue_publish_token()
-                    if candidate.snapped
+                    if candidate_street_routed
                     else None
                 ),
             }
@@ -589,7 +644,7 @@ def _state_to_response(state) -> dict:
             shape_name=selected_shape or "unknown",
             shape_source=selected_shape_source,
             sport=sport,
-            snapped=bool(snapped and snapped.snapped),
+            snapped=primary_street_routed,
             closed=bool(state.shape and state.shape.closed),
             distance_km=(snapped.total_distance_m / 1000.0) if snapped else 0.0,
             target_distance_km=state.validation.target_distance_km,
@@ -717,17 +772,17 @@ def _state_to_response(state) -> dict:
         fit_decision=state.fit_decision.__dict__ if state.fit_decision else None,
         validation=state.validation.__dict__ if state.validation else None,
         distance_km=(snapped.total_distance_m / 1000) if snapped else None,
-        snapped=snapped.snapped if snapped else None,
+        snapped=primary_street_routed if snapped else None,
         iterations=state.iterations,
         candidate_count=state.candidate_count,
         preflight_count=state.preflight_count,
         below_threshold=state.below_threshold,
         errors=state.errors,
         history=state.history,
-        gpx=export.gpx if export and snapped and snapped.snapped else None,
-        tcx=export.tcx if export and snapped and snapped.snapped else None,
+        gpx=export.gpx if export and primary_street_routed else None,
+        tcx=export.tcx if export and primary_street_routed else None,
         file_paths=(
-            export.file_paths if export and snapped and snapped.snapped else {}
+            export.file_paths if export and primary_street_routed else {}
         ),
         points_preview=preview,
         ideal_preview=ideal_preview,
@@ -752,7 +807,7 @@ def _state_to_response(state) -> dict:
         },
         gallery_publish_token=(
             cloudinary_gallery.maybe_issue_publish_token()
-            if snapped and snapped.snapped
+            if primary_street_routed
             else None
         ),
     )
@@ -905,6 +960,25 @@ def interpret_route_request(req: GenerateRequest) -> dict:
 def record_route_acceptance(req: RouteAcceptanceRequest) -> dict:
     """Record the user's explicit decision without retaining route geometry."""
 
+    if not req.snapped:
+        log.warning(
+            "Rejected acceptance for a route that is not matched to streets",
+            extra={
+                "event": "route.user.acceptance.rejected",
+                "generation_request_id": req.generation_request_id,
+                "candidate_id": req.route_id,
+                "shape": req.shape_name,
+                "reason": "not_street_routed",
+            },
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only a route matched to connected streets can be approved for "
+                "GPS export. Generate or edit the route again first."
+            ),
+        )
+
     failed_text = ", ".join(req.failed_gates) or "none"
     score_text = f"{req.score:.1%}" if req.score is not None else "unavailable"
     fidelity_text = (
@@ -1023,7 +1097,7 @@ def generate_route(req: GenerateRequest) -> dict:
             status_code=500,
             detail="Route generation failed. Verify the routing and model-provider configuration.",
         ) from exc
-    if state.snapped is None or not state.snapped.snapped:
+    if not _has_connected_route(state.snapped):
         log.error(
             "Route generation produced no street-connected result; blocking unsafe guide",
             extra={
@@ -1042,7 +1116,17 @@ def generate_route(req: GenerateRequest) -> dict:
                 "or distance, or retry when the routing service is available."
             ),
         )
-    return _state_to_response(state)
+    try:
+        return _state_to_response(state)
+    except Exception as exc:  # noqa: BLE001 - public serialisation boundary
+        log.exception(
+            "Route response preparation failed",
+            extra={"event": "generation.response.failed"},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="The street route was created, but its response could not be prepared.",
+        ) from exc
 
 
 @router.post("/edit-route", response_model=EditedRouteResponse)
@@ -1065,20 +1149,43 @@ def edit_route(req: EditedRouteRequest) -> dict:
         if any(req.route_preferences.model_dump().values())
         else None
     )
-    if active_edit_preferences is None:
-        points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-            control_points,
-            sport=req.sport,
-            closed=req.closed,
+    try:
+        if active_edit_preferences is None:
+            points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+                control_points,
+                sport=req.sport,
+                closed=req.closed,
+            )
+        else:
+            points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+                control_points,
+                sport=req.sport,
+                closed=req.closed,
+                route_preferences=active_edit_preferences,
+            )
+    except Exception as exc:  # noqa: BLE001 - external router boundary
+        log.exception(
+            "Edited-route street routing raised an unexpected error",
+            extra={
+                "event": "route.edit.street_routing.error",
+                "shape": req.shape_name,
+                "sport": req.sport,
+                "guide_point_count": len(control_points),
+            },
         )
-    else:
-        points, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-            control_points,
-            sport=req.sport,
-            closed=req.closed,
-            route_preferences=active_edit_preferences,
-        )
-    if not snapped:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The edited route could not be matched to connected streets, so no "
+                "GPS file was created. Adjust the control points or retry when the "
+                "routing service is available."
+            ),
+        ) from exc
+    if not _is_connected_route_geometry(
+        points,
+        distance_m,
+        snapped=snapped,
+    ):
         log.error(
             "Edited route could not be matched to connected streets; blocking unsafe export",
             extra={
@@ -1132,7 +1239,21 @@ def edit_route(req: EditedRouteRequest) -> dict:
             readiness=readiness,
         ),
     )
-    ValidationAgent().run(temporary)
+    try:
+        ValidationAgent().run(temporary)
+    except Exception as exc:  # noqa: BLE001 - public validation boundary
+        log.exception(
+            "Edited route validation failed",
+            extra={
+                "event": "route.edit.validation.failed",
+                "shape": req.shape_name,
+                "sport": req.sport,
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Edited route validation failed.",
+        ) from exc
     if temporary.validation is None:
         raise HTTPException(status_code=500, detail="Edited route validation failed.")
 
@@ -1143,12 +1264,26 @@ def edit_route(req: EditedRouteRequest) -> dict:
         candidate_shape=req.shape_name,
         selected_shape=req.shape_name,
     )
-    gpx = gpx_writer.to_gpx(
-        points,
-        name=req.name,
-        sport=req.sport,
-        total_distance_m=distance_m,
-    )
+    try:
+        gpx = gpx_writer.to_gpx(
+            points,
+            name=req.name,
+            sport=req.sport,
+            total_distance_m=distance_m,
+        )
+    except Exception as exc:  # noqa: BLE001 - public export boundary
+        log.exception(
+            "Edited route GPX export failed",
+            extra={
+                "event": "route.edit.export.failed",
+                "shape": req.shape_name,
+                "sport": req.sport,
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="The edited street route was created, but its GPS file could not be prepared.",
+        ) from exc
     tcx = None
     try:
         tcx = gpx_writer.to_tcx(

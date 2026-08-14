@@ -16,7 +16,8 @@ tags: [ors, roads, simplify]
   that mode `shape_fidelity` will be ~1.0; **the ValidationAgent caps the
   overall score at 0.4 and flags `on_roads=false`** so a straight-line route
   can never pass the recommendation or be silently labelled as a real route.
-  It may still be exported as an explicitly unverified manual guide.
+  It is an internal diagnostic only: the API must return HTTP 503 and must not
+  expose it as a candidate, GPX/TCX file, or user-approvable guide.
 - `snap_radius_m` (default 120 m, set in `config/settings.yaml`) is passed to
   ORS as the per-coordinate `radiuses` parameter. It controls how far ORS may
   search for a road from each drawn point. Increase it if waypoints land on
@@ -28,6 +29,10 @@ tags: [ors, roads, simplify]
 - A successful request can still be a poor drawing. Never treat
   `snapped=True` as a quality recommendation; fidelity, distance, closure, and
   overall score remain visible for ranking and editing.
+- Nearest-edge preflight snapping does not prove graph connectivity. If the
+  first Directions request fails, try the remaining preflight-ranked drafts in
+  order. Stop at the first `snapped=True` result; if the bounded shortlist is
+  exhausted, fail closed instead of drawing guide segments over the basemap.
 - The `simplify_tolerance` (metres) denoises real road geometry. **Lower =
   more detail (better fidelity, longer GPX); higher = smoother (worse
   fidelity, smaller GPX).** It is evaluated in a local metre projection and
@@ -42,3 +47,6 @@ tags: [ors, roads, simplify]
   (point not found), but for code 2009 remove the reported unconnectable
   interior via-point or reduce detail. Repeating larger radiuses for code 2009
   does not repair graph connectivity.
+- Never infer routability from how a line looks on Leaflet. Only the polyline
+  returned by a successful activity-specific Directions request may be
+  presented or exported as the GPS route.

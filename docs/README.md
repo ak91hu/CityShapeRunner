@@ -1,6 +1,6 @@
 # GPS Art Wizard
 
-Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 157 catalog
+Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 158 catalog
 options, or enter a city, activity, and distance. The planner creates and places
 the outline, routes it over streets, measures the match, and retains every fully
 routed candidate. Candidates that pass all independent shape, street, distance,
@@ -29,7 +29,7 @@ For a city-based suggestion, enter:
 context to choose a template, placement, and orientation likely to fit the
 street network.
 
-The choice is computed from the full 144-template registry rather than a fixed
+The choice is computed from the full 145-template registry rather than a fixed
 city-to-symbol table. Shape continuity, turns, directional order, proportions,
 and detail are scored against city grid/connectivity, barriers, terrain,
 activity, and requested distance. Up to three diverse continuous templates are
@@ -48,8 +48,8 @@ are documented in [Lake Balaton city coverage](balaton-city-coverage.md).
 ## Quick-idea catalog
 
 The planner shows six common shapes first and keeps the full searchable
-157-option catalog behind “More shapes, letters, and numbers” so the prompt
-remains the primary control. The catalog combines 144 deterministic route
+158-option catalog behind “More shapes, letters, and numbers” so the prompt
+remains the primary control. The catalog combines 145 deterministic route
 templates with 13 built-in vector-font presets:
 
 | Group | Ideas |
@@ -95,6 +95,7 @@ available for corrections.
 ```
 prompt ─▶ IntentAgent ─▶ PlanningAgent ─▶ ShapeAgent ─▶ PlacementAgent ─▶ PreflightAgent ─▶ SnapAgent ─▶ ValidationAgent ─▶ ExportAgent
                                   ▲                              │ shortlist                    │
+                                  │                              ├──────── Road recovery ◀──────┘  (remaining shortlist if routing fails)
                                   │                              └──────── RefinementAgent ◀────┘  (bounded measured loop)
                                   │   skills loaded into every LLM agent's prompt from docs/
 ```
@@ -121,9 +122,15 @@ a quality-and-diversity rule selects seven full Directions candidates; every
 returned route is then evaluated using coverage, characteristic turns,
 salient curvature landmarks, extra reversal events, proportions, distance, closure, and road-routing
 evidence. A failed component cannot be hidden by the aggregate score. Weak
-final-shape attempts remain selectable for comparison and correction;
+road-routed final-shape attempts remain selectable for comparison and correction;
 different-shape attempts remain counted—with their failed gates—in the
 candidate audit instead of being mixed into the selector.
+
+The nearest-edge preflight is never treated as connectivity proof. When the
+first Directions request fails, the orchestrator routes each remaining
+preflight-ranked placement until one follows connected streets or the bounded
+shortlist is exhausted. An exhausted search returns HTTP 503 from `/generate`;
+it does not expose the straight-line drawing as a candidate or GPX/TCX file.
 
 The literature supports these design choices, not the current numeric
 thresholds. Those are explicit engineering heuristics and should be calibrated
@@ -138,13 +145,13 @@ the [August 2026 algorithm audit](gps-art-algorithm-audit-2026-08.md).
 |-------|----------------|
 | **IntentAgent** | Parse the natural-language prompt into a structured intent (shape, city, sport, distance, text, suggest). Known template/text requests take a deterministic no-network fast path. |
 | **PlanningAgent** | Resolve supported cities from the local route database, study curated geography, and commit street-grid rotation, safe offsets, and a distinct city/activity suggestion. |
-| **ShapeAgent** | Turn the intent into a 2D polyline — 144 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
+| **ShapeAgent** | Turn the intent into a 2D polyline — 145 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
 | **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
 | **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks and unintended reversal events—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
 | **RefinementAgent** | Consume the road-fit-ranked shortlist first, then bracket non-linear distance corrections and use local measured transforms only after the shortlist is exhausted. |
-| **ExportAgent** | Serialise the full selected-shape geometry. Routes that pass every automatic check download immediately; below-target routes require explicit user acceptance after reviewing the measurements. |
+| **ExportAgent** | Serialise the selected geometry for internal workflow state. The API exposes GPX/TCX only for `snapped=true` routes. Road-routed candidates that pass every automatic check download immediately; below-target road routes require explicit user acceptance after reviewing the measurements. |
 
 The graph engine (`orchestrator.py`) wires these into a state machine with:
 - a **planning step** (one strategy commit, read by shape + placement),
@@ -152,6 +159,9 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
   three scales → one batched snap → diversity-aware seven-candidate full-route
   shortlist; all proxy and fully routed attempts remain auditable, while every
   final selected-shape route remains selectable and clearly labelled),
+- a **road-recovery pass** (if the first Directions result is not connected,
+  consume the remaining preflight-ranked placements before any quality
+  refinement; never refine or export a straight-line diagnostic),
 - a **refinement loop** (validate → take the next ranked placement or branch
   from the best → re-snap, up to eight iterations; candidate ranking balances
   the weakest export gate, repeated drafts are skipped, and regressions are
@@ -170,7 +180,8 @@ is an engineering result, not a scientific, legal, accessibility, or safety
 guarantee. The compact screen explains the 0–100 indices and shows every gate,
 measured value, threshold, route/guide point count, distance error, detour ratio,
 closure gap, mean outline deviation, and placement transform. Below-target and
-non-road-routed guides remain exportable only after explicit acceptance.
+road-routed guides remain exportable only after explicit acceptance.
+Non-road-routed diagnostics are not selectable or downloadable.
 
 The map has an accessible −180°…180° rotation slider, 15° step controls, and a
 north-up reset. The entire geographic view rotates together, and gallery PNG
@@ -235,10 +246,11 @@ python -m uvicorn gps_art_wizzard.main:app --reload
 
 The pipeline runs **even without any API key**: LLM calls fall back to
 deterministic rules, and the snap step uses a straight-line fallback when no
-ORS key is set. A straight-line fallback is marked `snapped=false`, remains
-editable as a diagnostic guide, carries an explicit warning, and can be
-downloaded only after the user explicitly accepts the shown geometry. It is
-not represented as a road-following route.
+ORS key is set. That internal fallback is marked `snapped=false` and keeps the
+offline orchestration and metric tests executable, but the public `/generate`
+endpoint returns HTTP 503 and strips candidate/export data. A usable deployment
+therefore requires `ORS_API_KEY`; no straight-line fallback is represented or
+downloaded as a road-following route.
 
 ## OpenCode Zen as the LLM
 
@@ -269,7 +281,11 @@ with the OpenAI provider).
 A Vite + React SPA lives in `frontend/`. It calls `/generate` and renders the
 route on a rotatable Leaflet map, shows the validation score / refinement history, and
 offers immediate GPX/TCX downloads for routes that pass every automatic check.
-Review routes and non-road-routed guides use the explicit acceptance flow.
+Below-target road-routed results use the explicit acceptance flow. A non-road
+result shows a recoverable routing error and no download action. During the
+synchronous search, a GPS-art animation, elapsed timer, rotating messages,
+illustrative stages, facts, and cancellation keep the wait understandable;
+`prefers-reduced-motion` removes nonessential movement.
 
 Dev (hot-reload frontend on :5173, API on :8000):
 

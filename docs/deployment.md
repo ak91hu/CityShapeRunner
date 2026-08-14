@@ -95,9 +95,10 @@ OPENCODE_API_KEY=...
 ```
 
 Never paste these keys into repository files, Docker build arguments, or public
-logs. Without `ORS_API_KEY`, the app still starts but can only produce
-straight-line manual-review guides. Without the optional LLM key, deterministic
-planning remains available.
+logs. Without `ORS_API_KEY`, the app still starts and `/health` remains useful,
+but route generation fails closed with HTTP 503 because a straight-line guide
+is not a usable GPS route. Without the optional LLM key, deterministic planning
+remains available.
 
 The SPA and API share one origin, so no production CORS entry is required.
 Only set `WEB_CORS_ORIGINS` if a separate frontend domain must call the API; in
@@ -188,19 +189,25 @@ container; `localhost` refers to the container itself, not its host.
 - Listen address: `0.0.0.0:8000` by default; override with `API_PORT`.
 - Liveness/readiness endpoint: `GET /health`.
 - Route generation endpoint: `POST /generate`.
+- Edited-route endpoint: `POST /edit-route`.
 - Anonymous gallery endpoints: `GET /gallery`, `POST /gallery`, and
   `POST /gallery/delete` when `CLOUDINARY_URL` is configured.
 - Static web client: `GET /` when the frontend build is present.
 - Persistent filesystem storage: not required. Eligible GPX/TCX documents are
-  returned in the API response and remain in memory by default. Configure
-  `EXPORT_DIR` only when server-side copies are required. Gallery PNGs are
-  stored directly in Cloudinary and indexed through its asset-search API.
+  returned only for connected street routes and remain in memory by default.
+  Configure `EXPORT_DIR` only when server-side copies are required. Gallery
+  PNGs are stored directly in Cloudinary and indexed through its asset-search
+  API.
 - Logging: structured JSON is emitted to stderr. On Northflank, leave
   `LOG_FILE` empty and use a project-restricted Loki log sink for retention.
 - Network: outbound HTTPS is required for the configured geocoder, road router,
   and hosted LLM provider.
 - Common supported-city/template requests need only the road router at
   generation time: intent, city lookup, planning, and refinement are local.
+- Street-routing failure contract: `/generate` tries the remaining preflight
+  shortlist, then returns HTTP 503 with no selectable candidate or GPS file if
+  no connected route exists. `/edit-route` returns the same status before
+  serialisation when edited points cannot be connected.
 - Process model: one Uvicorn worker per container. Scale with additional
   containers only after measuring external API quotas and latency.
 
@@ -208,7 +215,12 @@ Start with one CPU and 512 MiB of memory, then measure with representative
 shapes, distances, and concurrent requests. NumPy and Shapely trade a modest
 baseline memory cost for substantially faster geometry operations. Platform
 request timeouts should accommodate the configured external services and
-refinement count.
+refinement count. The browser presents elapsed time, an animated route,
+rotating messages, illustrative planning stages, and cancellation during this
+synchronous request. Those stages are intentionally not server-reported
+percentage progress. A platform timeout still terminates the request and should
+be diagnosed from the request ID and structured phase logs.
+
 The default budget is eight refinement passes after the initial ORS candidate.
 Reduce `MAX_REFINEMENT_ITERATIONS` only when API quota or latency is more
 important than difficult-city shape fidelity.
@@ -242,10 +254,10 @@ LOG_FILE=
 # CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 ```
 
-Without `ORS_API_KEY`, the application deliberately returns a straight-line
-fallback marked `snapped=false`; that output is not a usable street route.
-It remains editable and carries a prominent obstacle/manual-review warning;
-the user must explicitly accept it before downloading its GPX.
+Without `ORS_API_KEY`, the internal workflow deliberately marks its diagnostic
+fallback `snapped=false`, but the public API returns HTTP 503 and exposes no
+GPX/TCX. Production route generation therefore requires a working key and
+outbound access to `ORS_BASE_URL`.
 Road-matched candidates below the recommended score, fidelity, or distance
 targets are also retained instead of deleted. Without an LLM key,
 deterministic planning remains available; route refinement is always
@@ -260,6 +272,23 @@ logging remains authoritative there.
 Restrict `WEB_CORS_ORIGINS` to trusted browser origins. Terminate TLS at the
 hosting platform or reverse proxy, cap request-body size, and apply rate limits
 to `/generate` because one request can fan out to several external calls.
+
+Structured events identify fail-closed routing and export incidents:
+
+- `generation.street_routing.unavailable` — no generated placement produced a
+  connected street route;
+- `route.edit.street_routing.unavailable` — edited control points could not be
+  re-routed, so no GPS file was created;
+- `route.edit.street_routing.error` — the edit router failed unexpectedly;
+- `generation.response.failed` — the street route was valid, but its public
+  response could not be prepared;
+- `route.edit.validation.failed` and `route.edit.export.failed` — validation or
+  mandatory GPX serialization failed after an edit;
+- `route.user.acceptance.rejected` — the client tried to approve a route that was
+  not marked as connected to streets.
+
+Alert on sustained occurrences and check the ORS key, quota, endpoint
+reachability, and response codes before changing quality or shortlist settings.
 
 ## Health check
 

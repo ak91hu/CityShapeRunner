@@ -19,6 +19,10 @@ not compound, while every measured candidate remains available to the user.
 | `closure` low (closed shape) | loop open over a park/river | Shrink slightly and test a nearby grid offset |
 
 Rules:
+- **Recover connectivity before quality.** If the initial Directions result has
+  `on_roads=false`, try each remaining preflight-ranked placement. Do not apply
+  numeric scale or geometry refinement to a straight-line diagnostic; if no
+  placement routes, leave the API to fail closed.
 - **Do not promote regression.** Keep the best measured candidate selected,
   retain weaker candidates for comparison/editing, and continue the remaining
   bounded variants.
@@ -39,5 +43,6 @@ Rules:
 - Use at most eight refinement passes: two scale brackets and six distinct
   grid/orientation candidates.
 - After the configured iteration budget is exhausted, return the best
-  candidate with `below_threshold=true`, preserve all alternatives, and export
-  only with a clear recommended-target warning.
+  road-routed candidate with `below_threshold=true`, preserve all routed
+  alternatives, and export only with a clear recommended-target warning. An
+  unrouted diagnostic is not an exportable candidate.

@@ -257,9 +257,15 @@ class Orchestrator:
         """
 
         validation = state.validation
+        primary_is_connected = bool(
+            validation
+            and validation.on_roads
+            and state.snapped
+            and state.snapped.snapped
+        )
         if (
             validation is None
-            or validation.on_roads
+            or primary_is_connected
             or not state.placement_candidates
         ):
             return
@@ -273,9 +279,36 @@ class Orchestrator:
         while state.placement_candidates:
             attempt += 1
             state.route_draft = copy.deepcopy(state.placement_candidates.pop(0))
-            nodes["snap"].run(state)
-            nodes["validation"].run(state)
+            attempt_errors = list(state.errors)
+            try:
+                nodes["snap"].run(state)
+                nodes["validation"].run(state)
+            except (RuntimeError, TypeError, ValueError) as exc:
+                state.errors = attempt_errors
+                state.history.append(
+                    {
+                        "agent": "road_recovery",
+                        "attempt": attempt,
+                        "rotation_deg": state.route_draft.rotation_deg,
+                        "scale_m": state.route_draft.scale_m,
+                        "preflight_score": state.route_draft.preflight_score,
+                        "on_roads": False,
+                        "error_type": type(exc).__name__,
+                    }
+                )
+                log.warning(
+                    "road recovery candidate %d failed with %s; trying next placement",
+                    attempt,
+                    type(exc).__name__,
+                )
+                continue
             candidate_validation = state.validation
+            candidate_is_connected = bool(
+                candidate_validation
+                and candidate_validation.on_roads
+                and state.snapped
+                and state.snapped.snapped
+            )
             state.history.append(
                 {
                     "agent": "road_recovery",
@@ -283,12 +316,10 @@ class Orchestrator:
                     "rotation_deg": state.route_draft.rotation_deg,
                     "scale_m": state.route_draft.scale_m,
                     "preflight_score": state.route_draft.preflight_score,
-                    "on_roads": bool(
-                        candidate_validation and candidate_validation.on_roads
-                    ),
+                    "on_roads": candidate_is_connected,
                 }
             )
-            if candidate_validation is not None and candidate_validation.on_roads:
+            if candidate_is_connected:
                 log.info(
                     "road recovery found a connected placement on attempt %d "
                     "(preflight=%s)",

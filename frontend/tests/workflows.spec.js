@@ -1,4 +1,5 @@
 import { expect, test } from "playwright/test";
+import { buildEditedRoute } from "./support/functional-fixtures.js";
 
 const transparentTile = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -338,10 +339,18 @@ test("an edit API failure keeps the editor open and allows another attempt", asy
   await page.route("**/edit-route", async (route) => {
     editAttempts += 1;
     editPayload = route.request().postDataJSON();
+    if (editAttempts === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "The street graph is busy. Try again." }),
+      });
+      return;
+    }
     await route.fulfill({
-      status: 503,
+      status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ detail: "The street graph is busy. Try again." }),
+      body: JSON.stringify(buildEditedRoute()),
     });
   });
   await page.goto("/");
@@ -357,6 +366,12 @@ test("an edit API failure keeps the editor open and allows another attempt", asy
   await expect(page.getByRole("alert")).toContainText("The street graph is busy. Try again.");
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
   await expect(page.locator(".route-edit-marker")).toHaveCount(4);
+
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect.poll(() => editAttempts).toBe(2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download edited GPX" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Download TCX" })).toBeEnabled();
 });
 
 test("prompt validation explains malformed input and recovers without losing the idea", async ({

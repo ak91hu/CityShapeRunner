@@ -8,8 +8,10 @@ Read this before editing agents, prompts, skills, or the orchestrator.
    `try_complete`, never to a vendor SDK directly. Swapping OpenAI ↔ Anthropic
    ↔ Ollama is a config change. Measured geometry optimisation stays
    deterministic.
-2. **Graceful degradation.** No API key? Agents must still produce *something*
-   via a deterministic fallback so the pipeline is exercisable offline.
+2. **Graceful diagnosis, fail-closed export.** No API key? Agents still produce
+   a typed deterministic preview so the pipeline is exercisable offline, but
+   the public API must never expose a selectable route or GPX/TCX unless
+   Directions returned connected street geometry.
 3. **Structured data over prose.** Agents exchange typed `dataclass` objects
    through `WorkflowState` (see `state.py`), not free-form strings.
 4. **Loops are explicit.** Planning, refinement, and fallback loops live in
@@ -62,7 +64,7 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   context deterministically, including a documented street-grid rotation and
   conservative obstacle-avoidance offset. Hungary's KSH top 50 settlements and
   136 regionally balanced European cities have local centres, bounded urban
-  search areas, and geography profiles. Suggestions score all 144 templates by
+  search areas, and geography profiles. Suggestions score all 145 templates by
   continuity, turns, directional order, aspect, complexity, city street traits,
   activity, and distance; three diverse continuous candidates proceed to live
   route measurement. The bbox-derived city-extent heading is only a coarse
@@ -77,7 +79,7 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Output:** `Shape` — sub-paths of (x, y) in unit space + `closed`.
 - **Strategy:** the plan's `shape_strategy` reorders the three tiers
   (template / text / llm). Default (no plan): template → text → llm. The shape
-  is selected from 144 deterministic templates or normalised (centroid → origin,
+  is selected from 145 deterministic templates or normalised (centroid → origin,
   max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
 - **Custom geometry:** one strict response contains an explicit 3–6 feature
@@ -125,9 +127,10 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Input:** `RouteDraft`.
 - **Output:** `SnappedRoute` — road-following polyline + distance + `snapped`.
 - **Provider:** OpenRouteService directions through the waypoints. No key →
-  great-circle connector (`snapped=False`). Simplifies real road geometry by
-  `simplify_tolerance` in a local metre projection (never the straight-line
-  fallback), preserving endpoints and simple-line topology.
+  internal great-circle diagnostic (`snapped=False`). It is useful for tests
+  and issue reporting only and is not an exportable route. Simplifies real road
+  geometry by `simplify_tolerance` in a local metre projection (never the
+  straight-line diagnostic), preserving endpoints and simple-line topology.
 
 ### ValidationAgent
 - **Input:** `SnappedRoute` + `RouteDraft` (the placed drawing as reference).
@@ -155,11 +158,14 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### ExportAgent
 - **Input:** best `SnappedRoute`.
 - **Output:** `Export` — in-memory GPX (+ TCX) for the selected candidate.
-  Every drawable selected-shape result gets an in-memory export. Passing all
-  gates enables an immediate automatic-check download; below-target routes
-  require explicit user acceptance in the UI. Persistent server-side files are
-  written only for routes that pass every gate and only when `EXPORT_DIR` is
-  configured.
+  The internal workflow can still hold diagnostic serialisation for offline
+  tests, but the API filters every `snapped=False` candidate and removes its
+  GPX/TCX/file paths. Passing all gates enables an immediate automatic-check
+  download; below-target **road-routed** results require explicit user
+  acceptance in the UI. Persistent server-side files are written only for
+  road-routed routes that pass every gate and only when `EXPORT_DIR` is
+  configured. `/edit-route` also fails before serialisation when Directions
+  cannot connect the edited guide.
 
 ## Loops
 
@@ -167,6 +173,9 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ```
 place → generate city-wide transforms → batch snap → rank → full-route best
 snap → validate
+if route is not connected:
+    try each remaining preflight-ranked placement → snap → validate
+    stop at the first connected street route; otherwise fail closed at the API
 while any export quality gate fails and iter < max:
     restore best → next preflight placement (then measured tweak) → snap → validate
     skip already-tested draft signatures
@@ -177,7 +186,9 @@ Preflight screens up to 180 placements but sends only seven diverse choices to
 full Directions routing. Proxy results live in `state.preflight_candidates`;
 every measured street route lives in `state.candidates`, including candidates
 that score below the current best. Per-candidate parameters and metrics are
-also appended to `state.history`.
+also appended to `state.history`. The road-recovery pass runs before suggestion
+evaluation and quality refinement because geometry tweaks cannot make an
+unrouted straight-line diagnostic safe.
 
 ### Provider fallback loop (llm factory)
 On `LLMError`, rotate to the next provider in `fallback_order`; the chosen

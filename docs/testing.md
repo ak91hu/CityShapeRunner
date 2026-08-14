@@ -58,9 +58,9 @@ browser projects execute serially.
 
 ### Browser tests and live services
 
-The default Playwright run contains 66 logical browser tests. Each test runs in
+The default Playwright run contains 83 logical browser tests. Each test runs in
 desktop Chromium and a Pixel 7-sized Chromium project, so a complete run reports
-132 executions.
+166 executions.
 
 These tests are deterministic functional UI tests, not live-service smoke tests.
 They intercept the HTTP boundary for route generation, editing, acceptance, and
@@ -95,12 +95,14 @@ Backend examples:
 python -m pytest -q tests/test_api_contracts.py
 python -m pytest -q tests/test_config.py
 python -m pytest -q tests/test_route_engine.py -k preflight
+python -m pytest -q tests/test_api_contracts.py tests/test_logging.py tests/test_route_engine.py -k "unrouted or unsafe_gpx or remaining_preflight"
 ```
 
 Frontend examples from `frontend/`:
 
 ```bash
 npx playwright test tests/workflows.spec.js --project=chromium
+npx playwright test tests/app.spec.js --grep "API failures show|straight-line preview"
 npx playwright test --grep "gallery"
 npm run test:e2e:ui
 ```
@@ -114,13 +116,13 @@ covered.
 | Area | Primary tests |
 |---|---|
 | Configuration, current HeiGIT ORS endpoint, legacy-host compatibility, and provider selection | `tests/test_config.py`, `tests/test_route_engine.py` |
-| FastAPI validation and safe errors | `tests/test_api_contracts.py`, `tests/test_logging.py` |
-| Shape catalog, complete 144-template recommendation profiling, bounded ranking cache, unexpected-value normalization, all 230 unique destination contexts (including 45 explicit Balaton route priors), geometry, routing, quality, and export | `tests/test_route_engine.py`, `tests/test_pipeline.py` |
+| FastAPI validation, fail-closed generation/editing, and safe errors | `tests/test_api_contracts.py`, `tests/test_logging.py` |
+| Shape catalog, complete 145-template recommendation profiling, bounded ranking cache, unexpected-value normalization, all 230 unique destination contexts (including 45 explicit Balaton route priors), geometry, routing, quality, and export | `tests/test_route_engine.py`, `tests/test_pipeline.py` |
 | Gallery tokens, PNG safety, and Cloudinary boundaries | `tests/test_gallery.py` |
 | Skill discovery and prompt injection | `tests/test_skills.py` |
-| Main route creation, structured-action placement, and responsive result UI | `frontend/tests/app.spec.js` |
+| Main route creation, structured-action placement, animated/cancellable waiting state, fail-closed straight-line previews, and responsive result UI | `frontend/tests/app.spec.js` |
 | Validation, activity limits, cancellation, keyboard flow, candidate switching, edit/export safety, reviewed-route telemetry resilience, GPX/TCX downloads, and gallery failure/pagination/removal | `frontend/tests/workflows.spec.js` |
-| Planner navigation, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 157-option catalog, and grouped 230-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
+| Planner navigation, plain-language content hierarchy, removal of decorative UI patterns, atomic validation states, searchable 158-option catalog, and grouped 230-destination structured suggestions | `frontend/tests/planner-functional.spec.js` |
 | Result focus, route options, metrics, verification, route facts, history, and audit disclosures | `frontend/tests/results-functional.spec.js` |
 | Keyboard editing, closed-loop synchronization, reset/busy states, edited routes, and scoped approval | `frontend/tests/editor-export-functional.spec.js` |
 | Gallery empty/error/configuration states, pagination, ownership/removal, consent, PNG capture, and mocked publishing | `frontend/tests/gallery-resilience-functional.spec.js` |
@@ -129,6 +131,21 @@ The browser tests mock `/generate`, `/edit-route`, `/route-acceptance`, and
 gallery endpoints at the HTTP boundary. This makes them functional UI tests,
 not live-provider smoke tests. The Python offline pipeline tests cover the
 backend orchestration behind those mocked responses.
+
+The safety regression has three independent assertions:
+
+1. the orchestrator tries later preflight-ranked placements when the first
+   Directions candidate is not connected;
+2. `/generate` and `/edit-route` return HTTP 503 instead of exposing an
+   unrouted GPX/TCX;
+3. the browser hides approval and download actions even if a malformed mocked
+   response claims `snapped=false` while still containing GPX text.
+
+These deterministic tests do not prove that a deployed ORS key, quota, DNS,
+or outbound network is healthy. A production smoke test must use a harmless
+representative request, expect HTTP 200 with `snapped=true`, and inspect the
+returned street polyline. HTTP 503 is the expected safe behaviour when no
+connected route can be obtained.
 
 ## Playwright failures
 

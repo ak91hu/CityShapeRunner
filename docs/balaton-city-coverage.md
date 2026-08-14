@@ -52,7 +52,7 @@ requires map review where a result does not pass automatically.
 
 ## Baseline recommendation list
 
-The following audit is produced by the same 144-template ranker used at runtime.
+The following audit is produced by the same 145-template ranker used at runtime.
 It shows three starting candidates for a typical 8 km run and 25 km ride.
 These are not fixed city mascots: changing distance or activity changes the
 detail budget, and live placement and routing can change the final winner.

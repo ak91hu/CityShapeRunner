@@ -39,7 +39,8 @@ decorative, or vague enough to get in the user's way.
 The interface therefore follows these rules:
 
 - Headings name the task or state: “Plan a GPS art route”, “Checks passed”,
-  and “Review before download”. They do not make lifestyle claims.
+  “Review before download”, and “Street route unavailable”. They do not make
+  lifestyle claims.
 - Labels name the requested information, and buttons state the action and
   object: “Drawing and location”, “Find routes”, and “Publish map”.
 - Safety and privacy information is specific. It identifies access, crossings,
@@ -115,7 +116,7 @@ Source: [GOV.UK Design System — Select](https://design-system.service.gov.uk/c
 
 ### Keep a large shape catalog findable
 
-Exposing 157 choices as one uninterrupted field of chips would make scanning
+Exposing 158 choices as one uninterrupted field of chips would make scanning
 slow and bury familiar options. Six common shapes stay beside the prompt. The
 full catalog is grouped by plain-language category and has a labelled search
 that filters both names and categories, reports the remaining count, and gives
@@ -143,6 +144,39 @@ and offers an immediate retry. Edit errors remain beside the editor and do not
 close it or discard control points.
 
 Sources: [GOV.UK validation pattern](https://design-system.service.gov.uk/patterns/validation/) and [error-message guidance](https://design-system.service.gov.uk/components/error-message/).
+
+### Make a long search understandable without inventing progress
+
+Route generation is synchronous and can spend time comparing placements and
+running Directions requests. A generic spinner makes that wait feel stalled,
+but a fabricated percentage would imply server progress the API does not send.
+The generation view therefore combines:
+
+- a real elapsed-seconds counter;
+- a GPS-art route animation and moving route marker;
+- rotating, task-specific status messages and short educational facts;
+- four stages whose timing is explicitly labelled illustrative;
+- a visible cancel action that aborts the browser request.
+
+The container uses `aria-busy=true`; the rotating message is a polite live
+status, and the indeterminate track is labelled as route generation in
+progress. Animation does not carry unique information: with
+`prefers-reduced-motion: reduce`, the route, marker, signal, and progress
+animations stop while the same text, elapsed time, stages, and cancel action
+remain available.
+
+Sources: [WAI-ARIA status role](https://www.w3.org/WAI/ARIA/apg/patterns/status/) and
+[WCAG animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html).
+
+### Fail closed when there is no street route
+
+An accurate drawing overlaid on a map is not a usable GPS route when it crosses
+buildings, water, or disconnected land. The result and editor therefore keep a
+hard distinction between a road-routed candidate and an internal straight-line
+diagnostic. `snapped=false` never enables approval, GPX/TCX download, or gallery
+publication. Generation and edited-route requests return an actionable HTTP 503
+instead, preserve the user's idea or control points, and offer retry rather than
+asking the user to waive a graph-connectivity failure.
 
 ### Validate fields without hiding the way forward
 

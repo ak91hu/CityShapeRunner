@@ -510,10 +510,18 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   let attempts = 0;
   await mockGenerate(page, async (route) => {
     attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Road routing is temporarily unavailable." }),
+      });
+      return;
+    }
     await route.fulfill({
-      status: 503,
+      status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ detail: "Road routing is temporarily unavailable." }),
+      body: JSON.stringify(successfulRoute),
     });
   });
   await page.goto("/");
@@ -531,6 +539,11 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
 
   await page.getByRole("button", { name: "Try again" }).click();
   await expect.poll(() => attempts).toBe(2);
+  await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+    "a heart run in Budapest, about 8 km",
+  );
 });
 
 test("a straight-line preview cannot be accepted or exported", async ({
@@ -610,6 +623,60 @@ test("a straight-line preview cannot be accepted or exported", async ({
   await expect(page.getByText(/No GPS file was created/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve and download GPX" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toHaveCount(0);
+});
+
+test("switching to a malformed unrouted option removes every export action", async ({
+  page,
+}) => {
+  await mockHealth(page);
+  const unsafeValidation = {
+    ...successfulRoute.validation,
+    score: 0.4,
+    shape_fidelity: 0.3,
+    on_roads: false,
+    issues: ["Route is not matched to the road network."],
+  };
+  const unsafeCandidate = {
+    ...successfulRoute.candidates[1],
+    id: "candidate-unsafe",
+    snapped: false,
+    validation: unsafeValidation,
+    verification: buildVerification(unsafeValidation),
+    below_recommended: true,
+    requires_user_acceptance: true,
+    gpx: "<gpx>must not download</gpx>",
+    tcx: "<TrainingCenterDatabase>must not download</TrainingCenterDatabase>",
+    gallery_publish_token: "must-not-publish",
+    details: buildRouteDetails(unsafeValidation, 20.31),
+  };
+  await mockGenerate(page, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...successfulRoute,
+        candidates: [successfulRoute.candidates[0], unsafeCandidate],
+        candidate_summary: {
+          ...successfulRoute.candidate_summary,
+          accepted_count: 1,
+          verified_count: 1,
+          review_count: 1,
+        },
+      }),
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Find routes" }).click();
+
+  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
+  await page.locator('.candidate-card[data-candidate-id="candidate-unsafe"]').click();
+
+  await expect(page.getByText("Map preview only")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Street route unavailable" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and download GPX" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download TCX" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Publish map" })).toBeDisabled();
 });
 
 test("a measured fallback explains why it replaced the requested drawing", async ({ page }) => {

@@ -60,5 +60,5 @@ and cuts corners. Design for that, not for a perfect vector outline.
   PlacementAgent rotates it to the street grid, and the result viewer lets the
   user rotate the complete map afterwards.
 
-The focused evidence and the automated 144-template comparison are documented
+The focused evidence and the automated 145-template comparison are documented
 in [Recognisable and unique GPS-art templates](shape-template-uniqueness.md).

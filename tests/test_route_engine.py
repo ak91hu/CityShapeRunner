@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,6 +43,7 @@ from gps_art_wizzard.prompts import render
 from gps_art_wizzard.quality import quality_gate_report
 from gps_art_wizzard.state import (
     EvaluatedCandidate,
+    Export,
     Intent,
     Plan,
     RouteConcern,
@@ -1825,6 +1828,221 @@ def test_orchestrator_tries_remaining_preflight_placements_until_one_routes():
     assert state.history[-1]["agent"] == "road_recovery"
 
 
+def test_road_recovery_is_a_noop_without_a_recoverable_failed_primary():
+    points = [(47.5, 19.0), (47.501, 19.001)]
+    draft = RouteDraft(
+        47.5,
+        19.0,
+        700.0,
+        0.0,
+        0.0,
+        0.0,
+        0.8,
+        points,
+        False,
+        8.0,
+    )
+
+    class MustNotRun:
+        def run(self, _state):
+            pytest.fail("road recovery must not run for this state")
+
+    cases = [
+        WorkflowState(
+            prompt="missing validation",
+            route_draft=copy.deepcopy(draft),
+            placement_candidates=[copy.deepcopy(draft)],
+            snapped=SnappedRoute(points, 100.0, snapped=False),
+            validation=None,
+        ),
+        WorkflowState(
+            prompt="already connected",
+            route_draft=copy.deepcopy(draft),
+            placement_candidates=[copy.deepcopy(draft)],
+            snapped=SnappedRoute(points, 100.0, snapped=True),
+            validation=Validation(0.8, 1.0, 0.8, 0.8, on_roads=True),
+        ),
+        WorkflowState(
+            prompt="no alternatives",
+            route_draft=copy.deepcopy(draft),
+            placement_candidates=[],
+            snapped=SnappedRoute(points, 100.0, snapped=False),
+            validation=Validation(0.4, 1.0, 0.3, 0.3, on_roads=False),
+        ),
+    ]
+
+    for state in cases:
+        original_candidates = copy.deepcopy(state.placement_candidates)
+        Orchestrator(nodes={})._recover_unroutable_placement(
+            state,
+            {"snap": MustNotRun(), "validation": MustNotRun()},
+        )
+        assert state.placement_candidates == original_candidates
+        assert state.history == []
+
+
+def test_road_recovery_restores_primary_state_after_every_alternative_fails():
+    points = [(47.5, 19.0), (47.501, 19.001)]
+
+    def draft(rotation: float) -> RouteDraft:
+        return RouteDraft(
+            47.5,
+            19.0,
+            700.0,
+            rotation,
+            0.0,
+            0.0,
+            0.8,
+            points,
+            False,
+            8.0,
+            preflight_score=0.9 - rotation / 1_000.0,
+        )
+
+    primary_draft = draft(0.0)
+    primary_snapped = SnappedRoute(points, 100.0, snapped=False)
+    primary_validation = Validation(0.4, 1.0, 0.3, 0.3, on_roads=False)
+    primary_errors = ["snap: primary failed", "planning: preserved"]
+    state = WorkflowState(
+        prompt="heart in Budapest",
+        route_draft=copy.deepcopy(primary_draft),
+        placement_candidates=[draft(30.0), draft(60.0)],
+        snapped=copy.deepcopy(primary_snapped),
+        validation=copy.deepcopy(primary_validation),
+        errors=list(primary_errors),
+    )
+
+    class SnapNode:
+        def run(self, current):
+            current.errors = ["snap: alternative failed"]
+            current.snapped = SnappedRoute(points, 120.0, snapped=False)
+            return current
+
+    class ValidationNode:
+        def run(self, current):
+            current.validation = Validation(
+                0.35,
+                1.0,
+                0.25,
+                0.25,
+                on_roads=False,
+            )
+            return current
+
+    Orchestrator(nodes={})._recover_unroutable_placement(
+        state,
+        {"snap": SnapNode(), "validation": ValidationNode()},
+    )
+
+    assert state.route_draft == primary_draft
+    assert state.snapped == primary_snapped
+    assert state.validation == primary_validation
+    assert state.errors == primary_errors
+    assert state.placement_candidates == []
+    assert [item["attempt"] for item in state.history] == [1, 2]
+    assert all(item["on_roads"] is False for item in state.history)
+
+
+def test_road_recovery_skips_a_broken_alternative_and_uses_the_next_one():
+    points = [(47.5, 19.0), (47.501, 19.001)]
+
+    def draft(rotation: float) -> RouteDraft:
+        return RouteDraft(
+            47.5,
+            19.0,
+            700.0,
+            rotation,
+            0.0,
+            0.0,
+            0.8,
+            points,
+            False,
+            8.0,
+        )
+
+    state = WorkflowState(
+        prompt="heart in Budapest",
+        route_draft=draft(0.0),
+        placement_candidates=[draft(30.0), draft(90.0)],
+        snapped=SnappedRoute(points, 100.0, snapped=False),
+        validation=Validation(0.4, 1.0, 0.3, 0.3, on_roads=False),
+        errors=["snap: primary failed"],
+    )
+
+    class SnapNode:
+        def run(self, current):
+            if current.route_draft.rotation_deg == 30.0:
+                current.errors.append("snap: transient alternative error")
+                raise ValueError("invalid alternative draft")
+            current.errors = [
+                error for error in current.errors if not error.startswith("snap:")
+            ]
+            current.snapped = SnappedRoute(points, 8_000.0, snapped=True)
+            return current
+
+    class ValidationNode:
+        def run(self, current):
+            current.validation = Validation(0.82, 1.0, 0.9, 0.8, on_roads=True)
+            return current
+
+    Orchestrator(nodes={})._recover_unroutable_placement(
+        state,
+        {"snap": SnapNode(), "validation": ValidationNode()},
+    )
+
+    assert state.route_draft.rotation_deg == 90.0
+    assert state.snapped.snapped is True
+    assert state.validation.on_roads is True
+    assert state.errors == []
+    assert state.history[0]["error_type"] == "ValueError"
+    assert state.history[0]["on_roads"] is False
+    assert state.history[1]["on_roads"] is True
+
+
+def test_road_recovery_does_not_trust_validation_without_a_snapped_route():
+    points = [(47.5, 19.0), (47.501, 19.001)]
+
+    def draft(rotation: float) -> RouteDraft:
+        return RouteDraft(
+            47.5,
+            19.0,
+            700.0,
+            rotation,
+            0.0,
+            0.0,
+            0.8,
+            points,
+            False,
+            8.0,
+        )
+
+    state = WorkflowState(
+        prompt="heart in Budapest",
+        route_draft=draft(0.0),
+        placement_candidates=[draft(90.0)],
+        snapped=SnappedRoute(points, 100.0, snapped=False),
+        validation=Validation(0.8, 1.0, 0.8, 0.8, on_roads=True),
+    )
+
+    class SnapNode:
+        def run(self, current):
+            current.snapped = SnappedRoute(points, 8_000.0, snapped=True)
+            return current
+
+    class ValidationNode:
+        def run(self, current):
+            current.validation = Validation(0.82, 1.0, 0.9, 0.8, on_roads=True)
+            return current
+
+    Orchestrator(nodes={})._recover_unroutable_placement(
+        state,
+        {"snap": SnapNode(), "validation": ValidationNode()},
+    )
+
+    assert state.route_draft.rotation_deg == 90.0
+    assert state.snapped.snapped is True
+
+
 def test_preflight_shortlist_prefers_a_diverse_high_quality_alternative():
     def draft(rotation, lat_offset, lon_offset):
         return RouteDraft(
@@ -3387,6 +3605,112 @@ def test_validation_retains_every_fully_routed_candidate_for_the_editor():
     assert review_response["candidate_summary"]["review_count"] == 1
 
 
+def test_response_withholds_every_export_for_unrouted_or_malformed_geometry(
+    monkeypatch,
+):
+    points = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
+    passing = Validation(
+        score=0.86,
+        closure=0.95,
+        distance_fit=0.9,
+        shape_fidelity=0.84,
+        on_roads=True,
+        spatial_similarity=0.82,
+        coverage_similarity=0.82,
+        turning_similarity=0.82,
+        landmark_similarity=0.82,
+        reversal_similarity=0.9,
+        length_similarity=0.82,
+        extent_similarity=0.82,
+        route_length_ratio=1.05,
+        target_distance_km=8.0,
+    )
+
+    def candidate(
+        candidate_points,
+        *,
+        snapped: bool,
+        total_distance_m: float = 8_000.0,
+    ) -> EvaluatedCandidate:
+        return EvaluatedCandidate(
+            shape_name="heart",
+            shape_source="template",
+            points=candidate_points,
+            ideal_points=points,
+            total_distance_m=total_distance_m,
+            snapped=snapped,
+            closed=True,
+            target_distance_km=8.0,
+            validation=copy.deepcopy(passing),
+            rotation_deg=0.0,
+            scale_m=1_000.0,
+            lat_offset_m=0.0,
+            lon_offset_m=0.0,
+        )
+
+    state = WorkflowState(
+        prompt="heart route",
+        intent=Intent("heart", None, "Budapest", "run", 8.0, None),
+        shape=Shape("heart", shape_library.heart()[1], True),
+        route_draft=RouteDraft(
+            47.0,
+            19.0,
+            1_000.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8,
+            points,
+            True,
+            8.0,
+        ),
+        snapped=SnappedRoute(points, 8_000.0, snapped=False),
+        validation=replace(passing, on_roads=False),
+        export=Export(
+            gpx="<gpx>unsafe primary</gpx>",
+            tcx="<TrainingCenterDatabase>unsafe primary</TrainingCenterDatabase>",
+            file_paths={"gpx": "unsafe.gpx"},
+            name="unsafe",
+        ),
+        candidates=[
+            candidate(points, snapped=False),
+            candidate([], snapped=True),
+            candidate(points, snapped=True, total_distance_m=0.0),
+        ],
+    )
+
+    def must_not_serialize(*_args, **_kwargs):
+        pytest.fail("unsafe candidate geometry must never be serialized")
+
+    monkeypatch.setattr(gpx_writer, "to_gpx", must_not_serialize)
+    monkeypatch.setattr(gpx_writer, "to_tcx", must_not_serialize)
+    response = _state_to_response(state)
+
+    assert response["snapped"] is False
+    assert response["gpx"] is None
+    assert response["tcx"] is None
+    assert response["file_paths"] == {}
+    assert response["gallery_publish_token"] is None
+    assert response["candidates"] == []
+    assert response["candidate_summary"] == {
+        "selected_shape": "heart",
+        "accepted_count": 0,
+        "verified_count": 0,
+        "review_count": 0,
+        "shown_count": 0,
+        "rejected_selected_shape_count": 0,
+        "other_shape_count": 0,
+        "audited_count": 3,
+        "full_route_attempt_count": 0,
+        "preflight_count": 0,
+    }
+    assert all(item["accepted"] is False for item in response["candidate_audit"])
+    assert all(
+        "road_network" in item["failed_gates"]
+        for item in response["candidate_audit"]
+    )
+
+
 def test_response_ranks_a_gate_passing_route_before_a_higher_average_failure():
     points = [(47.0, 19.0), (47.001, 19.001), (47.0, 19.0)]
 
@@ -3486,6 +3810,69 @@ def test_edit_route_reroutes_control_points_and_builds_verified_shape_gpx(monkey
     assert response["route_details"]["shape"]["name"] == "heart"
     assert response["route_details"]["readiness"]["status"] == "ready"
     assert response["route_verification"]["gates"][0]["value"] == "heart"
+
+
+def test_edit_route_passes_preferences_and_keeps_gpx_when_optional_tcx_fails(
+    monkeypatch,
+):
+    routed = [
+        (47.0, 19.0),
+        (47.0005, 19.0007),
+        (47.001, 19.001),
+    ]
+    observed_preferences = None
+
+    def fake_snap(
+        waypoints,
+        *,
+        sport,
+        closed,
+        route_preferences,
+    ):
+        nonlocal observed_preferences
+        observed_preferences = route_preferences
+        assert waypoints == routed
+        assert sport == "bike"
+        assert closed is False
+        return (
+            routed,
+            geo.path_distance_m(routed),
+            True,
+            RouteReadiness(status="ready", data_quality="good"),
+        )
+
+    monkeypatch.setattr(ors_client, "snap_route_detailed", fake_snap)
+    monkeypatch.setattr(
+        gpx_writer,
+        "to_tcx",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("tcx failed")),
+    )
+
+    response = edit_route(
+        EditedRouteRequest(
+            control_points=[[lat, lon] for lat, lon in routed],
+            reference_points=[[lat, lon] for lat, lon in routed],
+            sport="bike",
+            closed=False,
+            target_distance_km=geo.path_distance_m(routed) / 1000.0,
+            name="Edited route",
+            shape_name="heart",
+            route_preferences={
+                "avoid_steps": True,
+                "avoid_ferries": True,
+                "prefer_green": True,
+            },
+        )
+    )
+
+    assert observed_preferences == RoutePreferences(
+        avoid_steps=True,
+        avoid_ferries=True,
+        prefer_green=True,
+    )
+    assert response["snapped"] is True
+    assert "<gpx" in response["gpx"]
+    assert response["tcx"] is None
 
 
 def test_server_side_export_sanitises_user_derived_filename(tmp_path):

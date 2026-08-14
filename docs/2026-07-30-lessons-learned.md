@@ -1,5 +1,12 @@
 # 2026-07-30 – fejlesztési és production tapasztalatok
 
+> **2026-08-14 frissítés:** a dokumentumban szereplő „review” export kizárólag
+> sikeresen, összefüggő utcahálózatra útvonalazott jelöltre vonatkozik. A
+> `snapped=false` egyenes vonalas diagnosztika többé nem tölthető le: a generálás
+> és a szerkesztés HTTP 503-mal, GPS-fájl nélkül áll le. A frontend közben már
+> fázisokat, eltelt időt, GPS-art animációt, változó üzeneteket és megszakítási
+> lehetőséget mutat.
+
 Ez a dokumentum a 2026. július 30-i fejlesztési, kutatási,
 üzemeltetési és hibakeresési tapasztalatokat rögzíti. Célja, hogy a mai
 döntések indoklása, a production incidensek oka és a bevált diagnosztikai
@@ -184,7 +191,9 @@ Ezért a felhasználó:
   megismerése és kifejezett elfogadás után töltheti le GPX- és TCX-formátumban.
 
 A szerkesztett guide sem címkézhető valódi utcai útvonalnak, ha a Directions
-hívás sikertelen. Ilyenkor egyértelmű manual-review figyelmeztetés szükséges.
+hívás sikertelen. A jelenlegi fail-closed szerződés ilyenkor HTTP 503 választ ad
+és nem készít GPX/TCX fájlt; a felhasználó megtarthatja a pontjait és újra
+próbálhatja az útvonalazást.
 
 ## Dokumentációs és GitHub-tapasztalatok
 
@@ -682,8 +691,9 @@ explicit base temp használható:
 
 ### Rövid táv
 
-- A frontend mutasson fázisalapú állapotot, ne csak végtelen spinner vagy
-  általános timeout üzenet legyen.
+- **Elkészült 2026-08-14:** a frontend fázisalapú, GPS-art-specifikus várakozási
+  állapotot, eltelt időt, változó üzeneteket és megszakítást mutat a végtelen
+  spinner helyett.
 - A `generation.completed` mellett minden drága fázis kapjon
   `*.started` és `*.completed` eseményt.
 - A production health válasz vagy response header tartalmazzon release

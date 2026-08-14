@@ -32,7 +32,9 @@ The overall `score` is a weighted blend. Closed shapes: `0.5·fidelity + 0.3·di
   back to a straight-line connector. In that mode `shape_fidelity` is
   meaningless (~1.0, the drawing compared to itself), so the overall score is
   **capped at 0.4** — the route cannot pass the threshold and is flagged
-  `below_threshold=true`. Fix by providing a valid `ORS_API_KEY`.
+  `below_threshold=true`. Verify `ORS_API_KEY` and provider reachability, then
+  move, rotate, simplify, or shorten the guide if its points still cannot be
+  connected.
 - **Quality gates** control refinement and automatic verification independently: selected
   shape identity, road matching, score ≥ 0.72, combined fidelity ≥ 0.70,
   and each spatial, coverage, turning, landmark, length, and extent component
@@ -44,10 +46,12 @@ The overall `score` is a weighted blend. Closed shapes: `0.5·fidelity + 0.3·di
   distance from hiding a lost tip, turn, or silhouette, and prevents a higher
   average failure from outranking a route that passes every check.
 - **Export rule:** passing every applicable gate enables an immediate
-  automatic-check download. These thresholds are engineering heuristics, not
-  scientific validation or a safety/access guarantee. A below-target
-  selected-shape attempt remains visible and receives full GPX/TCX geometry,
-  but the UI requires the user to inspect the evidence and explicitly accept
-  that exact route first.
+  automatic-check download only when `on_roads=true` / `snapped=true`. These
+  thresholds are engineering heuristics, not scientific validation or a
+  safety/access guarantee. A below-target road-routed selected-shape attempt
+  remains visible and receives full GPX/TCX geometry, but the UI requires the
+  user to inspect the evidence and explicitly accept that exact route first.
+  An `on_roads=false` diagnostic is never an acceptance case: the API returns
+  HTTP 503 and withholds route files.
 
 When diagnosing, fix the **lowest** metric first — the overall score tracks it.
