@@ -45,6 +45,8 @@ Follow intent parsing, shape design, placement search, street routing, validatio
 
 </div>
 
+</div>
+
 ## Implementation at a glance
 
 ```mermaid
@@ -66,13 +68,31 @@ flowchart LR
 
 The [engineering overview](implementation/index.md) links every box to its owning module and expands the system into backend sequence, state/class, frontend state-machine, and runtime topology diagrams.
 
+## Connected services at a glance
+
+<div class="integration-ribbon" aria-label="External services used by GPS Art Wizard">
+  <span><strong>ORS</strong> street routing</span>
+  <span><strong>OSM</strong> places and tiles</span>
+  <span><strong>AI</strong> four model adapters</span>
+  <span><strong>WX</strong> hourly readiness</span>
+  <span><strong>CLD</strong> optional gallery</span>
+</div>
+
+<figure class="api-ecosystem-figure api-ecosystem-compact">
+  <img src="assets/api-ecosystem.svg" alt="Visual overview of the external API ecosystem around the FastAPI service.">
+</figure>
+
+The [external API integration guide](external-apis.md) explains every provider endpoint, payload, credential boundary, timeout, retry strategy, usage policy, and degradation path.
+
+<div class="doc-grid" markdown>
+
 <div class="doc-card" markdown>
 
 ### Integrate with the API
 
 Use the request models, response fields, error semantics, request correlation, and interactive OpenAPI UI.
 
-[HTTP API reference](api-reference.md)
+[HTTP API reference](api-reference.md) · [External integrations](external-apis.md)
 
 </div>
 

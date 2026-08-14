@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">GPS Art Wizard API ecosystem</title>
+  <desc id="desc">FastAPI at the centre connects to OpenRouteService, OpenStreetMap services, model providers, Cloudinary, Open-Meteo, and public image hosts. The browser uses FastAPI and OpenStreetMap tiles.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eff8f5"/>
+      <stop offset="1" stop-color="#fff4ef"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#08705d"/>
+      <stop offset="1" stop-color="#12937b"/>
+    </linearGradient>
+    <linearGradient id="route" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d95d39"/>
+      <stop offset="1" stop-color="#f08a68"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#164b40" flood-opacity=".16"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#5d8179"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="620" rx="32" fill="url(#background)"/>
+  <path d="M80 490 C210 360 270 550 405 422 S650 282 760 372 S955 494 1120 330" fill="none" stroke="#c9dfd8" stroke-width="30" stroke-linecap="round" opacity=".58"/>
+  <path d="M80 490 C210 360 270 550 405 422 S650 282 760 372 S955 494 1120 330" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 16" opacity=".92"/>
+
+  <g fill="none" stroke="#5d8179" stroke-width="3" marker-end="url(#arrow)" opacity=".84">
+    <path d="M260 145 C350 145 390 205 465 250"/>
+    <path d="M942 145 C850 145 812 205 735 250"/>
+    <path d="M207 326 C315 326 382 310 455 306"/>
+    <path d="M993 326 C885 326 818 310 745 306"/>
+    <path d="M278 500 C375 465 420 402 486 358"/>
+    <path d="M922 500 C825 465 780 402 714 358"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="455" y="224" width="290" height="154" rx="32" fill="url(#core)"/>
+    <circle cx="518" cy="279" r="27" fill="#ffffff" opacity=".18"/>
+    <path d="M502 281 l11 11 23-28" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="566" y="274" fill="#fff" font-family="Inter,Arial,sans-serif" font-size="25" font-weight="700">FastAPI boundary</text>
+    <text x="566" y="305" fill="#d9fff4" font-family="Inter,Arial,sans-serif" font-size="16">validation · orchestration · secrets</text>
+    <rect x="505" y="330" width="190" height="28" rx="14" fill="#064f43" opacity=".7"/>
+    <text x="600" y="350" fill="#fff" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="13">same-origin JSON</text>
+  </g>
+
+  <g filter="url(#shadow)" font-family="Inter,Arial,sans-serif">
+    <rect x="70" y="80" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="112" cy="121" r="24" fill="url(#route)"/>
+    <text x="112" y="127" fill="#fff" text-anchor="middle" font-size="13" font-weight="800">ORS</text>
+    <text x="148" y="119" fill="#173d35" font-size="20" font-weight="700">Street routing</text>
+    <text x="94" y="157" fill="#5d716c" font-size="14">snap · directions · extras</text>
+    <rect x="94" y="174" width="110" height="22" rx="11" fill="#fff0eb"/>
+    <text x="149" y="189" fill="#a54225" text-anchor="middle" font-size="11" font-weight="700">EXPORT CRITICAL</text>
+
+    <rect x="925" y="80" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="967" cy="121" r="24" fill="#2b7a67"/>
+    <text x="967" y="127" fill="#fff" text-anchor="middle" font-size="12" font-weight="800">OSM</text>
+    <text x="1003" y="119" fill="#173d35" font-size="20" font-weight="700">Map services</text>
+    <text x="949" y="157" fill="#5d716c" font-size="14">Nominatim · raster tiles</text>
+    <rect x="949" y="174" width="120" height="22" rx="11" fill="#e7f2ed"/>
+    <text x="1009" y="189" fill="#08705d" text-anchor="middle" font-size="11" font-weight="700">POLICY BOUNDED</text>
+
+    <rect x="38" y="263" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="80" cy="304" r="24" fill="#6f5bc7"/>
+    <text x="80" y="310" fill="#fff" text-anchor="middle" font-size="13" font-weight="800">AI</text>
+    <text x="116" y="302" fill="#173d35" font-size="20" font-weight="700">Model layer</text>
+    <text x="62" y="340" fill="#5d716c" font-size="14">4 interchangeable adapters</text>
+    <rect x="62" y="357" width="106" height="22" rx="11" fill="#f1edff"/>
+    <text x="115" y="372" fill="#5845ab" text-anchor="middle" font-size="11" font-weight="700">OPTIONAL</text>
+
+    <rect x="957" y="263" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="999" cy="304" r="24" fill="#3477b8"/>
+    <text x="999" y="310" fill="#fff" text-anchor="middle" font-size="11" font-weight="800">CLD</text>
+    <text x="1035" y="302" fill="#173d35" font-size="20" font-weight="700">Gallery</text>
+    <text x="981" y="340" fill="#5d716c" font-size="14">upload · search · destroy</text>
+    <rect x="981" y="357" width="128" height="22" rx="11" fill="#e8f3ff"/>
+    <text x="1045" y="372" fill="#286397" text-anchor="middle" font-size="11" font-weight="700">CAPABILITY GATED</text>
+
+    <rect x="96" y="435" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="138" cy="476" r="24" fill="#e0a22f"/>
+    <text x="138" y="482" fill="#fff" text-anchor="middle" font-size="12" font-weight="800">WX</text>
+    <text x="174" y="474" fill="#173d35" font-size="20" font-weight="700">Weather</text>
+    <text x="120" y="512" fill="#5d716c" font-size="14">Open-Meteo hourly context</text>
+    <rect x="120" y="529" width="100" height="22" rx="11" fill="#fff7df"/>
+    <text x="170" y="544" fill="#9a6813" text-anchor="middle" font-size="11" font-weight="700">ADVISORY</text>
+
+    <rect x="899" y="435" width="205" height="130" rx="24" fill="#fff" stroke="#d7e9e3" stroke-width="2"/>
+    <circle cx="941" cy="476" r="24" fill="#cf654c"/>
+    <text x="941" y="482" fill="#fff" text-anchor="middle" font-size="11" font-weight="800">IMG</text>
+    <text x="977" y="474" fill="#173d35" font-size="20" font-weight="700">Image host</text>
+    <text x="923" y="512" fill="#5d716c" font-size="14">untrusted bounded download</text>
+    <rect x="923" y="529" width="126" height="22" rx="11" fill="#fff0eb"/>
+    <text x="986" y="544" fill="#a54225" text-anchor="middle" font-size="11" font-weight="700">SSRF DEFENDED</text>
+  </g>
+
+  <g font-family="Inter,Arial,sans-serif">
+    <rect x="482" y="34" width="236" height="62" rx="20" fill="#ffffff" stroke="#c9dfd8" stroke-width="2"/>
+    <circle cx="519" cy="65" r="14" fill="#08705d"/>
+    <path d="M510 65 h18 M519 56 v18" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+    <text x="546" y="61" fill="#173d35" font-size="17" font-weight="700">React + Leaflet</text>
+    <text x="546" y="80" fill="#6b7d78" font-size="12">browser client</text>
+    <path d="M600 96 V209" stroke="#5d8179" stroke-width="3" marker-end="url(#arrow)"/>
+  </g>
+</svg>

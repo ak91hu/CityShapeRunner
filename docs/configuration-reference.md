@@ -1,5 +1,7 @@
 # Configuration reference
 
+For endpoint-level payloads, authentication paths, timeout/retry behavior, and provider usage policies behind these settings, see [External API integrations](external-apis.md).
+
 Configuration is loaded when the Python process imports the application. Local `.env` values are loaded by `python-dotenv`; deployment platforms normally inject the same names as environment variables.
 
 ## Precedence and lifecycle

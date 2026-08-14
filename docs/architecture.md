@@ -23,7 +23,7 @@ flowchart TB
     class LLM,Providers,ORS,Nominatim,Cloudinary external;
 ```
 
-For module ownership, call sequence, retry behavior, state classes, and browser state management, continue with the [implementation guide](implementation/index.md).
+For module ownership, call sequence, retry behavior, state classes, and browser state management, continue with the [implementation guide](implementation/index.md). The separate [external API integration guide](external-apis.md) documents provider payloads, credentials, policies, and degradation boundaries.
 
 ## Data flow (the state object)
 

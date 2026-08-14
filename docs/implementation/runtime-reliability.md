@@ -2,6 +2,8 @@
 
 Production uses a single non-root container that serves the compiled React SPA and FastAPI API from one origin. External systems are optional by feature except street routing, which is mandatory for public route exports.
 
+The [external API integration guide](../external-apis.md) is the endpoint-level companion to this operational view, including credentials, request payloads, provider policies, and bounded failure behavior.
+
 ## Deployment topology
 
 ```mermaid

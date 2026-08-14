@@ -67,6 +67,7 @@ nav:
       - Shape-template uniqueness: shape-template-uniqueness.md
   - Reference:
       - HTTP API: api-reference.md
+      - External API integrations: external-apis.md
       - Configuration: configuration-reference.md
       - Hungarian shape catalog: hungarian-shape-catalog.md
       - City and shape recommendations: city-shape-recommendations.md

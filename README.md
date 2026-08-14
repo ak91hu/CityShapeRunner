@@ -22,6 +22,11 @@ documents the backend sequence, data classes, placement-search funnel, ORS
 retry state machine, quality formulas, React/Leaflet state flow, and production
 topology with Mermaid diagrams.
 
+The [external API integration guide](docs/external-apis.md) maps ORS,
+OpenStreetMap/Nominatim, the model-provider adapters, Cloudinary, Open-Meteo,
+and public image imports with payloads, credentials, retries, policies, and
+failure boundaries.
+
 The free-text planner sends the complete request directly to generation, where
 the intent pipeline resolves the drawing, place, activity, and distance. In a
 drawing request, `bug` always selects the insect template; a B route requires

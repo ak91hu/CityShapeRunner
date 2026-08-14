@@ -5,6 +5,10 @@
   --md-accent-fg-color: #d95d39;
   --gps-surface: #f3f8f6;
   --gps-border: #c9dfd8;
+  --gps-card: #ffffff;
+  --gps-muted: #5d716c;
+  --gps-route: #d95d39;
+  --gps-route-soft: #fff0eb;
 }
 
 [data-md-color-scheme="slate"] {
@@ -12,6 +16,9 @@
   --md-accent-fg-color: #f27b58;
   --gps-surface: #172522;
   --gps-border: #2d4a43;
+  --gps-card: #12201d;
+  --gps-muted: #a7bcb6;
+  --gps-route-soft: #34231f;
 }
 
 .md-header__button.md-logo img,
@@ -153,6 +160,223 @@
   font-weight: 600;
 }
 
+.md-typeset .api-hero {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(217, 93, 57, 0.24), transparent 23%),
+    radial-gradient(circle at 70% 105%, rgba(18, 147, 123, 0.22), transparent 34%),
+    linear-gradient(130deg, var(--gps-surface), transparent);
+  border: 1px solid var(--gps-border);
+  border-radius: 1.2rem;
+  box-shadow: 0 1.15rem 3rem rgba(5, 85, 72, 0.1);
+  isolation: isolate;
+  margin: 1rem 0 2rem;
+  overflow: hidden;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  position: relative;
+}
+
+.md-typeset .api-hero::before,
+.md-typeset .api-hero::after {
+  border: 2px solid rgba(8, 112, 93, 0.24);
+  border-radius: 50%;
+  content: "";
+  position: absolute;
+  z-index: -1;
+}
+
+.md-typeset .api-hero::before {
+  height: 11rem;
+  right: -4rem;
+  top: -5rem;
+  width: 11rem;
+}
+
+.md-typeset .api-hero::after {
+  border-color: rgba(217, 93, 57, 0.22);
+  bottom: -5rem;
+  height: 9rem;
+  left: 48%;
+  width: 9rem;
+}
+
+.md-typeset .api-hero h1 {
+  color: var(--md-default-fg-color);
+  margin: 0 0 0.55rem;
+  max-width: 44rem;
+}
+
+.md-typeset .api-hero > p {
+  font-size: 1.05rem;
+  max-width: 49rem;
+}
+
+.md-typeset .api-kpis {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1.5rem;
+}
+
+.md-typeset .api-kpis > div {
+  backdrop-filter: blur(0.4rem);
+  background: color-mix(in srgb, var(--gps-card) 76%, transparent);
+  border: 1px solid var(--gps-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.md-typeset .api-kpis strong {
+  color: var(--md-primary-fg-color);
+  display: block;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.md-typeset .api-kpis span {
+  color: var(--gps-muted);
+  display: block;
+  font-size: 0.63rem;
+  letter-spacing: 0.055em;
+  margin-top: 0.35rem;
+  text-transform: uppercase;
+}
+
+.md-typeset .api-ecosystem-figure {
+  background: linear-gradient(145deg, var(--gps-surface), var(--gps-card));
+  border: 1px solid var(--gps-border);
+  border-radius: 1rem;
+  box-shadow: 0 0.8rem 2.2rem rgba(5, 85, 72, 0.08);
+  margin: 1.25rem 0 2rem;
+  overflow: hidden;
+  padding: clamp(0.5rem, 2vw, 1rem);
+}
+
+.md-typeset .api-ecosystem-figure img {
+  border-radius: 0.75rem;
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.md-typeset .api-ecosystem-figure figcaption {
+  color: var(--gps-muted);
+  font-size: 0.72rem;
+  padding: 0.7rem 0.45rem 0.1rem;
+  text-align: center;
+}
+
+.md-typeset .api-ecosystem-compact {
+  margin-bottom: 1rem;
+  max-height: 24rem;
+  overflow: hidden;
+}
+
+.md-typeset .api-ecosystem-compact img {
+  margin-top: clamp(-0.5rem, -1vw, 0);
+}
+
+.md-typeset .api-service-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1.5rem 0 2.25rem;
+}
+
+.md-typeset .api-service-card {
+  background: linear-gradient(150deg, var(--gps-card), var(--gps-surface));
+  border: 1px solid var(--gps-border);
+  border-radius: 0.9rem;
+  box-shadow: 0 0.35rem 1rem rgba(5, 85, 72, 0.05);
+  min-height: 12.5rem;
+  padding: 1rem 1.05rem;
+  position: relative;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.md-typeset .api-service-card:hover {
+  border-color: var(--md-primary-fg-color);
+  box-shadow: 0 0.75rem 1.7rem rgba(5, 85, 72, 0.12);
+  transform: translateY(-0.15rem);
+}
+
+.md-typeset .api-service-card.api-critical {
+  border-top: 0.22rem solid var(--gps-route);
+}
+
+.md-typeset .api-service-card h3 {
+  margin: 0.7rem 0 0.3rem;
+}
+
+.md-typeset .api-service-card p {
+  color: var(--gps-muted);
+  font-size: 0.75rem;
+  margin: 0.35rem 0;
+}
+
+.md-typeset .api-service-card p:last-child {
+  margin-top: 0.8rem;
+}
+
+.md-typeset .api-monogram {
+  align-items: center;
+  background: linear-gradient(140deg, var(--md-primary-fg-color), var(--md-primary-fg-color--light));
+  border-radius: 0.65rem;
+  box-shadow: 0 0.35rem 0.8rem rgba(5, 85, 72, 0.18);
+  color: #fff;
+  display: inline-flex;
+  font-family: var(--md-code-font-family);
+  font-size: 0.66rem;
+  font-weight: 800;
+  height: 2.15rem;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  min-width: 2.15rem;
+  padding: 0 0.45rem;
+}
+
+.md-typeset .api-critical .api-monogram {
+  background: linear-gradient(140deg, var(--gps-route), #f08a68);
+}
+
+.md-typeset .integration-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 1rem 0 1.25rem;
+}
+
+.md-typeset .integration-ribbon span {
+  align-items: center;
+  background: var(--gps-surface);
+  border: 1px solid var(--gps-border);
+  border-radius: 999px;
+  color: var(--gps-muted);
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem 0.4rem 0.45rem;
+}
+
+.md-typeset .integration-ribbon strong {
+  align-items: center;
+  background: var(--md-primary-fg-color);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-family: var(--md-code-font-family);
+  font-size: 0.6rem;
+  height: 1.45rem;
+  justify-content: center;
+  min-width: 1.45rem;
+  padding: 0 0.35rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .api-service-card {
+    transition: none;
+  }
+}
+
 @media screen and (max-width: 44.984375em) {
   .md-typeset .mermaid {
     margin-left: -0.4rem;
@@ -162,5 +386,26 @@
 
   .md-typeset .stat-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md-typeset .api-kpis,
+  .md-typeset .api-service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md-typeset .api-service-card {
+    min-height: 0;
+  }
+
+  .md-typeset .api-ecosystem-figure {
+    margin-left: -0.4rem;
+    margin-right: -0.4rem;
+  }
+}
+
+@media screen and (max-width: 29.984375em) {
+  .md-typeset .api-kpis,
+  .md-typeset .api-service-grid {
+    grid-template-columns: 1fr;
   }
 }
