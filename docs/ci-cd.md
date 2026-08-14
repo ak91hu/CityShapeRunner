@@ -20,13 +20,25 @@ The default workflow permission is read-only repository content. Only the docume
 
 ## Quality gate and deployment flow
 
-```text
-push / pull request
-        |
-        +--> backend --------+
-        +--> frontend -------+--> deploy-docs (master push only) --> GitHub Pages
-        +--> container ------+
-        +--> docs build -----+
+```mermaid
+flowchart LR
+    Change[Push or pull request] --> Backend[Backend quality gate]
+    Change --> Frontend[Frontend build + Playwright]
+    Change --> Container[Production image build]
+    Change --> Docs[MkDocs strict build]
+    Backend --> Gate{All four successful?}
+    Frontend --> Gate
+    Container --> Gate
+    Docs --> Gate
+    Gate -->|PR or non-master| Stop[Validation only]
+    Gate -->|master push| Artifact[Upload Pages artifact]
+    Artifact --> Deploy[github-pages environment]
+    Deploy --> Site[Public technical docs]
+
+    classDef pass fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
+    classDef decision fill:#fff0eb,stroke:#d95d39,color:#5c2a1c,stroke-width:2px;
+    class Change,Backend,Frontend,Container,Docs,Artifact,Deploy,Site,Stop pass;
+    class Gate decision;
 ```
 
 `deploy-docs` declares all four validation/build jobs in `needs`. It therefore cannot publish a commit unless backend checks, frontend checks, the production image build, and the strict documentation build all succeed.

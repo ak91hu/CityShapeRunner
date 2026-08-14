@@ -41,9 +41,30 @@ Install the two runtimes, configure providers, start the API and SPA, and send a
 
 Follow intent parsing, shape design, placement search, street routing, validation, refinement, and export.
 
-[System architecture](architecture.md)
+[Implementation guide](implementation/index.md) · [System architecture](architecture.md)
 
 </div>
+
+## Implementation at a glance
+
+```mermaid
+flowchart LR
+    UI[React planner] -->|POST /generate| API[FastAPI boundary]
+    API --> INTENT[Intent + planning]
+    INTENT --> SHAPE[Route-native shape]
+    SHAPE --> SEARCH[Placement preflight]
+    SEARCH --> ORS[Street routing]
+    ORS --> QUALITY[Independent quality gates]
+    QUALITY -->|pass or street-routed review| RESULT[Map + GPX/TCX]
+    QUALITY -->|no connected streets| BLOCK[HTTP 503 · no export]
+
+    classDef primary fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
+    classDef accent fill:#fff0eb,stroke:#d95d39,color:#5c2a1c,stroke-width:2px;
+    class UI,API,INTENT,SHAPE,SEARCH,ORS,QUALITY,RESULT primary;
+    class BLOCK accent;
+```
+
+The [engineering overview](implementation/index.md) links every box to its owning module and expands the system into backend sequence, state/class, frontend state-machine, and runtime topology diagrams.
 
 <div class="doc-card" markdown>
 

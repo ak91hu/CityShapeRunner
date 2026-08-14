@@ -4,6 +4,28 @@ Unknown or compound shape descriptions use a bounded, provider-neutral drawing
 pipeline. Built-in templates and text outlines still avoid unnecessary model
 calls.
 
+```mermaid
+flowchart LR
+    Request[Unknown drawing request] --> Spec[Strict ShapeSpec]
+    Spec --> Variants[2–4 route-native programs]
+    Variants --> Compile[Deterministic compiler]
+    Compile --> Local[Geometry + uniqueness checks]
+    Local --> Render[256 px cue render]
+    Render --> Review{Independent provider available?}
+    Review -->|yes| Semantic[Per-cue visual review]
+    Review -->|no| Geometry[Local geometry review]
+    Semantic --> Repair{One targeted repair needed?}
+    Geometry --> Select[Rank valid candidates]
+    Repair -->|yes| Compile
+    Repair -->|no| Select
+    Select --> Shape[Normalised Shape in WorkflowState]
+
+    classDef primary fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
+    classDef accent fill:#fff0eb,stroke:#d95d39,color:#5c2a1c;
+    class Request,Spec,Variants,Compile,Local,Render,Select,Shape primary;
+    class Review,Semantic,Geometry,Repair accent;
+```
+
 1. A strict `ShapeSpec` preserves subject, modifiers, pose, part hierarchy and
    three to six route-scale recognition cues.
 2. Complexity and ambiguity select two to four competing candidates.

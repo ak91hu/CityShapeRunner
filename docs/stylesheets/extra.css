@@ -62,3 +62,105 @@
 .md-typeset code {
   overflow-wrap: anywhere;
 }
+
+.md-typeset .implementation-hero {
+  background:
+    radial-gradient(circle at 90% 10%, rgba(217, 93, 57, 0.18), transparent 32%),
+    linear-gradient(135deg, rgba(8, 112, 93, 0.15), var(--gps-surface));
+  border: 1px solid var(--gps-border);
+  border-radius: 1.1rem;
+  box-shadow: 0 1rem 2.5rem rgba(5, 85, 72, 0.08);
+  margin: 1rem 0 2rem;
+  overflow: hidden;
+  padding: clamp(1.4rem, 4vw, 2.8rem);
+  position: relative;
+}
+
+.md-typeset .implementation-hero::after {
+  border: 2px solid rgba(8, 112, 93, 0.28);
+  border-radius: 50%;
+  content: "";
+  height: 8rem;
+  position: absolute;
+  right: -2.5rem;
+  top: -3rem;
+  width: 8rem;
+}
+
+.md-typeset .implementation-hero h1 {
+  color: var(--md-default-fg-color);
+  margin: 0 0 0.5rem;
+  max-width: 42rem;
+}
+
+.md-typeset .implementation-hero p {
+  font-size: 1.05rem;
+  max-width: 48rem;
+}
+
+.md-typeset .stat-strip {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  margin: 1.25rem 0 2rem;
+}
+
+.md-typeset .stat {
+  background: var(--gps-surface);
+  border: 1px solid var(--gps-border);
+  border-radius: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.md-typeset .stat strong {
+  color: var(--md-primary-fg-color);
+  display: block;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.md-typeset .stat span {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.md-typeset .mermaid {
+  background: linear-gradient(145deg, var(--gps-surface), transparent);
+  border: 1px solid var(--gps-border);
+  border-radius: 0.9rem;
+  margin: 1.25rem 0 2rem;
+  overflow: auto;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.md-typeset .mermaid svg {
+  height: auto;
+  max-width: 100%;
+}
+
+.md-typeset .code-path {
+  border-left: 0.25rem solid var(--md-primary-fg-color);
+  color: var(--md-default-fg-color--light);
+  margin: 1rem 0;
+  padding: 0.5rem 0.9rem;
+}
+
+.md-typeset .code-path code {
+  color: var(--md-primary-fg-color);
+  font-weight: 600;
+}
+
+@media screen and (max-width: 44.984375em) {
+  .md-typeset .mermaid {
+    margin-left: -0.4rem;
+    margin-right: -0.4rem;
+    padding: 0.65rem;
+  }
+
+  .md-typeset .stat-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

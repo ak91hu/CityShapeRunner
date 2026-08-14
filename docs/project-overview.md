@@ -8,6 +8,12 @@ and closure checks rank first and download immediately. Other candidates require
 explicit review and acceptance. Attempts for a different suggested shape remain
 available in the audit summary.
 
+For implementation details, start with the visual
+[engineering implementation guide](implementation/index.md). It traces the
+request from React through FastAPI, the nine-agent state machine, placement
+preflight, ORS retry/recovery, independent quality gates, safe export boundary,
+and production observability with architecture and sequence diagrams.
+
 The free-text field is not limited to the catalog. Named custom drawings keep
 their full description, use two bounded model-generated vector alternatives
 plus explicit recognition features when a provider is available, and pass

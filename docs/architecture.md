@@ -2,26 +2,28 @@
 
 ## Component view
 
+```mermaid
+flowchart TB
+    Browser[React + Leaflet client] -->|JSON over same origin| FastAPI[FastAPI API boundary]
+    FastAPI --> Orchestrator[Orchestrator state machine]
+    Orchestrator --> Agents[9 stateless domain agents]
+    Agents --> LLM[Provider-neutral LLM adapters]
+    Agents --> Tools[Geometry and routing tools]
+    LLM --> Providers[OpenCode · OpenAI · Anthropic · Ollama]
+    Tools --> ORS[OpenRouteService]
+    Tools --> Nominatim[Nominatim]
+    Tools --> Cloudinary[Cloudinary gallery]
+    Agents --> State[(WorkflowState)]
+    State --> FastAPI
+    FastAPI --> Browser
+
+    classDef core fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
+    classDef external fill:#fff0eb,stroke:#d95d39,color:#5c2a1c;
+    class Browser,FastAPI,Orchestrator,Agents,Tools,State core;
+    class LLM,Providers,ORS,Nominatim,Cloudinary external;
 ```
-            ┌─────────────────────┐
-            │   FastAPI (api/)    │  POST /generate { prompt }
-            └──────────┬──────────┘
-                       │
-                       ▼
-            ┌─────────────────────┐
-            │   orchestrator.py   │  graph engine: nodes + refinement loop
-            │   (state machine)   │
-            └──────────┬──────────┘
-                       │  threads WorkflowState through nodes
-       ┌───────────────┼───────────────┐
-       ▼               ▼               ▼
-  ┌─────────┐     ┌─────────┐     ┌─────────┐
-  │ agents/ │◄───▶│ llm/    │     │ tools/  │
-  │ 9 agents│     │agnostic │     │ ORS,geo │
-  └─────────┘     └─────────┘     │ shapes  │
-       │                               │GPX     │
-       └────────── prompts/ ◀──────────┘
-```
+
+For module ownership, call sequence, retry behavior, state classes, and browser state management, continue with the [implementation guide](implementation/index.md).
 
 ## Data flow (the state object)
 

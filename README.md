@@ -17,6 +17,11 @@ route is. Only a route returned by the connected street router can reach the
 download flow; a road-routed result that misses a quality target requires
 explicit review.
 
+The visual [engineering implementation guide](docs/implementation/index.md)
+documents the backend sequence, data classes, placement-search funnel, ORS
+retry state machine, quality formulas, React/Leaflet state flow, and production
+topology with Mermaid diagrams.
+
 The free-text planner sends the complete request directly to generation, where
 the intent pipeline resolves the drawing, place, activity, and distance. In a
 drawing request, `bug` always selects the insect template; a B route requires
