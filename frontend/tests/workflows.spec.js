@@ -262,9 +262,16 @@ test("cancelling an in-flight generation restores the designer without an error"
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
+  await expect(page.getByText("Live route lab")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
+  await expect(page.getByText("Timing is illustrative")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Typical planning stages" })).toBeVisible();
+  await expect(page.locator(".gps-route-animation")).toBeVisible();
+  await expect(page.getByText("Quality checks stay on")).toBeVisible();
   await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
   await page.waitForTimeout(5_100);
   await expect(page.getByText("Asking nearby streets to cooperate nicely.")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Street fit" })).toHaveAttribute("aria-current", "step");
   await expect(page.getByLabel(/seconds elapsed/)).toHaveText("5s");
   await page.getByRole("button", { name: "Cancel" }).click();
 

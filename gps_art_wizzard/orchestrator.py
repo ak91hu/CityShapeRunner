@@ -25,6 +25,7 @@ from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
 from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, WorkflowState
+from .tools import ors_client
 
 log = logging.getLogger(__name__)
 
@@ -842,15 +843,16 @@ def generate(
     reference_kind: str | None = None,
 ) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
-    return get_orchestrator().run(
-        prompt,
-        intent_override=intent_override,
-        start_point=start_point,
-        start_label=start_label,
-        start_direction_deg=start_direction_deg,
-        route_preferences=route_preferences,
-        reference_shape=reference_shape,
-        reference_image_data_url=reference_image_data_url,
-        reference_name=reference_name,
-        reference_kind=reference_kind,
-    )
+    with ors_client.routing_session():
+        return get_orchestrator().run(
+            prompt,
+            intent_override=intent_override,
+            start_point=start_point,
+            start_label=start_label,
+            start_direction_deg=start_direction_deg,
+            route_preferences=route_preferences,
+            reference_shape=reference_shape,
+            reference_image_data_url=reference_image_data_url,
+            reference_name=reference_name,
+            reference_kind=reference_kind,
+        )

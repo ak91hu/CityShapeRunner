@@ -1187,13 +1187,41 @@ const IMAGE_LOADING_MESSAGES = [
   "Giving the GPS art one last recognisability check.",
 ];
 
+const ROUTE_LOADING_STAGES = [
+  ["Outline", "Reading the idea and shaping the line."],
+  ["Street fit", "Trying useful positions on the road network."],
+  ["Route checks", "Comparing likeness, distance, and closure."],
+  ["Final polish", "Keeping the strongest measured route."],
+];
+
+const IMAGE_LOADING_STAGES = [
+  ["Image read", "Finding the silhouette and its key details."],
+  ["GPS sketch", "Drawing route-friendly alternatives."],
+  ["Street fit", "Matching the best outline to real roads."],
+  ["Final check", "Protecting recognisability and distance."],
+];
+
+const LOADING_FACTS = [
+  "GPS art is a compromise between a clean silhouette and streets that actually connect.",
+  "Corners and distinctive turns matter more for recognition than lots of tiny detail.",
+  "The first plausible route is not automatically the winner; alternatives are measured too.",
+  "A route can look good as a sketch and still need a different rotation to fit the city.",
+];
+
 function LoadingState({ onCancel, kind = "route" }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messages = kind === "image" ? IMAGE_LOADING_MESSAGES : ROUTE_LOADING_MESSAGES;
+  const stages = kind === "image" ? IMAGE_LOADING_STAGES : ROUTE_LOADING_STAGES;
+  const stageThresholds = kind === "image" ? [0, 10, 25, 45] : [0, 5, 15, 28];
   const messageIndex = Math.min(
     messages.length - 1,
     Math.floor(elapsedSeconds / 5),
   );
+  const currentStage = stageThresholds.reduce(
+    (latest, threshold, index) => (elapsedSeconds >= threshold ? index : latest),
+    0,
+  );
+  const factIndex = Math.floor(elapsedSeconds / 9) % LOADING_FACTS.length;
 
   useEffect(() => {
     const timer = window.setInterval(
@@ -1204,26 +1232,113 @@ function LoadingState({ onCancel, kind = "route" }) {
   }, []);
 
   return (
-    <section className="loading-card" aria-live="polite" aria-busy="true">
-      <div className="route-loader" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
+    <section
+      className="loading-card loading-card--journey"
+      aria-labelledby="loading-title"
+      aria-busy="true"
+    >
+      <div className="loading-visual" aria-hidden="true">
+        <div className="loading-map-label">
+          <span />
+          Live route lab
+        </div>
+        <svg className="gps-route-animation" viewBox="0 0 360 190">
+          <defs>
+            <pattern id="loading-map-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+              <path d="M 28 0 L 0 0 0 28" />
+            </pattern>
+          </defs>
+          <rect className="gps-route-grid" width="360" height="190" />
+          <path className="gps-route-road gps-route-road--one" d="M-10 43 C72 60 108 24 177 42 S282 77 370 46" />
+          <path className="gps-route-road gps-route-road--two" d="M36 -8 C49 57 15 91 43 198" />
+          <path className="gps-route-road gps-route-road--three" d="M275 -8 C250 50 293 97 268 198" />
+          <path
+            className="gps-route-shadow"
+            d="M26 145 C55 126 65 158 87 137 C105 120 116 70 151 66 C184 61 196 102 176 124 C153 148 118 126 122 95 C128 52 205 46 225 94 C241 132 266 153 331 111"
+          />
+          <path
+            className="gps-route-line"
+            d="M26 145 C55 126 65 158 87 137 C105 120 116 70 151 66 C184 61 196 102 176 124 C153 148 118 126 122 95 C128 52 205 46 225 94 C241 132 266 153 331 111"
+          />
+          <circle className="gps-route-start" cx="26" cy="145" r="8" />
+          <circle className="gps-route-start-core" cx="26" cy="145" r="3" />
+          <g className="gps-route-finish" transform="translate(331 111)">
+            <path d="M0 0 V-27" />
+            <path d="M2 -25 H20 L15 -16 H2 Z" />
+          </g>
+          <circle className="gps-route-traveller-halo" r="10" />
+          <circle className="gps-route-traveller" r="5" />
+        </svg>
+        <div className="loading-visual-caption">
+          <span>{kind === "image" ? "Pixels → path → streets" : "Sketch → streets → route"}</span>
+          <b>Quality checks stay on</b>
+        </div>
       </div>
-      <div>
+
+      <div className="loading-content">
         <div className="loading-heading-row">
-          <h2>{kind === "image" ? "Drawing from your image" : "Finding routes"}</h2>
+          <div>
+            <span className="eyebrow">Planner in motion</span>
+            <h2 id="loading-title">
+              {kind === "image" ? "Drawing from your image" : "Finding routes"}
+            </h2>
+          </div>
           <span aria-label={`${elapsedSeconds} seconds elapsed`}>{elapsedSeconds}s</span>
         </div>
-        <p className="loading-message">{messages[messageIndex]}</p>
+        <div
+          className="loading-progress-track"
+          role="progressbar"
+          aria-label="Route generation is in progress"
+        >
+          <span />
+        </div>
+        <p className="loading-message" role="status" aria-live="polite">
+          {messages[messageIndex]}
+        </p>
         <p className="loading-expectation">
           {kind === "image"
             ? "Image tracing normally finishes within about a minute."
             : "Complex drawings may need a little longer while streets are tested."}
         </p>
+
+        <div className="loading-stages-heading">
+          <strong>Typical planning flow</strong>
+          <span>Timing is illustrative</span>
+        </div>
+        <ol className="loading-stages" aria-label="Typical planning stages">
+          {stages.map(([title, detail], index) => {
+            const status = index < currentStage
+              ? "complete"
+              : index === currentStage
+                ? "current"
+                : "upcoming";
+            return (
+              <li
+                key={title}
+                className={`loading-stage loading-stage--${status}`}
+                aria-current={status === "current" ? "step" : undefined}
+              >
+                <span aria-hidden="true">{status === "complete" ? "✓" : index + 1}</span>
+                <div>
+                  <strong>{title}</strong>
+                  <small>{detail}</small>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+
+        <p className="loading-fact">
+          <span>While you wait</span>
+          {LOADING_FACTS[factIndex]}
+        </p>
       </div>
-      <button type="button" className="button button--quiet" onClick={onCancel}>
+
+      <button
+        type="button"
+        className="button button--quiet loading-cancel"
+        onClick={onCancel}
+      >
         Cancel
       </button>
     </section>

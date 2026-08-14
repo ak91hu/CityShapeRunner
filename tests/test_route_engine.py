@@ -1259,6 +1259,31 @@ class _FakeClient:
         return _FakeResponse()
 
 
+def test_routing_session_reuses_one_lazy_http_client(monkeypatch):
+    created = []
+
+    class Client:
+        def __init__(self):
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(ors_client.httpx, "Client", Client)
+
+    with ors_client.routing_session():
+        with ors_client._routing_client() as first:
+            pass
+        with ors_client._routing_client() as second:
+            pass
+        assert first is second
+        assert not first.closed
+
+    assert len(created) == 1
+    assert created[0].closed
+
+
 def test_ors_request_uses_boolean_and_sums_all_segment_distances():
     client = _FakeClient()
     result = ors_client._ors_request(

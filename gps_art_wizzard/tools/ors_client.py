@@ -13,6 +13,9 @@ import logging
 import math
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 import httpx
@@ -25,6 +28,64 @@ from . import geo, shape_similarity
 log = logging.getLogger(__name__)
 
 LatLon = tuple[float, float]
+
+
+@dataclass
+class _RoutingSession:
+    """Lazily share one HTTP connection pool across a generation request."""
+
+    client: httpx.Client | None = None
+
+    def get_client(self) -> httpx.Client:
+        if self.client is None:
+            self.client = httpx.Client()
+        return self.client
+
+    def close(self) -> None:
+        if self.client is not None:
+            self.client.close()
+
+
+_ACTIVE_ROUTING_SESSION: ContextVar[_RoutingSession | None] = ContextVar(
+    "gps_art_routing_session",
+    default=None,
+)
+
+
+@contextmanager
+def routing_session() -> Iterator[None]:
+    """Reuse ORS connections for every preflight/directions call in one run.
+
+    The context is request-local, nestable, and lazy: routes that use only a
+    straight-line fallback never construct an HTTP client.  Keeping this at
+    the complete-generation boundary avoids repeating TCP/TLS handshakes while
+    leaving every routing request and quality check unchanged.
+    """
+
+    existing = _ACTIVE_ROUTING_SESSION.get()
+    if existing is not None:
+        yield
+        return
+
+    session = _RoutingSession()
+    token = _ACTIVE_ROUTING_SESSION.set(session)
+    try:
+        yield
+    finally:
+        _ACTIVE_ROUTING_SESSION.reset(token)
+        session.close()
+
+
+@contextmanager
+def _routing_client() -> Iterator[httpx.Client]:
+    """Return the request-scoped client, or a short-lived standalone client."""
+
+    session = _ACTIVE_ROUTING_SESSION.get()
+    if session is not None:
+        yield session.get_client()
+        return
+    with httpx.Client() as client:
+        yield client
 
 # The hosted ORS Directions API accepts at most 50 coordinates per request.
 # A closed route's repeated start/end point counts toward that limit.
@@ -216,7 +277,7 @@ def preflight_route_candidates(
         headers["Authorization"] = cfg.ors_api_key
     radius = max(1, min(350, int(radius_m or cfg.snap_radius_m)))
 
-    with httpx.Client() as client:
+    with _routing_client() as client:
         response_locations = _snap_request(
             url,
             headers,
@@ -1152,7 +1213,7 @@ def snap_route_detailed(
     attempts = 0
     radius_index = 0
     current_via = via
-    with httpx.Client() as client:
+    with _routing_client() as client:
         while attempts < _MAX_ORS_ATTEMPTS:
             radius = radii[min(radius_index, len(radii) - 1)]
             attempts += 1
