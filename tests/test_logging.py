@@ -126,7 +126,7 @@ def test_server_prefers_platform_port_and_keeps_structured_logging(monkeypatch):
     assert captured["access_log"] is False
 
 
-def test_edit_route_endpoint_prepares_review_gpx_without_ors():
+def test_edit_route_endpoint_blocks_unsafe_gpx_without_ors():
     with TestClient(create_app()) as client:
         response = client.post(
             "/edit-route",
@@ -148,12 +148,12 @@ def test_edit_route_endpoint_prepares_review_gpx_without_ors():
         )
 
     payload = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.headers["X-Request-ID"] == "manual-edit-test"
-    assert payload["request_id"] == "manual-edit-test"
-    assert payload["snapped"] is False
-    assert payload["below_recommended"] is True
-    assert "<gpx" in payload["gpx"]
-    assert payload["route_verification"]["passed"] is False
-    assert "road_network" in payload["route_verification"]["failed_gates"]
-    assert any("explicit user acceptance" in warning for warning in payload["warnings"])
+    assert payload == {
+        "detail": (
+            "The edited route could not be matched to connected streets, so no "
+            "GPS file was created. Adjust the control points or retry when the "
+            "routing service is available."
+        )
+    }

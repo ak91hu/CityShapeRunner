@@ -533,7 +533,7 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   await expect.poll(() => attempts).toBe(2);
 });
 
-test("a straight-line guide can be explicitly accepted and exported with warnings", async ({
+test("a straight-line preview cannot be accepted or exported", async ({
   page,
 }) => {
   await mockHealth(page);
@@ -606,12 +606,10 @@ test("a straight-line guide can be explicitly accepted and exported with warning
   await expect(page.getByText("Review this route")).toBeVisible();
   await expect(page.getByText(/items? to check/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Approve and download GPX" }).click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("star-debrecen.gpx");
-  await expect(page.getByText("Approved by you")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Street route unavailable" })).toBeVisible();
+  await expect(page.getByText(/No GPS file was created/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and download GPX" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toHaveCount(0);
 });
 
 test("a measured fallback explains why it replaced the requested drawing", async ({ page }) => {

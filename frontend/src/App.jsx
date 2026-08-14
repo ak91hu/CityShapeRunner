@@ -1736,7 +1736,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     : Boolean(activeRoute.snapped) && !Boolean(activeRoute.below_recommended);
   const activeRouteId = String(activeRoute.id ?? "best");
   const userAccepted = acceptedRouteIds.has(activeRouteId);
-  const exportReady = automaticChecksPassed || userAccepted;
+  const roadRouted = Boolean(activeRoute.snapped);
+  const exportReady = roadRouted && (automaticChecksPassed || userAccepted);
   const exportBlockedByPendingEdits = editing && editDirty;
   const qualityTone = score == null ? "neutral" : automaticChecksPassed ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
@@ -2506,15 +2507,21 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
 
           <div className="export-card">
             <div>
-              <h3>{exportReady ? "Download route" : "Review before download"}</h3>
+              <h3>
+                {!roadRouted
+                  ? "Street route unavailable"
+                  : exportReady
+                    ? "Download route"
+                    : "Review before download"}
+              </h3>
             </div>
-            {!automaticChecksPassed && !userAccepted && (
+            {!automaticChecksPassed && !userAccepted && roadRouted && (
               <p className="acceptance-copy">
                 This route missed one or more checks. Inspect the map before choosing to download it.
               </p>
             )}
             <div className="download-actions">
-              {!automaticChecksPassed && !userAccepted && activeRoute.gpx && (
+              {!automaticChecksPassed && !userAccepted && roadRouted && activeRoute.gpx && (
                 <button
                   type="button"
                   className="button button--primary accept-route-button"
@@ -2611,7 +2618,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 {editing && <small>Finish editing before sharing the map.</small>}
               </div>
             )}
-            {!activeRoute.gpx && (
+            {!roadRouted && (
+              <p className="export-unavailable">
+                No GPS file was created because this preview is not matched to connected streets.
+                Adjust the route or try again when street routing is available.
+              </p>
+            )}
+            {roadRouted && !activeRoute.gpx && (
               <p className="export-unavailable">
                 There isn’t enough route data to make a GPX file. Edit the route or create a new
                 one, then try again.

@@ -505,6 +505,10 @@ def _state_to_response(state) -> dict:
         if not selected_shape_match:
             other_shape_count += 1
             continue
+        # A guide that did not route through the street graph is diagnostic
+        # evidence only. Never expose it as a selectable/downloadable GPS route.
+        if not candidate.snapped:
+            continue
         if verification["passed"]:
             verified_count += 1
         else:
@@ -720,9 +724,11 @@ def _state_to_response(state) -> dict:
         below_threshold=state.below_threshold,
         errors=state.errors,
         history=state.history,
-        gpx=export.gpx if export else None,
-        tcx=export.tcx if export else None,
-        file_paths=export.file_paths if export else {},
+        gpx=export.gpx if export and snapped and snapped.snapped else None,
+        tcx=export.tcx if export and snapped and snapped.snapped else None,
+        file_paths=(
+            export.file_paths if export and snapped and snapped.snapped else {}
+        ),
         points_preview=preview,
         ideal_preview=ideal_preview,
         landmark_preview=landmark_preview,
@@ -1017,6 +1023,25 @@ def generate_route(req: GenerateRequest) -> dict:
             status_code=500,
             detail="Route generation failed. Verify the routing and model-provider configuration.",
         ) from exc
+    if state.snapped is None or not state.snapped.snapped:
+        log.error(
+            "Route generation produced no street-connected result; blocking unsafe guide",
+            extra={
+                "event": "generation.street_routing.unavailable",
+                "shape": state.shape.name if state.shape else None,
+                "city": state.intent.city if state.intent else None,
+                "candidate_count": state.candidate_count,
+                "preflight_count": state.preflight_count,
+            },
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "No connected street route could be created, so the planner did not "
+                "return an unsafe straight-line GPS track. Try another city, shape, "
+                "or distance, or retry when the routing service is available."
+            ),
+        )
     return _state_to_response(state)
 
 
@@ -1052,6 +1077,24 @@ def edit_route(req: EditedRouteRequest) -> dict:
             sport=req.sport,
             closed=req.closed,
             route_preferences=active_edit_preferences,
+        )
+    if not snapped:
+        log.error(
+            "Edited route could not be matched to connected streets; blocking unsafe export",
+            extra={
+                "event": "route.edit.street_routing.unavailable",
+                "shape": req.shape_name,
+                "sport": req.sport,
+                "guide_point_count": len(control_points),
+            },
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The edited route could not be matched to connected streets, so no "
+                "GPS file was created. Adjust the control points or retry when the "
+                "routing service is available."
+            ),
         )
     temporary = WorkflowState(
         prompt="manual route edit",
@@ -1094,10 +1137,6 @@ def edit_route(req: EditedRouteRequest) -> dict:
         raise HTTPException(status_code=500, detail="Edited route validation failed.")
 
     warnings = list(temporary.validation.issues)
-    if not snapped:
-        warnings.append(
-            "Street routing was unavailable. The GPX is a straight-line guide and must be reviewed carefully before use."
-        )
     verification = quality_gate_report(
         temporary.validation,
         closed=req.closed,

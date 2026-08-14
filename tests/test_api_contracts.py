@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -264,6 +266,35 @@ def test_generate_endpoint_does_not_expose_unexpected_exception_details(monkeypa
         )
     }
     assert "provider-secret-value" not in response.text
+
+
+def test_generate_endpoint_blocks_an_unrouted_straight_line(monkeypatch) -> None:
+    monkeypatch.setattr(
+        routes,
+        "generate",
+        lambda _prompt: SimpleNamespace(
+            snapped=SimpleNamespace(snapped=False),
+            shape=SimpleNamespace(name="heart"),
+            intent=SimpleNamespace(city="Budapest"),
+            candidate_count=1,
+            preflight_count=0,
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={"prompt": "a heart run in Budapest, about 8 km"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": (
+            "No connected street route could be created, so the planner did not "
+            "return an unsafe straight-line GPS track. Try another city, shape, "
+            "or distance, or retry when the routing service is available."
+        )
+    }
 
 
 def test_edit_endpoint_rejects_a_guide_over_one_thousand_kilometres(

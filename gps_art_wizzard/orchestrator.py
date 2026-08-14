@@ -25,7 +25,6 @@ from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
 from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, WorkflowState
-from .tools import ors_client
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +95,7 @@ class Orchestrator:
         n["preflight"].run(state)
         n["snap"].run(state)
         n["validation"].run(state)
+        self._recover_unroutable_placement(state, n)
         self._evaluate_suggestion_candidates(state, n)
 
         cfg = get_settings().workflow
@@ -242,6 +242,69 @@ class Orchestrator:
             },
         )
         return state
+
+    def _recover_unroutable_placement(
+        self,
+        state: WorkflowState,
+        nodes: Mapping[str, WorkflowNode],
+    ) -> None:
+        """Try the remaining road-ranked placements when Directions rejects the first.
+
+        Snap preflight proves proximity to roads, not connectivity between every
+        waypoint.  The former pipeline stopped immediately when the top-ranked
+        placement could not be routed and exposed its straight-line guide.  Keep
+        walking the bounded shortlist until one candidate follows real streets.
+        """
+
+        validation = state.validation
+        if (
+            validation is None
+            or validation.on_roads
+            or not state.placement_candidates
+        ):
+            return
+
+        primary_draft = copy.deepcopy(state.route_draft)
+        primary_snapped = copy.deepcopy(state.snapped)
+        primary_validation = copy.deepcopy(validation)
+        primary_errors = list(state.errors)
+        attempt = 0
+
+        while state.placement_candidates:
+            attempt += 1
+            state.route_draft = copy.deepcopy(state.placement_candidates.pop(0))
+            nodes["snap"].run(state)
+            nodes["validation"].run(state)
+            candidate_validation = state.validation
+            state.history.append(
+                {
+                    "agent": "road_recovery",
+                    "attempt": attempt,
+                    "rotation_deg": state.route_draft.rotation_deg,
+                    "scale_m": state.route_draft.scale_m,
+                    "preflight_score": state.route_draft.preflight_score,
+                    "on_roads": bool(
+                        candidate_validation and candidate_validation.on_roads
+                    ),
+                }
+            )
+            if candidate_validation is not None and candidate_validation.on_roads:
+                log.info(
+                    "road recovery found a connected placement on attempt %d "
+                    "(preflight=%s)",
+                    attempt,
+                    state.route_draft.preflight_score,
+                )
+                return
+
+        state.route_draft = primary_draft
+        state.snapped = primary_snapped
+        state.validation = primary_validation
+        state.errors = primary_errors
+        log.warning(
+            "road recovery exhausted %d additional placements; no connected route found",
+            attempt,
+        )
 
     def _evaluate_fallback_candidates(
         self,
@@ -843,16 +906,15 @@ def generate(
     reference_kind: str | None = None,
 ) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
-    with ors_client.routing_session():
-        return get_orchestrator().run(
-            prompt,
-            intent_override=intent_override,
-            start_point=start_point,
-            start_label=start_label,
-            start_direction_deg=start_direction_deg,
-            route_preferences=route_preferences,
-            reference_shape=reference_shape,
-            reference_image_data_url=reference_image_data_url,
-            reference_name=reference_name,
-            reference_kind=reference_kind,
-        )
+    return get_orchestrator().run(
+        prompt,
+        intent_override=intent_override,
+        start_point=start_point,
+        start_label=start_label,
+        start_direction_deg=start_direction_deg,
+        route_preferences=route_preferences,
+        reference_shape=reference_shape,
+        reference_image_data_url=reference_image_data_url,
+        reference_name=reference_name,
+        reference_kind=reference_kind,
+    )

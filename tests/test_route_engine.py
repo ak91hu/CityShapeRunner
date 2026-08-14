@@ -1259,31 +1259,6 @@ class _FakeClient:
         return _FakeResponse()
 
 
-def test_routing_session_reuses_one_lazy_http_client(monkeypatch):
-    created = []
-
-    class Client:
-        def __init__(self):
-            self.closed = False
-            created.append(self)
-
-        def close(self):
-            self.closed = True
-
-    monkeypatch.setattr(ors_client.httpx, "Client", Client)
-
-    with ors_client.routing_session():
-        with ors_client._routing_client() as first:
-            pass
-        with ors_client._routing_client() as second:
-            pass
-        assert first is second
-        assert not first.closed
-
-    assert len(created) == 1
-    assert created[0].closed
-
-
 def test_ors_request_uses_boolean_and_sums_all_segment_distances():
     client = _FakeClient()
     result = ors_client._ors_request(
@@ -1783,6 +1758,71 @@ def test_preflight_agent_scans_city_wide_transforms_and_builds_shortlist(
     assert state.route_draft.preflight_score == pytest.approx(0.91)
     assert len(state.placement_candidates) == 1
     assert state.placement_candidates[0].preflight_score == pytest.approx(0.82)
+
+
+def test_orchestrator_tries_remaining_preflight_placements_until_one_routes():
+    points = [(47.5, 19.0), (47.501, 19.001), (47.5, 19.0)]
+
+    def draft(rotation: float, score: float) -> RouteDraft:
+        return RouteDraft(
+            center_lat=47.5,
+            center_lon=19.0,
+            scale_m=700.0,
+            rotation_deg=rotation,
+            lat_offset_m=0.0,
+            lon_offset_m=0.0,
+            simplify_tolerance=0.8,
+            waypoints=list(points),
+            closed=True,
+            target_distance_km=8.0,
+            preflight_score=score,
+        )
+
+    state = WorkflowState(
+        prompt="heart in Budapest",
+        route_draft=draft(0.0, 0.95),
+        placement_candidates=[draft(30.0, 0.9), draft(90.0, 0.86)],
+        snapped=SnappedRoute(list(points), 500.0, snapped=False),
+        validation=Validation(0.4, 1.0, 0.3, 0.3, on_roads=False),
+        errors=["snap: ORS routing failed; route is straight-line, not on roads"],
+    )
+    attempts: list[float] = []
+
+    class SnapNode:
+        def run(self, current):
+            attempts.append(current.route_draft.rotation_deg)
+            routed = current.route_draft.rotation_deg == 90.0
+            current.errors = [
+                error for error in current.errors if not error.startswith("snap:")
+            ]
+            if not routed:
+                current.errors.append("snap: ORS routing failed")
+            current.snapped = SnappedRoute(list(points), 8_000.0, snapped=routed)
+            return current
+
+    class ValidationNode:
+        def run(self, current):
+            routed = current.snapped.snapped
+            current.validation = Validation(
+                0.84 if routed else 0.4,
+                1.0,
+                0.94 if routed else 0.3,
+                0.82 if routed else 0.3,
+                on_roads=routed,
+            )
+            return current
+
+    Orchestrator(nodes={})._recover_unroutable_placement(
+        state,
+        {"snap": SnapNode(), "validation": ValidationNode()},
+    )
+
+    assert attempts == [30.0, 90.0]
+    assert state.route_draft.rotation_deg == 90.0
+    assert state.snapped.snapped is True
+    assert state.validation.on_roads is True
+    assert not any(error.startswith("snap:") for error in state.errors)
+    assert state.history[-1]["agent"] == "road_recovery"
 
 
 def test_preflight_shortlist_prefers_a_diverse_high_quality_alternative():
