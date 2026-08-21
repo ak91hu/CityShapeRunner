@@ -25,6 +25,7 @@ from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
 from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, WorkflowState
+from .workflow_runtime import WorkflowRuntime
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +72,14 @@ class Orchestrator:
             reference_name=reference_name,
             reference_kind=reference_kind,
         )
-        n = self.nodes
+        cfg = get_settings().workflow
+        runtime = WorkflowRuntime(
+            state,
+            max_duration_seconds=cfg.max_duration_seconds,
+            max_llm_calls=cfg.max_llm_calls,
+            max_events=cfg.max_trace_events,
+        )
+        n = runtime.instrument_nodes(self.nodes)
 
         # --- linear pass --------------------------------------------------- #
         n["intent"].run(state)
@@ -98,7 +106,6 @@ class Orchestrator:
         self._recover_unroutable_placement(state, n)
         self._evaluate_suggestion_candidates(state, n)
 
-        cfg = get_settings().workflow
         threshold = cfg.validation_score_threshold
         max_iter = cfg.max_refinement_iterations
 
@@ -108,6 +115,7 @@ class Orchestrator:
         best_errors = list(state.errors)
         if best_v is None:
             state.errors.append("validation produced no score")
+            runtime.finish(state)
             return state
 
         # --- refinement loop ----------------------------------------------- #
@@ -241,6 +249,7 @@ class Orchestrator:
                 "export_mode": "verified" if final_report["passed"] else "user_acceptance",
             },
         )
+        runtime.finish(state)
         return state
 
     def _recover_unroutable_placement(

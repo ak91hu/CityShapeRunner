@@ -81,10 +81,18 @@ Do not increase `ORS_SNAP_RADIUS_M` merely to make a failing route succeed. A la
 | `AI_SHAPE_VERIFIER_ENABLED` | `true` | Enables rendered semantic review for free-text shapes |
 | `AI_SHAPE_MIN_SEMANTIC_SCORE` | `0.68` | Minimum semantic cue score |
 | `AI_SHAPE_MAX_CANDIDATES` | `4` | Maximum generated drawing alternatives |
+| `WORKFLOW_MAX_DURATION_SECONDS` | `175` | Advisory run deadline; later optional model calls use deterministic fallback |
+| `WORKFLOW_MAX_LLM_CALLS` | `8` | Maximum actual provider invocations in one generation |
+| `WORKFLOW_MAX_TRACE_EVENTS` | `256` | Maximum stored lifecycle events per generation |
 
 The YAML file also defines sport bounds (`run: 3–60 km`, `bike: 10–200 km`) and `min_shape_fidelity: 0.7`; these currently have no direct environment-variable counterpart.
 
 Performance tuning must preserve the routing and quality contract. Reducing `PREFLIGHT_MAX_PLACEMENTS`, `PREFLIGHT_SHORTLIST`, candidate count, or refinement iterations saves upstream calls but reduces search breadth. Benchmark representative cities and inspect fidelity, distance fit, closure, connected geometry, and failure rate before deploying a change.
+
+The workflow deadline does not interrupt deterministic routing or quality
+checks. It prevents new optional AI calls so the pipeline can finish its safety
+decision. See [Production AI workflow](ai-workflow.md) for lifecycle status,
+fallback, telemetry, and release guidance.
 
 ## API server and browser origin
 

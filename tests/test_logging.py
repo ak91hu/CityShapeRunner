@@ -83,6 +83,37 @@ def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
     assert payload["failed_gates"] == ["landmark_similarity", "distance_fit"]
 
 
+def test_json_log_preserves_allowlisted_workflow_dimensions() -> None:
+    record = logging.LogRecord(
+        name="gps_art_wizzard.workflow_runtime",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Workflow finished",
+        args=(),
+        exc_info=None,
+    )
+    record.request_id = "workflow-request-7"
+    record.event = "workflow.finished"
+    record.workflow_run_id = "workflow-request-7"
+    record.workflow_status = "completed"
+    record.workflow_mode = "hybrid"
+    record.workflow_duration_ms = 1250
+    record.workflow_step_failures = 1
+    record.workflow_llm_attempts = 3
+    record.workflow_llm_fallbacks = 1
+
+    payload = json.loads(_JsonFormatter().format(record))
+
+    assert payload["workflow_run_id"] == "workflow-request-7"
+    assert payload["workflow_status"] == "completed"
+    assert payload["workflow_mode"] == "hybrid"
+    assert payload["workflow_duration_ms"] == 1250
+    assert payload["workflow_step_failures"] == 1
+    assert payload["workflow_llm_attempts"] == 3
+    assert payload["workflow_llm_fallbacks"] == 1
+
+
 def test_explicit_route_acceptance_writes_a_readable_debug_event(caplog):
     with caplog.at_level(logging.WARNING, logger="gps_art_wizzard.api.routes"):
         response = record_route_acceptance(

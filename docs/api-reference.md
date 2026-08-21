@@ -139,6 +139,7 @@ The response is intentionally rich because the client must explain and compare r
 | Group | Important fields | Meaning |
 | --- | --- | --- |
 | Identity | `request_id`, `prompt`, `intent` | Correlation and normalized request |
+| Workflow | `workflow` | Run ID/status/mode, duration, limits, step attempts, AI/fallback counters, and safe reason codes |
 | Drawing | `shape`, `requested_shape`, `suggested_shape`, `fit_decision` | Selected contour and any substitution decision |
 | Result | `distance_km`, `snapped`, `points_preview`, `ideal_preview`, `landmark_preview` | Routable geometry and reference geometry |
 | Quality | `validation`, `route_verification`, `route_details`, `below_threshold` | Similarity, distance, closure, readiness, quality gates |
@@ -148,6 +149,12 @@ The response is intentionally rich because the client must explain and compare r
 | Gallery | `gallery_publish_token` | Short-lived capability for publishing the rendered map, when configured |
 
 Preview arrays are sampled for browser rendering and must not be treated as the complete export geometry. Use the returned GPX/TCX content for activity devices.
+
+The `workflow` summary is operational metadata, not hidden model reasoning. It
+does not contain prompts, raw model responses, exception messages, detailed
+lifecycle events, or route geometry. `status=needs_review` describes the quality
+outcome; `mode=deterministic` can also be the intentional fast path for a known
+template or text shape.
 
 ## Edit a route
 

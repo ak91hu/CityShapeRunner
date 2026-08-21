@@ -100,6 +100,15 @@ class WorkflowConfig:
     ai_shape_max_candidates: int = field(
         default_factory=lambda: _int("AI_SHAPE_MAX_CANDIDATES", 4)
     )
+    max_duration_seconds: float = field(
+        default_factory=lambda: _float("WORKFLOW_MAX_DURATION_SECONDS", 175.0)
+    )
+    max_llm_calls: int = field(
+        default_factory=lambda: _int("WORKFLOW_MAX_LLM_CALLS", 8)
+    )
+    max_trace_events: int = field(
+        default_factory=lambda: _int("WORKFLOW_MAX_TRACE_EVENTS", 256)
+    )
     sport_default: str = field(default_factory=lambda: os.getenv("DEFAULT_SPORT", "run"))
     city_default: str = field(default_factory=lambda: os.getenv("DEFAULT_CITY", "Budapest"))
     distance_bounds: dict[str, list[float]] = field(default_factory=lambda: {"run": [3, 60], "bike": [10, 200]})
@@ -189,6 +198,9 @@ def get_settings() -> Settings:
                     "ai_shape_verifier_enabled": "AI_SHAPE_VERIFIER_ENABLED",
                     "ai_shape_min_semantic_score": "AI_SHAPE_MIN_SEMANTIC_SCORE",
                     "ai_shape_max_candidates": "AI_SHAPE_MAX_CANDIDATES",
+                    "max_duration_seconds": "WORKFLOW_MAX_DURATION_SECONDS",
+                    "max_llm_calls": "WORKFLOW_MAX_LLM_CALLS",
+                    "max_trace_events": "WORKFLOW_MAX_TRACE_EVENTS",
                     "sport_default": "DEFAULT_SPORT",
                     "city_default": "DEFAULT_CITY",
                 }.get(k)

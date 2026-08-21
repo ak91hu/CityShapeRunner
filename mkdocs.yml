@@ -62,6 +62,7 @@ nav:
           - Frontend implementation: implementation/frontend.md
           - Runtime and reliability: implementation/runtime-reliability.md
       - AI shape pipeline: AI_SHAPE_PIPELINE.md
+      - Production AI workflow: ai-workflow.md
       - Custom shape generation: custom-shape-generation.md
       - GPS-art intelligence: gps-art-intelligence.md
       - Shape-template uniqueness: shape-template-uniqueness.md

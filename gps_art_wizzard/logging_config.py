@@ -87,6 +87,19 @@ class _JsonFormatter(logging.Formatter):
         "export_mode",
         "generation_request_id",
         "gallery_id",
+        "workflow_run_id",
+        "workflow_status",
+        "workflow_mode",
+        "workflow_stage",
+        "workflow_attempt",
+        "workflow_duration_ms",
+        "workflow_max_duration_seconds",
+        "workflow_max_llm_calls",
+        "workflow_step_failures",
+        "workflow_llm_attempts",
+        "workflow_llm_fallbacks",
+        "workflow_error_category",
+        "workflow_error_type",
     )
 
     def format(self, record: logging.LogRecord) -> str:

@@ -11,6 +11,7 @@ import time
 from functools import lru_cache
 
 from ..config import LLMConfig, get_settings
+from ..workflow_runtime import active_workflow_runtime
 from .base import LLMError, LLMProvider, NoProviderError
 
 log = logging.getLogger(__name__)
@@ -154,17 +155,27 @@ def try_complete(
 
     last_err: Exception | None = None
     attempted = 0
+    budget_reason: str | None = None
+    runtime = active_workflow_runtime()
     for provider in providers:
         if max_provider_attempts is not None and attempted >= max_provider_attempts:
             break
         if _probe_in_cooldown(provider.name):
             continue
+        if runtime is not None:
+            allowed, budget_reason = runtime.llm_budget_status()
+            if not allowed:
+                break
         if not provider.is_available():
             _UNAVAILABLE_UNTIL[provider.name] = time.monotonic() + _PROBE_COOLDOWN_S
             continue
         attempted += 1
+        if runtime is not None:
+            runtime.record_llm_attempt(provider.name)
         try:
             resp = provider.complete(**kwargs)
+            if runtime is not None:
+                runtime.record_llm_success(resp.usage)
             if pin_provider:
                 _STICKY = provider  # pin the primary generation provider only
             return resp
@@ -174,8 +185,18 @@ def try_complete(
             log.warning("provider %s failed (%s); trying next", provider.name, e)
             continue
 
-    if attempted == 0:
+    if budget_reason is not None:
+        fallback_reason = budget_reason
+        log.warning(
+            "LLM workflow budget unavailable (%s) — using deterministic fallback",
+            budget_reason,
+        )
+    elif attempted == 0:
+        fallback_reason = "no_provider"
         log.info("no reachable LLM provider — using deterministic fallback")
     else:
+        fallback_reason = "provider_failure"
         log.warning("all LLM providers failed (%s) — using deterministic fallback", last_err)
+    if runtime is not None:
+        runtime.record_deterministic_fallback(fallback_reason)
     return fallback_fn()

@@ -46,6 +46,7 @@ runs:
 | `export` | ExportAgent | API (only `snapped=true` geometry crosses the public response boundary; persistence remains gated) |
 | `iterations`, `history` | Orchestrator | RefinementAgent |
 | `errors` | any | Orchestrator |
+| `workflow` | WorkflowRuntime | API summary, structured logging |
 
 In addition to strategy fields, `plan` persists the resolved `center_lat`,
 `center_lon`, and `city_bbox`. Placement consumes that same resolution, so a

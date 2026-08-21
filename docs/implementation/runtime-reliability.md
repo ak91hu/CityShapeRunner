@@ -95,6 +95,7 @@ The formatter deliberately does not serialize arbitrary object attributes. Impor
 | --- | --- | --- |
 | HTTP | `http.request.started`, `http.request.completed`, `http.request.failed` | Is latency/error isolated to one endpoint or revision? |
 | Generation | `generation.requested`, `generation.completed` | How many candidates/iterations did a request need? |
+| Workflow | `workflow.started`, `workflow.step.*`, `workflow.finished` | Which stage is slow/failing, and did AI fall back? |
 | Routing | snap/recovery logs, `generation.street_routing.unavailable` | Is ORS unreachable, quota-limited, or unable to connect guides? |
 | Validation | `route.validation.completed`, `route.candidate.evaluated` | Which gate is the recurring bottleneck? |
 | Response | `route.response.prepared` | How many verified/review/other-shape attempts reached the client? |
@@ -103,6 +104,11 @@ The formatter deliberately does not serialize arbitrary object attributes. Impor
 | Gallery | `gallery.*` | Is optional publication failing independently? |
 
 Full prompts, provider keys, gallery secrets, GPX/TCX payloads, and complete route geometry are not log fields.
+
+Every generation also owns a bounded typed workflow trace. Its public summary
+contains status/mode, stage attempts, duration, AI-call/fallback counts, and
+aggregated integer usage metrics; detailed events remain internal. See
+[Production AI workflow](../ai-workflow.md).
 
 ## Dependency criticality
 

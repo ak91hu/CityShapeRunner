@@ -8,7 +8,10 @@ serialisable for debugging and for the API response.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .workflow_runtime import WorkflowTrace
 
 LatLon = tuple[float, float]
 
@@ -308,6 +311,7 @@ class WorkflowState:
     reference_image_data_url: str | None = None
     reference_name: str | None = None
     reference_kind: str | None = None
+    workflow: WorkflowTrace | None = None
 
     def snapshot(self) -> dict[str, Any]:
         """Compact, JSON-friendly snapshot for the API / history."""

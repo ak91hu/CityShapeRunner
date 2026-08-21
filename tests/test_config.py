@@ -119,6 +119,19 @@ def test_environment_values_override_yaml_overlays(monkeypatch) -> None:
     assert settings.routing.continue_straight is False
 
 
+def test_workflow_runtime_limits_are_configurable(monkeypatch) -> None:
+    monkeypatch.setenv("WORKFLOW_MAX_DURATION_SECONDS", "42.5")
+    monkeypatch.setenv("WORKFLOW_MAX_LLM_CALLS", "3")
+    monkeypatch.setenv("WORKFLOW_MAX_TRACE_EVENTS", "64")
+    monkeypatch.setattr(config, "_load_yaml_overlays", lambda: {})
+
+    workflow = config.get_settings().workflow
+
+    assert workflow.max_duration_seconds == 42.5
+    assert workflow.max_llm_calls == 3
+    assert workflow.max_trace_events == 64
+
+
 def test_routing_uses_the_current_heigit_public_endpoint_by_default(monkeypatch) -> None:
     monkeypatch.delenv("ORS_BASE_URL", raising=False)
 

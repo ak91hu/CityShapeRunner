@@ -26,6 +26,11 @@ workflow:
   ai_shape_verifier_enabled: true
   ai_shape_min_semantic_score: 0.68
   ai_shape_max_candidates: 4
+  # Run-scoped guardrails. The deadline is advisory for deterministic routing:
+  # after it expires optional LLM work falls back, while safety checks finish.
+  max_duration_seconds: 175
+  max_llm_calls: 8
+  max_trace_events: 256
   sport_default: run             # run | bike
   city_default: Budapest
   # Target distance bounds (km) per sport; the planner scales the shape to fit.

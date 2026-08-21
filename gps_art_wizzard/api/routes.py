@@ -147,8 +147,41 @@ class GenerateRequest(BaseModel):
         return self
 
 
+class WorkflowLimitsResponse(BaseModel):
+    max_duration_seconds: float = Field(ge=1)
+    max_llm_calls: int = Field(ge=0)
+
+
+class WorkflowStepsResponse(BaseModel):
+    attempts: dict[str, int] = Field(default_factory=dict)
+    completed: list[str] = Field(default_factory=list)
+    failures: int = Field(ge=0)
+    dropped_events: int = Field(ge=0)
+
+
+class WorkflowAIResponse(BaseModel):
+    attempts: int = Field(ge=0)
+    successful_calls: int = Field(ge=0)
+    deterministic_fallbacks: int = Field(ge=0)
+    provider_attempts: dict[str, int] = Field(default_factory=dict)
+    usage: dict[str, int] = Field(default_factory=dict)
+
+
+class WorkflowSummaryResponse(BaseModel):
+    run_id: str
+    status: Literal["running", "completed", "needs_review", "failed"]
+    mode: Literal["ai", "hybrid", "deterministic"]
+    duration_ms: int | None = Field(default=None, ge=0)
+    limits: WorkflowLimitsResponse
+    steps: WorkflowStepsResponse
+    ai: WorkflowAIResponse
+    degraded_reasons: list[str] = Field(default_factory=list)
+    error_category: Literal["input", "dependency", "quality", "internal"] | None = None
+
+
 class GenerateResponse(BaseModel):
     request_id: str | None = None
+    workflow: WorkflowSummaryResponse | None = None
     prompt: str
     intent: dict | None
     shape: dict | None
@@ -735,6 +768,11 @@ def _state_to_response(state) -> dict:
     )
     return dict(
         request_id=state.request_id,
+        workflow=(
+            state.workflow.public_summary()
+            if getattr(state, "workflow", None) is not None
+            else None
+        ),
         prompt=state.prompt,
         intent=state.intent.__dict__ if state.intent else None,
         shape=(

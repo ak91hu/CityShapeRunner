@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from gps_art_wizzard.agents.shape_agent import _clear_custom_shape_cache
+from gps_art_wizzard.api.routes import _state_to_response
 from gps_art_wizzard.orchestrator import generate
 from gps_art_wizzard.tools import geo, shape_library, shape_similarity, text_shapes
 
@@ -21,6 +22,22 @@ from gps_art_wizzard.tools import geo, shape_library, shape_similarity, text_sha
 # --------------------------------------------------------------------------- #
 def test_pipeline_produces_safe_preview_without_a_routing_provider():
     state = generate("a heart run in Budapest, about 8 km")
+    assert state.workflow is not None
+    assert state.workflow.status.value == "needs_review"
+    assert state.workflow.step_attempts == {
+        "intent": 1,
+        "planning": 1,
+        "shape": 1,
+        "placement": 1,
+        "preflight": 1,
+        "snap": 1,
+        "validation": 1,
+        "export": 1,
+    }
+    response = _state_to_response(state)
+    assert response["workflow"]["run_id"] == state.workflow.run_id
+    assert response["workflow"]["status"] == "needs_review"
+    assert "events" not in response["workflow"]
     assert state.export is not None
     assert "<gpx" in state.export.gpx
     assert state.snapped is not None
