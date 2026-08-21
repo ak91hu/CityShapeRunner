@@ -10,6 +10,13 @@ test.beforeEach(async ({ page }) => {
   await installCommonMocks(page);
 });
 
+async function openOptionalRouteTools(page) {
+  const tools = page.locator(".route-lab");
+  if (!(await tools.locator(".route-lab-grid").isVisible())) {
+    await tools.locator("summary").click();
+  }
+}
+
 test("a completed generation moves focus to the result region", async ({ page }) => {
   await openGeneratedRoute(page);
 
@@ -46,7 +53,8 @@ test("the result identifies the route and its request ID", async ({ page }) => {
   await openGeneratedRoute(page);
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
-  await expect(page.locator(".debug-id")).toHaveText("Route ID: expanded-functional-1");
+  await page.getByText("Route details", { exact: true }).click();
+  await expect(page.locator(".route-facts")).toContainText("expanded-functional-1");
   await expect(page.locator(".route-state")).toContainText("Ready to download");
 });
 
@@ -77,6 +85,9 @@ test("optional route tools are grouped after the decision and download cards", a
   expect(labBox).not.toBeNull();
   expect(primaryBox.y + primaryBox.height).toBeLessThanOrEqual(labBox.y + 1);
   await expect(lab).toContainText("Fine-tune or plan together");
+  if (!(await lab.locator(".street-canvas-card").isVisible())) {
+    await lab.locator("summary").click();
+  }
   await expect(lab.locator(".street-canvas-card")).toBeVisible();
   await expect(lab.locator(".recognition-repair-card")).toBeVisible();
 });
@@ -106,8 +117,23 @@ test("the map is the first result panel and does not overlap later panels", asyn
     expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(factsBox.y + 1);
   } else {
     expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(metricsBox.y + 1);
-    expect(metricsBox.y + metricsBox.height).toBeLessThanOrEqual(exportBox.y + 1);
-    expect(exportBox.y + exportBox.height).toBeLessThanOrEqual(factsBox.y + 1);
+    if ((await page.viewportSize()).width <= 768) {
+      expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(exportBox.y + 1);
+      expect(exportBox.y + exportBox.height).toBeLessThanOrEqual(factsBox.y + 1);
+      expect(factsBox.y + factsBox.height).toBeLessThanOrEqual(metricsBox.y + 1);
+      const downloadBox = await page.getByRole("button", { name: "Download GPX", exact: true }).boundingBox();
+      const requestDetailsBox = await page.locator(".request-summary-details > summary").boundingBox();
+      expect(downloadBox).not.toBeNull();
+      expect(requestDetailsBox).not.toBeNull();
+      expect(downloadBox.height).toBeGreaterThanOrEqual(44);
+      expect(requestDetailsBox.height).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      )).toBe(false);
+    } else {
+      expect(metricsBox.y + metricsBox.height).toBeLessThanOrEqual(exportBox.y + 1);
+      expect(exportBox.y + exportBox.height).toBeLessThanOrEqual(factsBox.y + 1);
+    }
   }
 });
 
@@ -179,13 +205,17 @@ test("recognition repair keeps route details, downloads, and gallery sharing dir
     });
   });
   await openGeneratedRoute(page);
-  await page.getByRole("button", { name: "Find a crisper version" }).click();
+  const repairButton = page.getByRole("button", { name: "Find a crisper version" });
+  if (!(await repairButton.isVisible())) {
+    await page.locator(".route-lab > summary").click();
+  }
+  await repairButton.click();
 
   const output = page.locator(".route-output");
   await expect(output.getByText("Route details", { exact: true })).toBeVisible();
   await expect(output.getByRole("button", { name: "Download edited GPX" })).toBeVisible();
   await expect(output.getByRole("button", { name: "Download TCX" })).toBeVisible();
-  await expect(output.getByText("Publish map image", { exact: true })).toBeVisible();
+  await output.getByText("Share map publicly", { exact: true }).click();
   await expect(output.getByRole("checkbox")).toBeVisible();
   await expect(output.getByRole("button", { name: "Publish map" })).toBeVisible();
 });
@@ -215,6 +245,7 @@ test("route readiness shows elevation, surfaces, and mapped concerns", async ({ 
 
 test("Street Canvas exposes the strongest nearby areas on the route map", async ({ page }) => {
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
   const canvas = page.locator(".street-canvas-card");
 
   await expect(canvas).toContainText("Best nearby areas");
@@ -248,6 +279,7 @@ test("time-aware weather follows the selected departure hour", async ({ page }) 
     });
   });
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
 
   const card = page.locator(".timed-readiness-card");
   const departure = card.getByLabel("Departure");
@@ -282,6 +314,7 @@ test("time-aware weather explains departures outside the forecast window", async
     });
   });
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
 
   const card = page.locator(".timed-readiness-card");
   await card.getByLabel("Departure").fill("2026-10-14T12:00");
@@ -316,6 +349,7 @@ test("Inkproof forecasts GPS drift and highlights fragile drawing details", asyn
     });
   });
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
   await page.getByRole("button", { name: "Test recording durability" }).click();
 
   expect(requestBody.accuracy_m).toBe(10);
@@ -349,6 +383,7 @@ test("community mural creates separate downloadable artist sections", async ({ p
     });
   });
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
   await page.getByRole("button", { name: "Create mural plan" }).click();
 
   const mural = page.locator(".mural-card");

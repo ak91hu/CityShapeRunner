@@ -1208,7 +1208,7 @@ const LOADING_FACTS = [
   "A route can look good as a sketch and still need a different rotation to fit the city.",
 ];
 
-function LoadingState({ onCancel, kind = "route" }) {
+function LoadingState({ onCancel, kind = "route", focusRef }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messages = kind === "image" ? IMAGE_LOADING_MESSAGES : ROUTE_LOADING_MESSAGES;
   const stages = kind === "image" ? IMAGE_LOADING_STAGES : ROUTE_LOADING_STAGES;
@@ -1233,9 +1233,12 @@ function LoadingState({ onCancel, kind = "route" }) {
 
   return (
     <section
+      ref={focusRef}
       className="loading-card loading-card--journey"
       aria-labelledby="loading-title"
+      aria-describedby="loading-message loading-expectation"
       aria-busy="true"
+      tabIndex="-1"
     >
       <div className="loading-visual" aria-hidden="true">
         <svg className="gps-route-animation" viewBox="0 0 360 190">
@@ -1287,10 +1290,10 @@ function LoadingState({ onCancel, kind = "route" }) {
         >
           <span />
         </div>
-        <p className="loading-message" role="status" aria-live="polite">
+        <p id="loading-message" className="loading-message" role="status" aria-live="polite">
           {messages[messageIndex]}
         </p>
-        <p className="loading-expectation">
+        <p id="loading-expectation" className="loading-expectation">
           {kind === "image"
             ? "Image tracing normally finishes within about a minute."
             : "Complex drawings may need a little longer while streets are tested."}
@@ -1637,9 +1640,13 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
 
 function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef }) {
   const candidates = result.candidates ?? [];
+  const expandSecondaryContent = () =>
+    typeof window === "undefined" || !window.matchMedia("(max-width: 48rem)").matches;
   const [selectedCandidateId, setSelectedCandidateId] = useState(
     candidates[0]?.id ?? "best",
   );
+  const [requestDetailsOpen, setRequestDetailsOpen] = useState(expandSecondaryContent);
+  const [routeToolsOpen, setRouteToolsOpen] = useState(expandSecondaryContent);
   const [editing, setEditing] = useState(false);
   const [controlPoints, setControlPoints] = useState([]);
   const [editedRoute, setEditedRoute] = useState(null);
@@ -1671,6 +1678,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setPublishedAsset(null);
     setActiveConcernCode(null);
     setLabOverlay(null);
+    setRequestDetailsOpen(expandSecondaryContent());
+    setRouteToolsOpen(expandSecondaryContent());
   }, [result.request_id, result.prompt]);
 
   const chooseCandidate = useCallback((candidateId) => {
@@ -1961,11 +1970,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           <h2 id="result-title">
             {shapeName} in {city}
           </h2>
-          {result.request_id && (
-            <p className="debug-id">
-              Route ID: <code>{result.request_id}</code>
-            </p>
-          )}
         </div>
         <span
           className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
@@ -1980,47 +1984,58 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           <div>
             <span className="eyebrow">Your request</span>
             <h3 id="request-summary-title">We understood {understoodDrawing}</h3>
+            <p className="request-summary-essentials">
+              {city} · {activity}
+              {targetDistance != null ? ` · ${formatMetric(targetDistance)} km` : ""}
+            </p>
           </div>
           <button type="button" className="button button--quiet" onClick={onEditRequest}>
             Change request
           </button>
         </div>
-        <dl className="request-summary-facts">
-          <div>
-            <dt>Drawing</dt>
-            <dd>{understoodDrawing}</dd>
-          </div>
-          <div>
-            <dt>Place</dt>
-            <dd>{city}</dd>
-          </div>
-          <div>
-            <dt>Activity</dt>
-            <dd>{activity}</dd>
-          </div>
-          <div>
-            <dt>Target</dt>
-            <dd>{targetDistance != null ? `${formatMetric(targetDistance)} km` : "Planner default"}</dd>
-          </div>
-          {planningOptions.start_label && (
+        <details
+          className="request-summary-details"
+          open={requestDetailsOpen}
+          onToggle={(event) => setRequestDetailsOpen(event.currentTarget.open)}
+        >
+          <summary>Request details</summary>
+          <dl className="request-summary-facts">
             <div>
-              <dt>Start</dt>
-              <dd>{planningOptions.start_label}</dd>
+              <dt>Drawing</dt>
+              <dd>{understoodDrawing}</dd>
             </div>
-          )}
-          {Number.isFinite(planningOptions.start_direction_deg) && (
             <div>
-              <dt>First direction</dt>
-              <dd>{Math.round(planningOptions.start_direction_deg)}°</dd>
+              <dt>Place</dt>
+              <dd>{city}</dd>
             </div>
-          )}
-          {enabledPreferences.length > 0 && (
             <div>
-              <dt>Preferences</dt>
-              <dd>{enabledPreferences.join(", ")}</dd>
+              <dt>Activity</dt>
+              <dd>{activity}</dd>
             </div>
-          )}
-        </dl>
+            <div>
+              <dt>Target</dt>
+              <dd>{targetDistance != null ? `${formatMetric(targetDistance)} km` : "Planner default"}</dd>
+            </div>
+            {planningOptions.start_label && (
+              <div>
+                <dt>Start</dt>
+                <dd>{planningOptions.start_label}</dd>
+              </div>
+            )}
+            {Number.isFinite(planningOptions.start_direction_deg) && (
+              <div>
+                <dt>First direction</dt>
+                <dd>{Math.round(planningOptions.start_direction_deg)}°</dd>
+              </div>
+            )}
+            {enabledPreferences.length > 0 && (
+              <div>
+                <dt>Preferences</dt>
+                <dd>{enabledPreferences.join(", ")}</dd>
+              </div>
+            )}
+          </dl>
+        </details>
         {shapeSource === "fallback" && (
           <p className="request-summary-warning" role="status">
             We understood the request, but could not make a reliable custom outline. Change the
@@ -2430,6 +2445,12 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   <dt>Drawing</dt>
                   <dd>{shapeName}</dd>
                 </div>
+                {result.request_id && (
+                  <div>
+                    <dt>Route reference</dt>
+                    <dd><code>{result.request_id}</code></dd>
+                  </div>
+                )}
                 <div>
                   <dt>Activity</dt>
                   <dd>{normaliseLabel(routingDetails.activity)}</dd>
@@ -2569,14 +2590,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </p>
             )}
             {activeRoute.gallery_publish_token && (!editedRoute || editedRoute.allow_gallery_share) && (
-              <div className="gallery-publish">
-                <div>
-                  <strong>Publish map image</strong>
+              <details className="gallery-publish">
+                <summary>
+                  <span>
+                    <strong>Share map publicly</strong>
+                    <small>Optional</small>
+                  </span>
+                </summary>
+                <div className="gallery-publish-body">
                   <p>
                     Publishes the map, route line, location, and visible street names. Your prompt,
                     profile, and route file stay private.
                   </p>
-                </div>
                 {!publishedAsset ? (
                   <>
                     <label>
@@ -2611,7 +2636,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   <small>Review or approve this route before sharing it.</small>
                 )}
                 {editing && <small>Finish editing before sharing the map.</small>}
-              </div>
+                </div>
+              </details>
             )}
             {!roadRouted && (
               <p className="export-unavailable">
@@ -2633,14 +2659,19 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       </div>
       </div>
 
-      <section className="route-lab" aria-labelledby="route-lab-title">
-        <div className="route-lab-heading">
+      <details
+        className="route-lab"
+        open={routeToolsOpen}
+        onToggle={(event) => setRouteToolsOpen(event.currentTarget.open)}
+      >
+        <summary className="route-lab-heading">
           <div>
             <span className="eyebrow">Optional tools</span>
             <h3 id="route-lab-title">Fine-tune or plan together</h3>
           </div>
           <p>The route decision and download stay above; use these only when you need them.</p>
-        </div>
+          <span className="route-lab-marker" aria-hidden="true">+</span>
+        </summary>
         <div className="route-lab-grid">
           <StreetCanvasCard candidates={result.street_canvas ?? []} />
           <InkproofCard
@@ -2676,7 +2707,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             sport={result.intent?.sport}
           />
         </div>
-      </section>
+      </details>
 
       {issueList.length > 0 && (
         <div className="details-grid">
@@ -2720,6 +2751,7 @@ export default function App() {
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
   const lastGenerationRef = useRef(null);
+  const loadingRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
@@ -2732,8 +2764,31 @@ export default function App() {
   const imageDistanceRef = useRef(null);
 
   useEffect(() => {
-    if (result) resultRef.current?.focus();
+    if (!result) return;
+    window.requestAnimationFrame(() => {
+      resultRef.current?.focus({ preventScroll: true });
+      resultRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
   }, [result]);
+
+  useEffect(() => {
+    if (!loading) return undefined;
+
+    const mobileViewport = window.matchMedia("(max-width: 48rem)").matches;
+    const previousOverflow = document.body.style.overflow;
+    if (mobileViewport) document.body.style.overflow = "hidden";
+
+    window.requestAnimationFrame(() => {
+      loadingRef.current?.focus({ preventScroll: true });
+      if (!mobileViewport) {
+        loadingRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    });
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [loading]);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -3376,7 +3431,13 @@ export default function App() {
           </div>
         </section>
 
-        {loading && <LoadingState onCancel={cancelGeneration} kind={loadingKind} />}
+        {loading && (
+          <LoadingState
+            onCancel={cancelGeneration}
+            kind={loadingKind}
+            focusRef={loadingRef}
+          />
+        )}
 
         {error && (
           <section className="error-card" role="alert" tabIndex="-1" ref={errorRef}>

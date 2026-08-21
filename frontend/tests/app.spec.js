@@ -676,6 +676,7 @@ test("switching to a malformed unrouted option removes every export action", asy
   await expect(page.getByRole("button", { name: "Approve and download GPX" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download TCX" })).toHaveCount(0);
+  await page.getByText("Share map publicly", { exact: true }).click();
   await expect(page.getByRole("button", { name: "Publish map" })).toBeDisabled();
 });
 
@@ -839,7 +840,8 @@ test("a verified route map can be published anonymously with streets and attribu
 
   await page.goto("/");
   await page.getByRole("button", { name: "Find routes" }).click();
-  await expect(page.getByText("Publish map image")).toBeVisible();
+  await page.getByText("Share map publicly", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Publish map" })).toBeVisible();
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
   await page.getByRole("button", { name: "Rotate map 15 degrees right" }).click();
   await page.getByRole("button", { name: "Rotate map 15 degrees right" }).click();

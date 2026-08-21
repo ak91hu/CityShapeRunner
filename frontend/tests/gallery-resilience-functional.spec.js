@@ -263,6 +263,7 @@ test("a failed gallery removal preserves the card and shows an actionable error"
 
 test("gallery consent is cleared when route options change", async ({ page }) => {
   await openGeneratedRoute(page);
+  await page.getByText("Share map publicly", { exact: true }).click();
   const consent = page.getByLabel(
     "I understand that this location and its street names will be public.",
   );
@@ -272,6 +273,7 @@ test("gallery consent is cleared when route options change", async ({ page }) =>
   await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
   await expect(consent).toHaveCount(0);
   await page.locator('.candidate-card[data-candidate-id="candidate-ready"]').click();
+  await page.getByText("Share map publicly", { exact: true }).click();
   await expect(consent).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Publish map" })).toBeDisabled();
 });
@@ -304,6 +306,7 @@ test("publishing sends only the approved map payload and refreshes the mocked ga
   });
   await openGeneratedRoute(page);
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
+  await page.getByText("Share map publicly", { exact: true }).click();
   await page
     .getByLabel("I understand that this location and its street names will be public.")
     .check();

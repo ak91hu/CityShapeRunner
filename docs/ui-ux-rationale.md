@@ -215,6 +215,29 @@ remain available.
 Sources: [WAI-ARIA status role](https://www.w3.org/WAI/ARIA/apg/patterns/status/) and
 [WCAG animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html).
 
+### Keep waiting and results usable in the first mobile viewport
+
+The mobile generation state now takes over the visible viewport, receives focus as soon as
+generation begins, and keeps the real elapsed time, current activity, compact stage overview,
+and cancel action visible. This fixes the previous layout conflict that squeezed the waiting
+card into two columns below the planner. The progress track remains indeterminate because the
+server does not report reliable completion, while the copy explains the work being performed.
+
+On the result screen, the route map and download decision now precede diagnostic evidence on
+phones. The interpreted request stays visible as a short correction checkpoint, while its full
+fields, route checks, public sharing, and optional planning tools use disclosures. Safety or
+failed-check warnings remain visible and are never hidden merely to make the page shorter.
+
+These choices follow Apple's guidance to show progress immediately, prefer determinate progress
+only when it is genuinely measurable, keep indicators moving, and provide cancellation when it
+is safe. They also apply GOV.UK's recommendation to use a details disclosure only for information
+that some users need, and WCAG's 44-by-44 enhanced touch-target guidance for important controls.
+
+Sources: [Apple Human Interface Guidelines — Loading](https://developer.apple.com/design/human-interface-guidelines/loading),
+[Apple Human Interface Guidelines — Progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators),
+[GOV.UK Design System — Details](https://design-system.service.gov.uk/components/details/), and
+[WCAG 2.2 target size (enhanced)](https://www.w3.org/WAI/WCAG22/Understanding/target-size-enhanced).
+
 ### Fail closed when there is no street route
 
 An accurate drawing overlaid on a map is not a usable GPS route when it crosses

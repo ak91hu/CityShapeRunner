@@ -263,17 +263,29 @@ test("cancelling an in-flight generation restores the designer without an error"
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
+  await expect(page.locator(".loading-card--journey")).toBeFocused();
   await expect(page.getByText("Live route lab")).toHaveCount(0);
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
   await expect(page.getByText("Timing is illustrative")).toBeVisible();
   await expect(page.getByRole("list", { name: "Typical planning stages" })).toBeVisible();
   await expect(page.locator(".gps-route-animation")).toBeVisible();
-  await expect(page.getByText("Quality checks stay on")).toBeVisible();
+  if ((await page.viewportSize()).width > 768) {
+    await expect(page.getByText("Quality checks stay on")).toBeVisible();
+  }
   await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
   await page.waitForTimeout(5_100);
   await expect(page.getByText("Asking nearby streets to cooperate nicely.")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Street fit" })).toHaveAttribute("aria-current", "step");
   await expect(page.getByLabel(/seconds elapsed/)).toHaveText("5s");
+  if ((await page.viewportSize()).width <= 768) {
+    const waitingBox = await page.locator(".loading-card--journey").boundingBox();
+    const cancelBox = await page.getByRole("button", { name: "Cancel" }).boundingBox();
+    expect(waitingBox).not.toBeNull();
+    expect(cancelBox).not.toBeNull();
+    expect(waitingBox.x).toBeLessThanOrEqual(1);
+    expect(waitingBox.width).toBeGreaterThanOrEqual((await page.viewportSize()).width - 1);
+    expect(cancelBox.y + cancelBox.height).toBeLessThanOrEqual((await page.viewportSize()).height + 1);
+  }
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
@@ -353,7 +365,7 @@ test("switching route options updates quality, distance, and export state", asyn
   await readyOption.click();
   await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
-  await expect(page.getByText("Publish map image")).toBeVisible();
+  await expect(page.getByText("Share map publicly", { exact: true })).toBeVisible();
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
