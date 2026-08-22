@@ -46,6 +46,13 @@ def cloudinary_env(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def clear_gallery_list_cache():
+    cloudinary_gallery._clear_gallery_list_cache()  # noqa: SLF001
+    yield
+    cloudinary_gallery._clear_gallery_list_cache()  # noqa: SLF001
+
+
 def test_masked_cloudinary_secret_is_not_treated_as_configured(monkeypatch):
     monkeypatch.setenv(
         "CLOUDINARY_URL",
@@ -113,8 +120,11 @@ def test_gallery_upload_is_signed_and_returns_stateless_removal_token(
 def test_gallery_search_filters_non_gallery_resources(cloudinary_env, monkeypatch):
     valid_id = "gps-art-gallery/" + ("a" * 32)
     captured = {}
+    request_count = 0
 
     def fake_post(url, **kwargs):
+        nonlocal request_count
+        request_count += 1
         captured.update(url=url, **kwargs)
         return httpx.Response(
             200,
@@ -122,7 +132,9 @@ def test_gallery_search_filters_non_gallery_resources(cloudinary_env, monkeypatc
                 "resources": [
                     {
                         "public_id": valid_id,
-                        "secure_url": "https://res.cloudinary.com/test/map.png",
+                        "secure_url": (
+                            "https://res.cloudinary.com/test/image/upload/v1/map.png"
+                        ),
                         "width": 900,
                         "height": 600,
                     },
@@ -137,15 +149,28 @@ def test_gallery_search_filters_non_gallery_resources(cloudinary_env, monkeypatc
 
     monkeypatch.setattr(cloudinary_gallery.httpx, "post", fake_post)
     result = cloudinary_gallery.list_gallery_images(limit=12)
+    cached_result = cloudinary_gallery.list_gallery_images(limit=12)
     assert captured["json"]["expression"] == (
         "resource_type:image AND tags=gps-art-gallery"
     )
+    assert request_count == 1
+    assert cached_result == result
     assert result == {
         "configured": True,
         "assets": [
             {
                 "id": valid_id,
-                "image_url": "https://res.cloudinary.com/test/map.png",
+                "image_url": (
+                    "https://res.cloudinary.com/test/image/upload/v1/map.png"
+                ),
+                "thumbnail_url": (
+                    "https://res.cloudinary.com/test/image/upload/"
+                    "c_limit,f_auto,q_auto:good,w_720/v1/map.png"
+                ),
+                "preview_url": (
+                    "https://res.cloudinary.com/test/image/upload/"
+                    "c_limit,f_auto,q_auto:good,w_1600/v1/map.png"
+                ),
                 "width": 900,
                 "height": 600,
             }
@@ -165,6 +190,17 @@ def test_gallery_api_requires_public_location_consent(cloudinary_env):
             },
         )
     assert response.status_code == 422
+
+
+def test_gallery_listing_allows_short_lived_shared_caching(monkeypatch):
+    monkeypatch.delenv("CLOUDINARY_URL", raising=False)
+    with TestClient(create_app()) as client:
+        response = client.get("/gallery")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == (
+        "public, max-age=30, stale-while-revalidate=300"
+    )
 
 
 def test_gallery_api_publishes_without_forwarding_personal_fields(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field, field_validator
 
 from ..tools import cloudinary_gallery
@@ -55,9 +55,11 @@ def _gallery_http_error(exc: Exception) -> HTTPException:
 
 @router.get("/gallery")
 def get_gallery(
+    response: Response,
     limit: int = Query(default=24, ge=1, le=50),
     cursor: str | None = Query(default=None, min_length=1, max_length=500),
 ) -> dict:
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=300"
     if not cloudinary_gallery.is_configured():
         return {"configured": False, "assets": [], "next_cursor": None}
     try:

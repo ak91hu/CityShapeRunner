@@ -15,11 +15,13 @@ import json
 import os
 import re
 import struct
+import threading
 import time
 import uuid
 import zlib
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from urllib.parse import quote, unquote, urlsplit
 
 import httpx
@@ -33,6 +35,15 @@ _MAX_IMAGE_BYTES = 6_000_000
 _MAX_IMAGE_DIMENSION = 4_096
 _MAX_IMAGE_PIXELS = 16_000_000
 _PUBLISH_TOKEN_TTL_SECONDS = 60 * 60
+_GALLERY_LIST_CACHE_TTL_SECONDS = 30.0
+_GALLERY_LIST_CACHE_MAX_ENTRIES = 64
+_THUMBNAIL_TRANSFORMATION = "c_limit,f_auto,q_auto:good,w_720"
+_PREVIEW_TRANSFORMATION = "c_limit,f_auto,q_auto:good,w_1600"
+_GALLERY_LIST_CACHE: dict[
+    tuple[str, int, str | None],
+    tuple[float, dict],
+] = {}
+_GALLERY_LIST_CACHE_LOCK = threading.Lock()
 
 
 class GalleryConfigurationError(RuntimeError):
@@ -61,6 +72,8 @@ class CloudinaryConfig:
 class GalleryAsset(TypedDict):
     id: str
     image_url: str
+    thumbnail_url: NotRequired[str]
+    preview_url: NotRequired[str]
     width: int
     height: int
 
@@ -306,9 +319,32 @@ def _public_asset(resource: dict) -> GalleryAsset | None:
     return {
         "id": public_id,
         "image_url": secure_url,
+        "thumbnail_url": _cloudinary_delivery_variant(
+            secure_url,
+            _THUMBNAIL_TRANSFORMATION,
+        ),
+        "preview_url": _cloudinary_delivery_variant(
+            secure_url,
+            _PREVIEW_TRANSFORMATION,
+        ),
         "width": int(resource.get("width") or 0),
         "height": int(resource.get("height") or 0),
     }
+
+
+def _cloudinary_delivery_variant(secure_url: str, transformation: str) -> str:
+    """Insert an unsigned delivery transform while preserving the original URL."""
+
+    upload_marker = "/image/upload/"
+    prefix, marker, asset_path = secure_url.partition(upload_marker)
+    if not marker or not asset_path:
+        return secure_url
+    return f"{prefix}{marker}{transformation}/{asset_path}"
+
+
+def _clear_gallery_list_cache() -> None:
+    with _GALLERY_LIST_CACHE_LOCK:
+        _GALLERY_LIST_CACHE.clear()
 
 
 def upload_gallery_image(
@@ -352,6 +388,7 @@ def upload_gallery_image(
     # provider response omits them.
     asset["width"] = int(asset["width"] or width)
     asset["height"] = int(asset["height"] or height)
+    _clear_gallery_list_cache()
     return {
         "asset": asset,
         "removal_token": removal_token(public_id, config),
@@ -360,6 +397,13 @@ def upload_gallery_image(
 
 def list_gallery_images(*, limit: int = 24, cursor: str | None = None) -> dict:
     config = get_cloudinary_config()
+    cache_key = (config.cloud_name, limit, cursor)
+    now = time.monotonic()
+    with _GALLERY_LIST_CACHE_LOCK:
+        cached = _GALLERY_LIST_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            return deepcopy(cached[1])
+
     query: dict[str, object] = {
         "expression": "resource_type:image AND tags=gps-art-gallery",
         "sort_by": [{"created_at": "desc"}],
@@ -388,11 +432,26 @@ def list_gallery_images(*, limit: int = 24, cursor: str | None = None) -> dict:
         if (asset := _public_asset(resource)) is not None
     ]
     next_cursor = payload.get("next_cursor")
-    return {
+    result = {
         "configured": True,
         "assets": assets,
         "next_cursor": str(next_cursor) if next_cursor else None,
     }
+    with _GALLERY_LIST_CACHE_LOCK:
+        expired_keys = [
+            key
+            for key, (expires_at, _) in _GALLERY_LIST_CACHE.items()
+            if expires_at <= now
+        ]
+        for key in expired_keys:
+            _GALLERY_LIST_CACHE.pop(key, None)
+        while len(_GALLERY_LIST_CACHE) >= _GALLERY_LIST_CACHE_MAX_ENTRIES:
+            _GALLERY_LIST_CACHE.pop(next(iter(_GALLERY_LIST_CACHE)))
+        _GALLERY_LIST_CACHE[cache_key] = (
+            time.monotonic() + _GALLERY_LIST_CACHE_TTL_SECONDS,
+            deepcopy(result),
+        )
+    return result
 
 
 def delete_gallery_image(public_id: str, supplied_removal_token: str) -> bool:
@@ -425,4 +484,5 @@ def delete_gallery_image(public_id: str, supplied_removal_token: str) -> bool:
         raise CloudinaryGalleryError("Cloudinary returned an invalid removal response.") from exc
     if result not in {"ok", "not found"}:
         raise CloudinaryGalleryError("Cloudinary did not confirm gallery image removal.")
+    _clear_gallery_list_cache()
     return result == "ok"

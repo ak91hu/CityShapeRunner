@@ -1451,10 +1451,11 @@ function GalleryLightbox({ assets, activeIndex, onClose, onMove }) {
           )}
           <div className="gallery-lightbox-media">
             <img
-              src={asset.image_url}
+              src={asset.preview_url || asset.image_url}
               alt={`Anonymous GPS art route, gallery image ${activeIndex + 1} of ${assets.length}`}
               width={asset.width || undefined}
               height={asset.height || undefined}
+              decoding="async"
             />
           </div>
           {hasMultipleAssets && (
@@ -1508,7 +1509,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
     else setLoadingMore(true);
     setError("");
     try {
-      const response = await listGallery({ cursor, limit: 24 });
+      const response = await listGallery({ cursor, limit: 12 });
       setConfigured(response.configured !== false);
       setAssets((current) =>
         mergeGalleryAssets(current, response.assets, {
@@ -1591,9 +1592,11 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
                 aria-label={`Open gallery image ${index + 1} of ${assets.length}`}
               >
                 <img
-                  src={asset.image_url}
+                  src={asset.thumbnail_url || asset.image_url}
                   alt="Anonymous GPS art route on an OpenStreetMap street map"
-                  loading="lazy"
+                  loading={index < 4 ? "eager" : "lazy"}
+                  fetchPriority={index === 0 ? "high" : "low"}
+                  decoding="async"
                   width={asset.width || undefined}
                   height={asset.height || undefined}
                 />

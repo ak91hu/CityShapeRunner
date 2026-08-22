@@ -54,7 +54,17 @@ test("a gallery loading error is shown inside the gallery region", async ({ page
 test("gallery cards open a viewer with dimensions and an original-image link", async ({
   page,
 }) => {
-  const asset = galleryAsset("a", "first-map");
+  const asset = {
+    ...galleryAsset("a", "first-map"),
+    thumbnail_url: (
+      "https://res.cloudinary.com/demo/image/upload/"
+      + "c_limit,f_auto,q_auto:good,w_720/first-map.png"
+    ),
+    preview_url: (
+      "https://res.cloudinary.com/demo/image/upload/"
+      + "c_limit,f_auto,q_auto:good,w_1600/first-map.png"
+    ),
+  };
   await replaceGalleryRoute(page, (route) =>
     route.fulfill({
       status: 200,
@@ -67,6 +77,10 @@ test("gallery cards open a viewer with dimensions and an original-image link", a
   const image = page.getByRole("img", {
     name: "Anonymous GPS art route on an OpenStreetMap street map",
   });
+  await expect(image).toHaveAttribute("src", asset.thumbnail_url);
+  await expect(image).toHaveAttribute("loading", "eager");
+  await expect(image).toHaveAttribute("fetchpriority", "high");
+  await expect(image).toHaveAttribute("decoding", "async");
   await expect(image).toHaveAttribute("width", "900");
   await expect(image).toHaveAttribute("height", "600");
   await page.getByRole("button", { name: "Open gallery image 1 of 1" }).click();
@@ -76,7 +90,7 @@ test("gallery cards open a viewer with dimensions and an original-image link", a
   await expect(viewer).toHaveAttribute("aria-modal", "true");
   await expect(viewer.getByText("Image 1 of 1")).toBeVisible();
   const viewerImage = viewer.getByRole("img");
-  await expect(viewerImage).toHaveAttribute("src", asset.image_url);
+  await expect(viewerImage).toHaveAttribute("src", asset.preview_url);
   const fittedImage = await viewerImage.evaluate((element) => {
     const imageBox = element.getBoundingClientRect();
     const mediaBox = element.closest(".gallery-lightbox-media").getBoundingClientRect();
@@ -105,6 +119,27 @@ test("gallery cards open a viewer with dimensions and an original-image link", a
   await expect(originalLink).toHaveAttribute("rel", "noreferrer");
   await expect(viewer.getByRole("button", { name: "Previous gallery image" })).toHaveCount(0);
   await expect(viewer.getByRole("button", { name: "Next gallery image" })).toHaveCount(0);
+});
+
+test("gallery defers thumbnails beyond the first visible row", async ({ page }) => {
+  const assets = ["a", "b", "c", "d", "e"].map((character, index) => ({
+    ...galleryAsset(character, `map-${index + 1}`),
+    thumbnail_url: `https://res.cloudinary.com/demo/image/upload/thumb-${index + 1}.webp`,
+  }));
+  await replaceGalleryRoute(page, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, assets, next_cursor: null }),
+    }),
+  );
+  await page.goto("/");
+
+  const thumbnails = page.locator(".gallery-thumbnail img");
+  await expect(thumbnails).toHaveCount(5);
+  await expect(thumbnails.nth(1)).toHaveAttribute("fetchpriority", "low");
+  await expect(thumbnails.nth(3)).toHaveAttribute("loading", "eager");
+  await expect(thumbnails.nth(4)).toHaveAttribute("loading", "lazy");
 });
 
 test("gallery viewer navigates with controls and keyboard while preserving the list", async ({

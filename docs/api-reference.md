@@ -222,6 +222,13 @@ Query parameters: `limit` is 1–50 (default 24), `cursor` is an optional opaque
 {"configured": false, "assets": [], "next_cursor": null}
 ```
 
+Configured responses include each asset's original `image_url`, a compact
+`thumbnail_url` for the gallery grid, and a larger optimized `preview_url` for
+the viewer. The optimized Cloudinary variants preserve the complete map while
+using bounded dimensions, automatic format negotiation, and automatic quality.
+The listing is cached publicly for 30 seconds and can be served stale while it
+is refreshed; publication and removal invalidate the server's local cache.
+
 ### `POST /gallery`
 
 Requires `image_data_url` (100–8,000,000 characters), a server-issued `publish_token` (20–500 characters), and `confirm_public_location: true`. The confirmation is enforced by Pydantic.
