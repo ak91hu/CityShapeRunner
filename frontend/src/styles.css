@@ -6436,3 +6436,122 @@ textarea {
     transition: none;
   }
 }
+
+/* Product promise, candidate-search evidence, recovery, and export guidance. */
+.planner-proof {
+  max-width: 52rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 1.15rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planner-proof li {
+  min-width: 0;
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgb(11 107 87 / 18%);
+  border-radius: var(--radius-sm);
+  background: rgb(255 253 248 / 68%);
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 690;
+  line-height: 1.35;
+}
+
+.planner-proof strong {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand);
+  color: white;
+  font-size: 0.7rem;
+}
+
+.candidate-card-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.candidate-search-proof {
+  margin: 0.7rem 0 0;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgb(11 107 87 / 13%);
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.candidate-search-proof strong {
+  color: var(--brand-dark);
+}
+
+.error-recovery {
+  margin-top: 0.5rem;
+  font-weight: 650;
+}
+
+.error-reference {
+  margin: 0.55rem 0 0;
+  color: var(--muted) !important;
+  font-size: 0.66rem !important;
+}
+
+.error-reference code {
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+}
+
+.gpx-help {
+  margin-top: 0.8rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgb(11 107 87 / 16%);
+}
+
+.gpx-help summary {
+  color: var(--brand-dark);
+  font-size: 0.72rem;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.gpx-help ol {
+  margin: 0.7rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.gpx-help p {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 48rem) {
+  .planner-proof {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .candidate-search-proof {
+    margin-top: 0.6rem;
+  }
+
+  .candidate-card-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 23rem) {
+  .candidate-card-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

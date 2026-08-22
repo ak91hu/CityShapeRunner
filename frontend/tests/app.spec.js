@@ -514,6 +514,10 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
       await route.fulfill({
         status: 503,
         contentType: "application/json",
+        headers: {
+          "X-Request-ID": "routing-503-test",
+          "Retry-After": "5",
+        },
         body: JSON.stringify({ detail: "Road routing is temporarily unavailable." }),
       });
       return;
@@ -532,9 +536,12 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   await expect(alert).toBeVisible();
   await expect(alert).toBeFocused();
   await expect(
-    alert.getByRole("heading", { name: "We couldn’t finish this route" }),
+    alert.getByRole("heading", { name: "Route planner temporarily unavailable" }),
   ).toBeVisible();
   await expect(alert).toContainText("Road routing is temporarily unavailable.");
+  await expect(alert).toContainText("Your route idea is still here");
+  await expect(alert).toContainText("waiting 5 seconds");
+  await expect(alert).toContainText("routing-503-test");
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 
   await page.getByRole("button", { name: "Try again" }).click();

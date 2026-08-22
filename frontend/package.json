@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:cross-browser": "playwright test --config=playwright.cross-browser.config.js",
     "test:prod-gallery": "playwright test --config=playwright.prod.config.js"
   },
   "dependencies": {

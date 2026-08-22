@@ -1,10 +1,18 @@
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 export class ApiError extends Error {
-  constructor(message, status = null) {
+  constructor(
+    message,
+    status = null,
+    { requestId = null, retryAfter = null, category = "request" } = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.requestId = requestId;
+    this.retryAfter = retryAfter;
+    this.category = category;
+    this.retryable = status == null || status === 408 || status === 429 || status >= 500;
   }
 }
 
@@ -40,16 +48,26 @@ async function request(
       },
     });
     const data = await response.json().catch(() => null);
+    const requestId = response.headers.get("X-Request-ID");
+    const retryAfter = response.headers.get("Retry-After");
 
     if (!response.ok) {
       const detail = typeof data?.detail === "string" ? data.detail : null;
       throw new ApiError(
         detail || `Something went wrong while planning your route (${response.status}).`,
         response.status,
+        {
+          requestId,
+          retryAfter,
+          category: response.status === 429 ? "busy" : response.status >= 500 ? "service" : "request",
+        },
       );
     }
     if (data == null) {
-      throw new ApiError("We didn’t receive a route. Please try again.", response.status);
+      throw new ApiError("We didn’t receive a route. Please try again.", response.status, {
+        requestId,
+        category: "response",
+      });
     }
 
     return data;
@@ -57,6 +75,8 @@ async function request(
     if (timedOut) {
       throw new ApiError(
         timeoutMessage || "The service didn’t respond in time. Please try again.",
+        null,
+        { category: "timeout" },
       );
     }
     if (signal?.aborted) {
@@ -64,7 +84,11 @@ async function request(
     }
     if (error instanceof ApiError) throw error;
     if (error?.name === "AbortError") throw error;
-    throw new ApiError("We can’t reach the route planner. Check your connection and try again.");
+    throw new ApiError(
+      "We can’t reach the route planner. Check your connection and try again.",
+      null,
+      { category: "network" },
+    );
   } finally {
     if (timeoutId !== null) window.clearTimeout(timeoutId);
     signal?.removeEventListener("abort", forwardAbort);

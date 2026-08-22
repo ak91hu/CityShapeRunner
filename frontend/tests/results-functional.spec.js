@@ -151,6 +151,21 @@ test("route option cards compare ready and review candidates", async ({ page }) 
   await expect(cards.nth(1)).toContainText("21.40");
   await expect(cards.nth(1)).toContainText("Review");
   await expect(options).toContainText("1 ready · 1 to review");
+  await expect(options).toContainText("164 placements screened");
+  await expect(options).toContainText("2 street routes measured");
+  await expect(options).toContainText("drawing likeness, distance, closure");
+});
+
+test("GPX export explains the account-free Garmin, Strava, and Komoot workflow", async ({
+  page,
+}) => {
+  await openGeneratedRoute(page);
+
+  const help = page.locator(".gpx-help");
+  await help.getByText("Use this GPX with Garmin, Strava, or Komoot").click();
+  await expect(help).toContainText("Download the GPX file");
+  await expect(help).toContainText("route or course import tool");
+  await expect(help).toContainText("does not connect to your account");
 });
 
 test("selecting a review candidate updates all headline metrics", async ({ page }) => {

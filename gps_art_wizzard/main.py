@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
         allow_origins=[o.strip() for o in origins.split(",") if o.strip()],
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID", "Retry-After"],
     )
 
     @app.middleware("http")

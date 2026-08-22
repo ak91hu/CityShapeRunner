@@ -2058,7 +2058,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           <section className="candidate-compare" aria-labelledby="route-options-title">
             <div className="candidate-compare-heading">
               <div>
-                <span className="eyebrow">Compare</span>
+                <span className="eyebrow">Best-route search</span>
                 <h3 id="route-options-title">Route options</h3>
               </div>
               <span>
@@ -2092,6 +2092,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                         {index === 0 ? "Best overall match" : normaliseLabel(candidate.shape_name)}
                       </strong>
                       <span className="candidate-card-metrics">
+                        <span><b>{formatPercent(candidate.validation?.score)}</b> overall</span>
                         <span><b>{formatPercent(candidate.validation?.shape_fidelity)}</b> likeness</span>
                         <span><b>{formatMetric(candidate.distance_km)}</b> km</span>
                         <span>
@@ -2109,6 +2110,20 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </div>
             ) : (
               <p className="candidate-empty">Showing the closest route the planner found.</p>
+            )}
+            {(candidateSummary.preflight_count ?? result.preflight_count ?? 0) > 0 &&
+              candidates.length > 0 && (
+              <p className="candidate-search-proof">
+                <strong>
+                  {(candidateSummary.preflight_count ?? result.preflight_count).toLocaleString()} placements screened
+                </strong>
+                <span aria-hidden="true"> · </span>
+                {candidateSummary.full_route_attempt_count ?? result.candidate_count ?? 0} street
+                routes measured
+                <span aria-hidden="true"> · </span>
+                strongest {candidates.length} shown. The winner balances drawing likeness,
+                distance, closure, and connected-street checks.
+              </p>
             )}
           </section>
 
@@ -2587,6 +2602,20 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 </button>
               )}
             </div>
+            {roadRouted && activeRoute.gpx && (
+              <details className="gpx-help">
+                <summary>Use this GPX with Garmin, Strava, or Komoot</summary>
+                <ol>
+                  <li>Download the GPX file above.</li>
+                  <li>Open your platform’s route or course import tool and select the file.</li>
+                  <li>Check the imported map, direction, access, and surface before saving it.</li>
+                </ol>
+                <p>
+                  Import wording differs by platform. GPS Art Wizard keeps the standard GPX route
+                  portable and does not connect to your account.
+                </p>
+              </details>
+            )}
             {exportBlockedByPendingEdits && (
               <p className="pending-edit-note" role="status">
                 Apply or discard your changes before downloading.
@@ -2743,7 +2772,7 @@ export default function App() {
   const [imageDistance, setImageDistance] = useState("10");
   const [imageErrors, setImageErrors] = useState({});
   const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [suggestCity, setSuggestCity] = useState(SUGGEST_CITIES[0]);
   const [suggestSport, setSuggestSport] = useState("run");
   const [suggestDistance, setSuggestDistance] = useState("10");
@@ -2830,7 +2859,7 @@ export default function App() {
     lastGenerationRef.current = { prompt: cleanPrompt, payload: extraPayload };
     setLoadingKind(extraPayload.reference_image_url ? "image" : "route");
     setLoading(true);
-    setError("");
+    setError(null);
     setResult(null);
 
     try {
@@ -2841,10 +2870,16 @@ export default function App() {
       setResult(response);
     } catch (generationError) {
       if (generationError.name !== "AbortError") {
-        setError(
-          generationError.message ||
+        setError({
+          message:
+            generationError.message ||
             "We couldn’t make that route. Check the idea and try again.",
-        );
+          status: generationError.status ?? null,
+          requestId: generationError.requestId ?? null,
+          retryAfter: generationError.retryAfter ?? null,
+          category: generationError.category ?? "request",
+          retryable: generationError.retryable !== false,
+        });
       }
     } finally {
       if (requestRef.current === controller) {
@@ -2982,6 +3017,11 @@ export default function App() {
               Describe a drawing and a place. We’ll fit it to connected streets, compare the
               strongest routes, and prepare the one you can actually follow.
             </p>
+            <ol className="planner-proof" aria-label="How GPS Art Wizard finds a route">
+              <li><strong>1</strong><span>Screen many placements</span></li>
+              <li><strong>2</strong><span>Measure real street routes</span></li>
+              <li><strong>3</strong><span>Explain why the best one won</span></li>
+            </ol>
             <p className="planner-safety-note">
               Check access, crossings, traffic, surfaces, and current conditions before using a
               route.
@@ -3448,8 +3488,25 @@ export default function App() {
               !
             </div>
             <div>
-              <h2>We couldn’t finish this route</h2>
-              <p>{error}</p>
+              <h2>
+                {error.category === "busy"
+                  ? "Route planner is busy"
+                  : error.retryable
+                    ? "Route planner temporarily unavailable"
+                    : "We couldn’t finish this route"}
+              </h2>
+              <p>{error.message}</p>
+              {error.retryable && (
+                <p className="error-recovery">
+                  Your route idea is still here and nothing was published. You can retry safely.
+                  {error.retryAfter ? ` The service suggested waiting ${error.retryAfter} seconds.` : ""}
+                </p>
+              )}
+              {error.requestId && (
+                <p className="error-reference">
+                  Support reference: <code>{error.requestId}</code>
+                </p>
+              )}
               <button
                 type="button"
                 className="button button--secondary"

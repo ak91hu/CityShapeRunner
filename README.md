@@ -287,6 +287,15 @@ the browser once with `cd frontend && npx playwright install chromium`. See the
 [testing guide](docs/testing.md) for targeted commands, suite ownership,
 Playwright debugging, and the Windows temporary-directory workaround.
 
+An optional compatibility run exercises the same suite in desktop Firefox and
+WebKit (Safari's browser engine) without changing the Chromium CI gate:
+
+```bash
+cd frontend
+npx playwright install firefox webkit
+npm run test:cross-browser
+```
+
 ## Hosting
 
 The searchable [MkDocs technical documentation](https://ak91hu.github.io/CityShapeRunner/)

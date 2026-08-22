@@ -293,6 +293,50 @@ test("cancelling an in-flight generation restores the designer without an error"
   await expect(page.locator(".result")).toHaveCount(0);
 });
 
+test("an aborted older response cannot overwrite a newer route", async ({ page }) => {
+  await installEmptyGallery(page);
+  let requestCount = 0;
+  let releaseFirstRequest;
+  const firstRequestGate = new Promise((resolve) => {
+    releaseFirstRequest = resolve;
+  });
+  const newerResult = buildResult();
+  newerResult.request_id = "newer-route-request";
+  newerResult.prompt = "a star run in Szeged, about 8 km";
+  newerResult.intent = { ...newerResult.intent, city: "Szeged" };
+
+  await page.route("**/generate", async (route) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      await firstRequestGate;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(buildResult()),
+      }).catch(() => {});
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(newerResult),
+    });
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Find routes" }).click();
+  await expect.poll(() => requestCount).toBe(1);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByLabel("Drawing and location").fill(newerResult.prompt);
+  await page.getByRole("button", { name: "Find routes" }).click();
+
+  await expect(page.getByRole("heading", { name: "Star in Szeged" })).toBeVisible();
+  releaseFirstRequest();
+  await page.waitForTimeout(300);
+  await expect(page.getByRole("heading", { name: "Star in Szeged" })).toBeVisible();
+  await expect(page.locator(".route-facts")).toContainText("newer-route-request");
+});
+
 test("reduced motion keeps route generation informative without moving graphics", async ({
   page,
 }) => {

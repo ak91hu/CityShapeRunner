@@ -44,6 +44,18 @@ def test_unsafe_request_id_is_replaced():
     assert len(request_id) == 32
 
 
+def test_browser_clients_can_read_request_correlation_headers():
+    with TestClient(create_app()) as client:
+        response = client.get(
+            "/health",
+            headers={"Origin": "http://localhost:5173"},
+        )
+
+    exposed = response.headers["Access-Control-Expose-Headers"].casefold()
+    assert "x-request-id" in exposed
+    assert "retry-after" in exposed
+
+
 def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
     request_token = bind_request_id("debug-session-123")
     monkeypatch.setenv("SERVICE_NAME", "gps-art-wizard")

@@ -7,16 +7,82 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f4f6f4" />
     <meta name="color-scheme" content="light" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://p01--cityshaperunner--vnycn2g6bghl.code.run/" />
     <title>GPS Art Wizard | GPS art route planner</title>
     <meta
       name="description"
       content="Plan a run or ride that draws a picture on the map, then download it as a GPX or TCX route."
     />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="GPS Art Wizard" />
+    <meta property="og:title" content="GPS Art Wizard | Find the best GPS art route" />
+    <meta
+      property="og:description"
+      content="Screen many placements, compare real street routes, and download the strongest GPS art route as GPX or TCX."
+    />
+    <meta property="og:url" content="https://p01--cityshaperunner--vnycn2g6bghl.code.run/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="GPS Art Wizard | Find the best GPS art route" />
+    <meta
+      name="twitter:description"
+      content="Turn a drawing into a running or cycling route, compare the strongest street fits, and export GPX or TCX."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "GPS Art Wizard",
+        "url": "https://p01--cityshaperunner--vnycn2g6bghl.code.run/",
+        "description": "A GPS art route planner that screens multiple placements and compares routed candidates on real streets.",
+        "applicationCategory": "SportsApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires JavaScript and a modern web browser",
+        "featureList": [
+          "GPS art route generation for running and cycling",
+          "Multiple routed candidate comparison",
+          "Shape and route quality inspection",
+          "GPX and TCX export"
+        ]
+      }
+    </script>
+    <style>
+      .static-app-shell {
+        width: min(100% - 2rem, 72rem);
+        margin: 0 auto;
+        padding: clamp(2rem, 7vw, 6rem) 0;
+        color: #18201e;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      .static-app-shell h1 { max-width: 16ch; margin: 0; font-size: clamp(2.4rem, 7vw, 5rem); line-height: 0.98; }
+      .static-app-shell > p { max-width: 45rem; margin: 1.25rem 0; color: #3f4c47; font-size: 1.1rem; line-height: 1.6; }
+      .static-app-shell ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; padding: 0; list-style: none; }
+      .static-app-shell li { padding: 1rem; border: 1px solid #d9ddd6; border-radius: 1rem; background: #fffdf8; }
+      .static-app-shell strong { display: block; margin-bottom: 0.25rem; color: #0b6b57; }
+      @media (max-width: 40rem) { .static-app-shell ol { grid-template-columns: 1fr; } }
+    </style>
   </head>
   <body>
-    <noscript>Turn on JavaScript to create and view GPS art routes.</noscript>
-    <div id="root"></div>
+    <noscript>
+      GPS Art Wizard needs JavaScript for the interactive map and route generation. The overview
+      below remains available; enable JavaScript and reload to create a route.
+    </noscript>
+    <div id="root">
+      <main class="static-app-shell" id="route-designer">
+        <h1>Find the best GPS art route on real streets</h1>
+        <p>
+          GPS Art Wizard does more than snap one drawing to roads. It screens many placements,
+          measures connected running or cycling routes, compares their quality, and prepares the
+          strongest result for GPX or TCX download.
+        </p>
+        <ol aria-label="How GPS Art Wizard works">
+          <li><strong>1. Describe</strong>A shape, city, activity, and approximate distance.</li>
+          <li><strong>2. Compare</strong>Multiple placements and real street routes.</li>
+          <li><strong>3. Inspect</strong>Shape match, distance, closure, and route concerns.</li>
+        </ol>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
