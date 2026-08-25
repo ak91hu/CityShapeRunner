@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
 from ..state import RoutePreferences
@@ -218,6 +218,7 @@ def curated_destination_art() -> dict:
                 "name": entry.name,
                 "blurb": entry.blurb,
                 "distance_km": entry.distance_km,
+                "country_code": entry.country_code,
                 "sport": entry.sport,
                 "partner_ready": entry.partner_ready,
             }
@@ -228,14 +229,56 @@ def curated_destination_art() -> dict:
 
 @router.get("/occasions")
 def upcoming_occasions(
+    request: Request,
     days_ahead: int = Query(default=60, ge=1, le=365),
+    country: str | None = Query(default=None, min_length=2, max_length=8),
+    timezone: str | None = Query(default=None, max_length=80),
+    locale: str | None = Query(default=None, max_length=35),
 ) -> dict:
-    """Date-aware drawing suggestions for gifts, holidays, and national days."""
+    """Date-aware suggestions localised from privacy-safe region hints."""
+
+    resolved_country = occasions.normalise_country_code(country)
+    location_basis = "country"
+
+    if not resolved_country:
+        for header in (
+            "cf-ipcountry",
+            "x-vercel-ip-country",
+            "cloudfront-viewer-country",
+            "x-country-code",
+        ):
+            resolved_country = occasions.normalise_country_code(request.headers.get(header))
+            if resolved_country:
+                location_basis = "network_region"
+                break
+
+    if not resolved_country:
+        resolved_country = occasions.country_from_timezone(timezone)
+        location_basis = "timezone"
+
+    if not resolved_country:
+        resolved_country = occasions.country_from_locale(locale)
+        location_basis = "locale"
+
+    if not resolved_country:
+        accept_language = request.headers.get("accept-language", "").split(",", 1)[0]
+        resolved_country = occasions.country_from_locale(accept_language)
+        location_basis = "browser_language"
+
+    if not resolved_country:
+        resolved_country = "HU"
+        location_basis = "default"
 
     return {
         "generated_on": date.today().isoformat(),
         "days_ahead": days_ahead,
-        "occasions": occasions.upcoming_occasions(days_ahead=days_ahead),
+        "country_code": resolved_country,
+        "country_name": occasions.COUNTRY_NAMES.get(resolved_country, "your region"),
+        "location_basis": location_basis,
+        "occasions": occasions.upcoming_occasions(
+            days_ahead=days_ahead,
+            country_code=resolved_country,
+        ),
     }
 
 

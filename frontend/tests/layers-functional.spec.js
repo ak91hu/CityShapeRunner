@@ -59,6 +59,8 @@ test("upcoming occasions fill the prompt with a dated drawing", async ({ page })
   await page.goto("/");
   const strip = page.getByRole("region", { name: "Route inspiration" });
   await expect(strip).toBeVisible();
+  await expect(strip.locator("summary")).toContainText("Seasonal ideas for your region");
+  await strip.locator("summary").click();
   await expect(strip.locator(".occasion-chip")).toHaveCount(3);
 
   await strip.locator(".occasion-chip").first().click();
@@ -71,6 +73,30 @@ test("the occasion strip stays hidden when the service is unavailable", async ({
   await page.route("**/occasions*", (route) => route.fulfill({ status: 500, body: "{}" }));
   await page.goto("/");
   await expect(page.getByRole("region", { name: "Route inspiration" })).toHaveCount(0);
+});
+
+test("upcoming occasions send privacy-safe region hints and explain their relevance", async ({ page }) => {
+  let requestedUrl = "";
+  await page.route("**/occasions*", (route) => {
+    requestedUrl = route.request().url();
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        country_code: "DE",
+        country_name: "Germany",
+        location_basis: "network_region",
+        occasions: [OCCASIONS.occasions[1]],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await expect.poll(() => requestedUrl).not.toBe("");
+  const regionParams = new URL(requestedUrl).searchParams;
+  expect(regionParams.get("locale")).toBeTruthy();
+  expect(regionParams.has("timezone")).toBe(true);
+  await expect(page.getByRole("region", { name: "Route inspiration" }).locator("summary"))
+    .toContainText("Seasonal ideas for Germany");
 });
 
 test("night-run check reports lighting shares and maps unlit sections", async ({ page }) => {

@@ -216,8 +216,12 @@ export function requestRouteLandmarks(payload, options = {}) {
 }
 
 export function fetchOccasions(options = {}) {
-  const { daysAhead = 60, ...requestOptions } = options;
-  return request(`/occasions?days_ahead=${daysAhead}`, {
+  const { daysAhead = 60, country, timezone, locale, ...requestOptions } = options;
+  const params = new URLSearchParams({ days_ahead: String(daysAhead) });
+  if (country) params.set("country", country);
+  if (timezone) params.set("timezone", timezone);
+  if (locale) params.set("locale", locale);
+  return request(`/occasions?${params}`, {
     ...requestOptions,
     timeoutMs: 8_000,
   });
