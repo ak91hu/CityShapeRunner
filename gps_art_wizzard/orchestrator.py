@@ -26,7 +26,15 @@ from .config import get_settings
 from .graph import build_nodes
 from .logging_config import current_request_id
 from .quality import passes_quality_gates, quality_bottleneck, quality_gate_report
-from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, WorkflowState
+from .state import (
+    FitDecision,
+    Intent,
+    LatLon,
+    MapPlacement,
+    RoutePreferences,
+    Shape,
+    WorkflowState,
+)
 from .workflow_runtime import WorkflowRuntime
 
 log = logging.getLogger(__name__)
@@ -58,6 +66,7 @@ class Orchestrator:
         reference_image_data_url: str | None = None,
         reference_name: str | None = None,
         reference_kind: str | None = None,
+        map_placement: MapPlacement | None = None,
     ) -> WorkflowState:
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a string")
@@ -78,6 +87,7 @@ class Orchestrator:
             reference_image_data_url=reference_image_data_url,
             reference_name=reference_name,
             reference_kind=reference_kind,
+            map_placement=copy.deepcopy(map_placement),
         )
         cfg = get_settings().workflow
         runtime = WorkflowRuntime(
@@ -105,6 +115,18 @@ class Orchestrator:
                 else state.intent.shape
             )
         n["planning"].run(state)
+        if state.map_placement is not None:
+            state.history.append(
+                {
+                    "agent": "planning",
+                    "note": "user-positioned map footprint applied",
+                    "center_lat": state.map_placement.center_lat,
+                    "center_lon": state.map_placement.center_lon,
+                    "scale_m": state.map_placement.scale_m,
+                    "rotation_deg": state.map_placement.rotation_deg,
+                    "search_radius_m": state.map_placement.search_radius_m,
+                }
+            )
         n["shape"].run(state)
         n["placement"].run(state)
         n["preflight"].run(state)

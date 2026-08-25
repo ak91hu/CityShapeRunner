@@ -264,6 +264,29 @@ export function fetchDestinations(options = {}) {
   });
 }
 
+export function fetchShapeTemplates(options = {}) {
+  return request("/shape-templates", {
+    ...options,
+    timeoutMs: 8_000,
+  });
+}
+
+export function fetchShapePlacementPreview(
+  { shape, city, sport = "run", distanceKm = 10 },
+  options = {},
+) {
+  const params = new URLSearchParams({
+    shape,
+    city,
+    sport,
+    distance_km: String(distanceKm),
+  });
+  return request(`/shape-placement-preview?${params}`, {
+    ...options,
+    timeoutMs: 12_000,
+  });
+}
+
 export function listGallery({ cursor = null, limit = 24, campaign = null, ...options } = {}) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);

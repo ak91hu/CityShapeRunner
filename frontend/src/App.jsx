@@ -7,6 +7,8 @@ import {
   createMuralPlan,
   fetchDestinations,
   fetchOccasions,
+  fetchShapePlacementPreview,
+  fetchShapeTemplates,
   interpretRoute,
   listGallery,
   publishGalleryImage,
@@ -21,6 +23,7 @@ import {
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
+const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
 const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
 
 const CORE_IDEAS = [
@@ -205,6 +208,20 @@ const IDEA_CATEGORIES = [
   "Letters, numbers & text",
 ];
 const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
+const MAP_PLACEMENT_FALLBACK_SHAPES = [
+  { id: "heart", label: "Heart" },
+  { id: "star", label: "Star" },
+  { id: "circle", label: "Circle" },
+  { id: "diamond", label: "Diamond" },
+  { id: "triangle", label: "Triangle" },
+  { id: "square", label: "Square" },
+  { id: "arrow", label: "Arrow" },
+  { id: "flower", label: "Flower" },
+  { id: "cat", label: "Cat" },
+  { id: "sailboat", label: "Sailboat" },
+  { id: "crown", label: "Crown" },
+  { id: "dragon", label: "Dragon" },
+];
 const DISTINCT_IDEA_GLYPHS = Object.freeze({
   Bat: "🦇",
   Bear: "🐻",
@@ -1234,6 +1251,180 @@ function OccasionStrip({ disabled, onPick, city }) {
         )}
       </div>
     </details>
+  );
+}
+
+function normalisePlacementRotation(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return ((numeric + 180) % 360 + 360) % 360 - 180;
+}
+
+function ShapePlacementOverlay({ open, preview, onClose, onConfirm, busy }) {
+  const dialogRef = useModalDialog(open, onClose);
+  const [center, setCenter] = useState(preview?.center ?? [47.4979, 19.0402]);
+  const [scaleM, setScaleM] = useState(preview?.scale_m ?? 2_000);
+  const [rotationDeg, setRotationDeg] = useState(
+    normalisePlacementRotation(preview?.rotation_deg ?? 0),
+  );
+  const [searchRadiusM, setSearchRadiusM] = useState(900);
+
+  useEffect(() => {
+    if (!open || !preview) return;
+    setCenter(preview.center);
+    setScaleM(preview.scale_m);
+    setRotationDeg(normalisePlacementRotation(preview.rotation_deg));
+    setSearchRadiusM(900);
+  }, [open, preview]);
+
+  if (!open || !preview) return null;
+  const scaleStep = 50;
+  const minimumScale = Math.max(
+    100,
+    Math.floor((preview.scale_m * 0.45) / scaleStep) * scaleStep,
+  );
+  const maximumScale = Math.min(
+    50_000,
+    Math.ceil((preview.scale_m * 1.8) / scaleStep) * scaleStep,
+  );
+
+  return (
+    <div
+      className="shape-placement-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shape-placement-title"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <section className="shape-placement-sheet">
+        <header className="shape-placement-heading">
+          <div>
+            <span className="eyebrow">Manual map placement</span>
+            <h2 id="shape-placement-title">Position the {preview.label.toLowerCase()}</h2>
+            <p>Click the map or drag the centre handle. The planner will test nearby streets.</p>
+          </div>
+          <button
+            type="button"
+            className="button button--quiet shape-placement-close"
+            onClick={onClose}
+            aria-label="Close shape placement map"
+            data-dialog-initial-focus
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="shape-placement-workspace">
+          <div className="shape-placement-map-shell">
+            <Suspense fallback={<div className="shape-placement-map-fallback">Loading map…</div>}>
+              <ShapePlacementMap
+                paths={preview.paths}
+                center={center}
+                cityBbox={preview.city_bbox}
+                scaleM={scaleM}
+                rotationDeg={rotationDeg}
+                shapeLabel={preview.label.toLowerCase()}
+                onCenterChange={setCenter}
+              />
+            </Suspense>
+            <p className="shape-placement-map-hint">
+              Approximate centre: {center[0].toFixed(4)}, {center[1].toFixed(4)}
+            </p>
+          </div>
+
+          <aside className="shape-placement-controls" aria-label="Shape placement controls">
+            <div className="shape-placement-selection">
+              <strong>{preview.label}</strong>
+              <span>{preview.city} · {preview.sport === "bike" ? "Cycling" : "Running"} · {preview.distance_km} km</span>
+            </div>
+            <label htmlFor="placement-size">
+              Footprint size
+              <output htmlFor="placement-size">{(scaleM / 1_000).toFixed(1)} km</output>
+            </label>
+            <input
+              id="placement-size"
+              type="range"
+              min={minimumScale}
+              max={maximumScale}
+              step={scaleStep}
+              value={scaleM}
+              onChange={(event) => setScaleM(Number(event.target.value))}
+            />
+            <small>Larger footprints usually produce longer, simpler street segments.</small>
+
+            <label htmlFor="placement-rotation">
+              Rotation
+              <output htmlFor="placement-rotation">{Math.round(rotationDeg)}°</output>
+            </label>
+            <input
+              id="placement-rotation"
+              type="range"
+              min="-180"
+              max="180"
+              step="1"
+              value={rotationDeg}
+              onChange={(event) => setRotationDeg(Number(event.target.value))}
+            />
+            <small>Turn the drawing to follow the dominant street direction.</small>
+
+            <label htmlFor="placement-search-radius">
+              Nearby fine-tuning
+              <output htmlFor="placement-search-radius">±{Math.round(searchRadiusM)} m</output>
+            </label>
+            <input
+              id="placement-search-radius"
+              type="range"
+              min="200"
+              max="2000"
+              step="100"
+              value={searchRadiusM}
+              onChange={(event) => setSearchRadiusM(Number(event.target.value))}
+            />
+            <small>The route search stays close to your chosen position.</small>
+
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={() => {
+                setCenter(preview.center);
+                setScaleM(preview.scale_m);
+                setRotationDeg(normalisePlacementRotation(preview.rotation_deg));
+                setSearchRadiusM(900);
+              }}
+              disabled={busy}
+            >
+              Reset placement
+            </button>
+          </aside>
+        </div>
+
+        <div className="shape-placement-actions">
+          <p>The orange line is a guide. The generated GPX will follow connected streets.</p>
+          <div>
+            <button type="button" className="button button--quiet" onClick={onClose} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() =>
+                onConfirm({
+                  center_lat: Number(center[0].toFixed(6)),
+                  center_lon: Number(center[1].toFixed(6)),
+                  scale_m: Number(scaleM),
+                  rotation_deg: Number(rotationDeg),
+                  search_radius_m: Number(searchRadiusM),
+                })
+              }
+              disabled={busy}
+            >
+              {busy ? "Starting route search…" : "Fit to streets and create GPX"}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -4195,6 +4386,15 @@ export default function App() {
   const [imageSport, setImageSport] = useState("run");
   const [imageDistance, setImageDistance] = useState("10");
   const [imageErrors, setImageErrors] = useState({});
+  const [mapTemplates, setMapTemplates] = useState(MAP_PLACEMENT_FALLBACK_SHAPES);
+  const [mapShape, setMapShape] = useState("heart");
+  const [mapCity, setMapCity] = useState(SUGGEST_CITIES[0]);
+  const [mapSport, setMapSport] = useState("run");
+  const [mapDistance, setMapDistance] = useState("10");
+  const [mapPlacementPreview, setMapPlacementPreview] = useState(null);
+  const [mapPlacementOpen, setMapPlacementOpen] = useState(false);
+  const [mapPlacementBusy, setMapPlacementBusy] = useState(false);
+  const [mapPlacementError, setMapPlacementError] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [suggestCity, setSuggestCity] = useState(SUGGEST_CITIES[0]);
@@ -4222,6 +4422,8 @@ export default function App() {
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
   const interpretationRef = useRef(null);
+  const mapPreviewRef = useRef(null);
+  const mapTemplatesRequestedRef = useRef(false);
   const lastGenerationRef = useRef(null);
   const loadingRef = useRef(null);
   const resultRef = useRef(null);
@@ -4293,6 +4495,7 @@ export default function App() {
     () => () => {
       requestRef.current?.abort();
       interpretationRef.current?.abort();
+      mapPreviewRef.current?.abort();
     },
     [],
   );
@@ -4317,15 +4520,102 @@ export default function App() {
     );
   }, [ideaQuery]);
 
-  function buildPlanningPayload(extraPayload = {}) {
-    const payload = { ...extraPayload };
-    const cleanAddress = startAddress.trim();
-    if (cleanAddress) {
-      payload.start_address = cleanAddress;
-    } else if (startPoint) {
-      payload.start_point = startPoint;
+  async function loadMapPlacementTemplates() {
+    if (mapTemplatesRequestedRef.current) return;
+    mapTemplatesRequestedRef.current = true;
+    try {
+      const response = await fetchShapeTemplates();
+      const templates = (response?.shapes ?? []).filter(
+        (item) => typeof item?.id === "string" && typeof item?.label === "string",
+      );
+      if (templates.length > 0) setMapTemplates(templates);
+    } catch {
+      // The popular fallback list keeps this optional flow usable.
     }
-    if (startDirection !== "") payload.start_direction_deg = Number(startDirection);
+  }
+
+  async function openMapPlacement(event) {
+    event.preventDefault();
+    if (loading || mapPlacementBusy) return;
+    const { errors, numericDistance } = validateSuggestion({
+      city: mapCity,
+      sport: mapSport,
+      distance: mapDistance,
+    });
+    if (!mapTemplates.some((item) => item.id === mapShape)) {
+      errors.shape = "Choose a shape from the list.";
+    }
+    if (Object.keys(errors).length > 0) {
+      setMapPlacementError(Object.values(errors)[0]);
+      return;
+    }
+
+    const controller = new AbortController();
+    mapPreviewRef.current?.abort();
+    mapPreviewRef.current = controller;
+    setMapPlacementBusy(true);
+    setMapPlacementError("");
+    try {
+      const preview = await fetchShapePlacementPreview(
+        {
+          shape: mapShape,
+          city: mapCity,
+          sport: mapSport,
+          distanceKm: numericDistance,
+        },
+        { signal: controller.signal },
+      );
+      setMapPlacementPreview(preview);
+      setMapPlacementOpen(true);
+    } catch (requestError) {
+      if (requestError.name !== "AbortError") {
+        setMapPlacementError(
+          requestError.message || "We couldn’t prepare the placement map. Try again.",
+        );
+      }
+    } finally {
+      if (mapPreviewRef.current === controller) {
+        mapPreviewRef.current = null;
+        setMapPlacementBusy(false);
+      }
+    }
+  }
+
+  async function confirmMapPlacement(placement) {
+    if (!mapPlacementPreview || loading || mapPlacementBusy) return;
+    const activityWord = mapSport === "bike" ? "cycling" : "running";
+    const routePrompt = `${mapShape} in ${mapCity}, ${activityWord}, about ${mapDistance} km`;
+    setPrompt(routePrompt);
+    setPromptError("");
+    setMapPlacementBusy(true);
+    setMapPlacementOpen(false);
+    try {
+      await generate(
+        routePrompt,
+        buildPlanningPayload(
+          { map_placement: placement },
+          { includeStartConstraints: false },
+        ),
+      );
+    } finally {
+      setMapPlacementBusy(false);
+    }
+  }
+
+  function buildPlanningPayload(
+    extraPayload = {},
+    { includeStartConstraints = true } = {},
+  ) {
+    const payload = { ...extraPayload };
+    if (includeStartConstraints) {
+      const cleanAddress = startAddress.trim();
+      if (cleanAddress) {
+        payload.start_address = cleanAddress;
+      } else if (startPoint) {
+        payload.start_point = startPoint;
+      }
+      if (startDirection !== "") payload.start_direction_deg = Number(startDirection);
+    }
     if (Object.values(routePreferences).some(Boolean)) {
       payload.route_preferences = routePreferences;
     }
@@ -4984,8 +5274,127 @@ export default function App() {
 
             <div className="alternate-starts-heading">
               <strong>Other ways to start</strong>
-              <span>Use separate fields or begin with an image.</span>
+              <span>Place a shape yourself, use separate fields, or begin with an image.</span>
             </div>
+
+            <details
+              className="map-placement-panel"
+              onToggle={(event) => {
+                if (event.currentTarget.open) loadMapPlacementTemplates();
+              }}
+            >
+              <summary>
+                <span>
+                  <strong>Place a shape on the map</strong>
+                  <small>Choose an outline, then move, size, and rotate it before routing.</small>
+                </span>
+                <b aria-hidden="true">+</b>
+              </summary>
+              <form className="map-placement-form" onSubmit={openMapPlacement} noValidate>
+                <div className="map-placement-fields">
+                  <div className="field">
+                    <label htmlFor="map-placement-shape">Shape</label>
+                    <select
+                      id="map-placement-shape"
+                      value={mapShape}
+                      onChange={(event) => {
+                        setMapShape(event.target.value);
+                        setMapPlacementError("");
+                      }}
+                      disabled={loading || mapPlacementBusy}
+                    >
+                      {mapTemplates.map((shape) => (
+                        <option key={shape.id} value={shape.id}>{shape.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="map-placement-city">Map city</label>
+                    <select
+                      id="map-placement-city"
+                      value={mapCity}
+                      onChange={(event) => {
+                        setMapCity(event.target.value);
+                        setMapPlacementError("");
+                      }}
+                      disabled={loading || mapPlacementBusy}
+                    >
+                      {SUGGEST_CITY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.cities.map((cityName) => (
+                            <option key={cityName} value={cityName}>{cityName}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <fieldset className="field field--activity">
+                    <legend>Activity</legend>
+                    <div className="activity-options">
+                      {[
+                        ["run", "Running"],
+                        ["bike", "Cycling"],
+                      ].map(([value, label]) => (
+                        <label className="activity-option" key={value}>
+                          <input
+                            type="radio"
+                            name="map-placement-activity"
+                            value={value}
+                            checked={mapSport === value}
+                            onChange={() => {
+                              setMapSport(value);
+                              setMapPlacementError("");
+                              if (value === "bike" && Number(mapDistance) < 10) {
+                                setMapDistance("10");
+                              }
+                            }}
+                            disabled={loading || mapPlacementBusy}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div className="field field--distance">
+                    <label htmlFor="map-placement-distance">Target distance</label>
+                    <div className="input-suffix">
+                      <input
+                        id="map-placement-distance"
+                        type="number"
+                        inputMode="decimal"
+                        min={distanceLimits(mapSport).minimum}
+                        max={distanceLimits(mapSport).maximum}
+                        step="1"
+                        value={mapDistance}
+                        onChange={(event) => {
+                          setMapDistance(event.target.value);
+                          setMapPlacementError("");
+                        }}
+                        disabled={loading || mapPlacementBusy}
+                      />
+                      <span>km</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="button button--secondary map-placement-open"
+                  disabled={loading || mapPlacementBusy}
+                >
+                  {mapPlacementBusy ? "Preparing map…" : "Open placement map"}
+                </button>
+                <p className="map-placement-note">
+                  Your position is a starting area, not a straight-line GPX. Nearby street fits are
+                  measured before any route is offered.
+                </p>
+                {mapPlacementError && (
+                  <p className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {mapPlacementError}
+                  </p>
+                )}
+              </form>
+            </details>
 
             <details className="suggest-panel">
               <summary>
@@ -5345,6 +5754,14 @@ export default function App() {
       <div className="sr-only" aria-live="polite">
         {downloadNotice}
       </div>
+
+      <ShapePlacementOverlay
+        open={mapPlacementOpen}
+        preview={mapPlacementPreview}
+        busy={mapPlacementBusy}
+        onClose={() => setMapPlacementOpen(false)}
+        onConfirm={confirmMapPlacement}
+      />
 
       <CampaignBuilderOverlay
         open={campaignBuilderOpen}

@@ -40,6 +40,36 @@ def test_generate_request_rejects_a_non_http_image_reference() -> None:
         )
 
 
+def test_generate_request_accepts_a_bounded_map_placement() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest, about 8 km",
+        map_placement={
+            "center_lat": 47.505,
+            "center_lon": 19.065,
+            "scale_m": 2_400,
+            "rotation_deg": -25,
+            "search_radius_m": 700,
+        },
+    )
+
+    assert request.map_placement is not None
+    assert request.map_placement.scale_m == 2_400
+    assert request.map_placement.rotation_deg == -25
+
+
+def test_map_placement_rejects_a_separate_start_constraint() -> None:
+    with pytest.raises(ValidationError, match="positioned drawing"):
+        GenerateRequest(
+            prompt="a heart run in Budapest, about 8 km",
+            map_placement={
+                "center_lat": 47.505,
+                "center_lon": 19.065,
+                "scale_m": 2_400,
+            },
+            start_point={"latitude": 47.5, "longitude": 19.0},
+        )
+
+
 @pytest.mark.parametrize(
     ("prompt", "message"),
     [
@@ -207,6 +237,70 @@ def test_generate_endpoint_forwards_confirmed_intent_start_and_preferences(
     assert captured["start_direction_deg"] == 90
     assert captured["route_preferences"].avoid_steps is True
     assert captured["route_preferences"].prefer_quiet is True
+
+
+def test_generate_endpoint_forwards_a_user_positioned_shape(monkeypatch) -> None:
+    captured = {}
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured map placement")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "map_placement": {
+                    "center_lat": 47.505,
+                    "center_lon": 19.065,
+                    "scale_m": 2_400,
+                    "rotation_deg": 35,
+                    "search_radius_m": 650,
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["map_placement"].center_lat == 47.505
+    assert captured["map_placement"].scale_m == 2_400
+    assert captured["map_placement"].rotation_deg == 35
+
+
+def test_shape_placement_endpoints_expose_normalised_map_geometry() -> None:
+    with TestClient(create_app()) as client:
+        catalogue = client.get("/shape-templates")
+        preview = client.get(
+            "/shape-placement-preview",
+            params={
+                "shape": "heart",
+                "city": "Budapest",
+                "sport": "run",
+                "distance_km": 8,
+            },
+        )
+
+    assert catalogue.status_code == 200
+    assert catalogue.json()["count"] == 145
+    assert {item["id"] for item in catalogue.json()["shapes"]} >= {
+        "heart",
+        "star",
+        "thermal_bath",
+    }
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["shape"] == "heart"
+    assert payload["city"] == "Budapest"
+    assert payload["scale_m"] > 100
+    assert len(payload["paths"]) == 1
+    assert 2 < len(payload["paths"][0]) <= 280
+    assert all(
+        -0.6 <= coordinate <= 0.6
+        for point in payload["paths"][0]
+        for coordinate in point
+    )
 
 
 def test_generate_endpoint_imports_and_forwards_svg_geometry(monkeypatch) -> None:
