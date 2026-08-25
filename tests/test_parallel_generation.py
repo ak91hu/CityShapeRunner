@@ -114,7 +114,16 @@ def test_signed_turns_matches_a_scalar_reference_for_open_and_closed_paths():
 
     for points in (open_path, ring, duplicated):
         for span in (2, 3, 8):
-            assert np.array_equal(ss._signed_turns(points, span), reference(points, span))
+            # The vectorised dot product can differ from the scalar reference
+            # by one floating-point rounding step across NumPy/Python builds.
+            # The algorithmic contract is numerical equivalence, not identical
+            # machine-bit evaluation order.
+            np.testing.assert_allclose(
+                ss._signed_turns(points, span),
+                reference(points, span),
+                rtol=1e-12,
+                atol=1e-15,
+            )
 
 
 # --------------------------------------------------------------------------- #
