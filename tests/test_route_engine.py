@@ -45,6 +45,7 @@ from gps_art_wizzard.state import (
     EvaluatedCandidate,
     Export,
     Intent,
+    MapPlacement,
     Plan,
     RouteConcern,
     RouteDraft,
@@ -2143,6 +2144,79 @@ def test_omitted_running_distance_uses_practical_eight_kilometre_default():
     assert state.route_draft is not None
     assert state.route_draft.target_distance_km == pytest.approx(8.0)
     assert state.route_draft.scale_m < 3_000.0
+
+
+def test_user_positioned_shape_controls_the_initial_map_footprint():
+    placement = MapPlacement(
+        center_lat=47.5123,
+        center_lon=19.0712,
+        scale_m=2_350.0,
+        rotation_deg=32.0,
+        search_radius_m=650.0,
+    )
+    state = WorkflowState(
+        prompt="heart in Budapest, 8 km",
+        intent=Intent("heart", None, "Budapest", "run", 8.0, None),
+        plan=Plan(
+            shape_strategy="template",
+            center_lat=47.4979,
+            center_lon=19.0402,
+            city_bbox=(47.45, 47.56, 18.95, 19.15),
+            rotation_hint_deg=90.0,
+            lat_offset_m=1_500.0,
+        ),
+        shape=Shape("heart", geo.normalize_shape(shape_library.heart()[1]), True),
+        map_placement=placement,
+    )
+
+    PlacementAgent().run(state)
+
+    assert state.route_draft is not None
+    assert state.route_draft.center_lat == placement.center_lat
+    assert state.route_draft.center_lon == placement.center_lon
+    assert state.route_draft.scale_m == placement.scale_m
+    assert state.route_draft.rotation_deg == placement.rotation_deg
+    assert state.route_draft.lat_offset_m == 0.0
+    assert state.route_draft.lon_offset_m == 0.0
+
+
+def test_user_positioned_preflight_stays_near_the_selected_footprint():
+    placement = MapPlacement(47.5123, 19.0712, 2_350.0, 32.0, 650.0)
+    shape_data = shape_library.heart()
+    state = WorkflowState(
+        prompt="heart in Budapest, 8 km",
+        intent=Intent("heart", None, "Budapest", "run", 8.0, None),
+        plan=Plan(
+            shape_strategy="template",
+            center_lat=47.4979,
+            center_lon=19.0402,
+            city_bbox=(40.0, 40.1, 10.0, 10.1),
+        ),
+        shape=Shape(
+            "heart",
+            geo.normalize_shape(shape_data[1]),
+            shape_data[2],
+        ),
+        map_placement=placement,
+    )
+    PlacementAgent().run(state)
+
+    drafts = PreflightAgent()._candidate_drafts(state)
+
+    assert drafts
+    assert len(drafts) <= 135
+    assert all(
+        math.hypot(draft.lat_offset_m, draft.lon_offset_m)
+        <= placement.search_radius_m + 1e-6
+        for draft in drafts
+    )
+    assert {round(draft.rotation_deg, 1) for draft in drafts} <= {
+        7.0,
+        20.0,
+        32.0,
+        44.0,
+        57.0,
+    }
 
 
 def test_start_anchor_and_direction_control_the_first_route_segment():

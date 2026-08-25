@@ -44,6 +44,7 @@ test("the planner uses a compact responsive layout with optional panels collapse
 
   await expect(page.locator(".image-reference-panel")).not.toHaveAttribute("open", "");
   await expect(page.locator(".suggest-panel")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".map-placement-panel")).not.toHaveAttribute("open", "");
   await expect(page.getByText("Other ways to start")).toBeVisible();
   const spacing = await page.locator(".generator-stage").evaluate((element) => {
     const style = getComputedStyle(element);
@@ -90,14 +91,21 @@ test("alternative starts keep visual, DOM, and keyboard order aligned", async ({
 
   const prompt = page.getByLabel("Drawing and location");
   const initialPrompt = await prompt.inputValue();
+  const mapPanel = page.locator(".map-placement-panel");
   const simplePanel = page.locator(".suggest-panel");
   const imagePanel = page.locator(".image-reference-panel");
+  const mapSummary = mapPanel.locator(":scope > summary");
   const simpleSummary = simplePanel.locator(":scope > summary");
   const imageSummary = imagePanel.locator(":scope > summary");
   const domOrder = await page.evaluate(() => {
+    const map = document.querySelector(".map-placement-panel");
     const simple = document.querySelector(".suggest-panel");
     const image = document.querySelector(".image-reference-panel");
     return Boolean(
+      map
+        && simple
+        && (map.compareDocumentPosition(simple) & Node.DOCUMENT_POSITION_FOLLOWING)
+        &&
       simple
         && image
         && (simple.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING),
@@ -105,24 +113,101 @@ test("alternative starts keep visual, DOM, and keyboard order aligned", async ({
   });
   expect(domOrder).toBe(true);
 
+  const mapBox = await mapPanel.boundingBox();
   const simpleBox = await simplePanel.boundingBox();
   const imageBox = await imagePanel.boundingBox();
+  expect(mapBox).not.toBeNull();
   expect(simpleBox).not.toBeNull();
   expect(imageBox).not.toBeNull();
+  expect(mapBox.y).toBeLessThan(simpleBox.y);
   expect(simpleBox.y).toBeLessThan(imageBox.y);
 
+  await mapSummary.focus();
+  await expect(mapSummary).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(simpleSummary).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(mapSummary).toBeFocused();
   await simpleSummary.focus();
   await expect(simpleSummary).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(imageSummary).toBeFocused();
 
   await simpleSummary.click();
-  await expect(page.getByLabel("City")).toBeVisible();
+  await expect(page.getByLabel("City", { exact: true })).toBeVisible();
   await simpleSummary.click();
   await imageSummary.click();
   await expect(page.getByLabel("Direct image URL")).toBeVisible();
   await expect(prompt).toHaveValue(initialPrompt);
   await expect(page.locator(".result, .loading-card")).toHaveCount(0);
+});
+
+test("a selected shape can be positioned on the map before street fitting", async ({ page }) => {
+  await page.route("**/shape-templates", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        count: 2,
+        shapes: [
+          { id: "heart", label: "Heart" },
+          { id: "star", label: "Star" },
+        ],
+      }),
+    }),
+  );
+  await page.route("**/shape-placement-preview*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        shape: "star",
+        label: "Star",
+        closed: true,
+        paths: [[
+          [0, 0.5], [0.12, 0.12], [0.48, 0.12], [0.2, -0.08],
+          [0.3, -0.45], [0, -0.22], [-0.3, -0.45], [-0.2, -0.08],
+          [-0.48, 0.12], [-0.12, 0.12], [0, 0.5],
+        ]],
+        city: "Budapest",
+        city_substituted: false,
+        center: [47.4979, 19.0402],
+        city_bbox: [47.45, 47.56, 18.95, 19.15],
+        scale_m: 2600,
+        rotation_deg: 12,
+        distance_km: 12,
+        sport: "run",
+      }),
+    }),
+  );
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+
+  await page.getByText("Place a shape on the map").click();
+  const mapPanel = page.locator(".map-placement-panel");
+  await mapPanel.getByLabel("Shape").selectOption("star");
+  await mapPanel.getByLabel("Target distance", { exact: true }).fill("12");
+  await mapPanel.getByRole("button", { name: "Open placement map" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Position the star" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".shape-placement-outline")).toHaveCount(1);
+  await dialog.getByLabel("Footprint size").fill("3000");
+  await dialog.getByLabel("Rotation").fill("45");
+  await dialog.getByLabel("Nearby fine-tuning").fill("700");
+  await dialog.getByRole("button", { name: "Fit to streets and create GPX" }).click();
+
+  await expect(page.locator(".result")).toBeVisible();
+  await expect.poll(() => capture.lastPayload()).toMatchObject({
+    prompt: "star in Budapest, running, about 12 km",
+    map_placement: {
+      center_lat: 47.4979,
+      center_lon: 19.0402,
+      scale_m: 3000,
+      rotation_deg: 45,
+      search_radius_m: 700,
+    },
+  });
+  expect(capture.lastPayload().start_point).toBeUndefined();
+  expect(capture.lastPayload().start_address).toBeUndefined();
 });
 
 test("primary planner controls keep a 44 pixel activation floor", async ({ page }) => {
@@ -398,7 +483,7 @@ test("correcting a malformed route idea clears its error before submission", asy
 test("running suggestions enforce both ends of the supported distance range", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
-  const distance = page.getByLabel("Distance");
+  const distance = page.getByLabel("Distance", { exact: true });
 
   await expect(page.locator("#suggest-distance-help")).toHaveText("3 to 60 km for running.");
   await distance.fill("2");
@@ -414,7 +499,7 @@ test("suggestion distance distinguishes missing and fractional values", async ({
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
-  const distance = page.getByLabel("Distance");
+  const distance = page.getByLabel("Distance", { exact: true });
 
   await distance.fill("");
   await page.getByRole("button", { name: "Find a route" }).click();
@@ -436,9 +521,9 @@ test("a valid structured suggestion submits the selected city, activity, and dis
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
-  await page.getByLabel("City").selectOption("Győr");
+  await page.getByLabel("City", { exact: true }).selectOption("Győr");
   await page.getByRole("radio", { name: "Running" }).check();
-  await page.getByLabel("Distance").fill("12");
+  await page.getByLabel("Distance", { exact: true }).fill("12");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
@@ -456,11 +541,11 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
 
-  const city = page.getByLabel("City");
+  const city = page.getByLabel("City", { exact: true });
   await expect(city.locator("option")).toHaveCount(230);
   await city.selectOption("Szolnok");
   await page.getByRole("radio", { name: "Cycling" }).check();
-  await page.getByLabel("Distance").fill("24");
+  await page.getByLabel("Distance", { exact: true }).fill("24");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
@@ -476,12 +561,12 @@ test("the expanded Europe group submits a newly catalogued accented destination"
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
 
-  const city = page.getByLabel("City");
+  const city = page.getByLabel("City", { exact: true });
   await expect(city.locator('optgroup[label="Europe"] option')).toHaveCount(136);
   await expect(page.locator("#suggest-city-help")).toHaveCount(0);
   await city.selectOption("Timișoara");
   await page.getByRole("radio", { name: "Running" }).check();
-  await page.getByLabel("Distance").fill("14");
+  await page.getByLabel("Distance", { exact: true }).fill("14");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
@@ -497,12 +582,12 @@ test("the Balaton shore group submits a local accented settlement", async ({ pag
   await page.goto("/");
   await page.getByText("Choose city, activity, and distance").click();
 
-  const city = page.getByLabel("City");
+  const city = page.getByLabel("City", { exact: true });
   await expect(city.locator('optgroup[label="Lake Balaton shore"] option')).toHaveCount(44);
   await expect(city.locator('option[value="Siófok"]')).toHaveCount(1);
   await city.selectOption("Kővágóörs");
   await page.getByRole("radio", { name: "Cycling" }).check();
-  await page.getByLabel("Distance").fill("22");
+  await page.getByLabel("Distance", { exact: true }).fill("22");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
