@@ -70,6 +70,58 @@ def test_map_placement_rejects_a_separate_start_constraint() -> None:
         )
 
 
+def test_generate_request_normalises_a_start_address() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        start_address="  Hősök   tere,   Budapest  ",
+    )
+
+    assert request.start_address == "Hősök tere, Budapest"
+
+
+def test_generate_request_rejects_two_start_sources() -> None:
+    with pytest.raises(ValidationError, match="choose either"):
+        GenerateRequest(
+            prompt="a heart run in Budapest",
+            start_address="Hősök tere, Budapest",
+            start_point={"latitude": 47.5, "longitude": 19.0},
+        )
+
+
+@pytest.mark.parametrize("direction", [0, 45, 90, 135, 180, 225, 270, 315, 359.999])
+def test_generate_request_accepts_supported_start_headings(direction: float) -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        start_direction_deg=direction,
+    )
+
+    assert request.start_direction_deg == direction
+
+
+@pytest.mark.parametrize("direction", [-0.001, 360, float("inf"), float("nan")])
+def test_generate_request_rejects_invalid_start_headings(direction: float) -> None:
+    with pytest.raises(ValidationError):
+        GenerateRequest(
+            prompt="a heart run in Budapest",
+            start_direction_deg=direction,
+        )
+
+
+def test_generate_request_expands_partial_route_preferences() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        route_preferences={"avoid_steps": True},
+    )
+
+    assert request.route_preferences.model_dump() == {
+        "avoid_steps": True,
+        "avoid_ferries": False,
+        "avoid_fords": False,
+        "prefer_quiet": False,
+        "prefer_green": False,
+    }
+
+
 @pytest.mark.parametrize(
     ("prompt", "message"),
     [
@@ -237,6 +289,65 @@ def test_generate_endpoint_forwards_confirmed_intent_start_and_preferences(
     assert captured["start_direction_deg"] == 90
     assert captured["route_preferences"].avoid_steps is True
     assert captured["route_preferences"].prefer_quiet is True
+
+
+def test_generate_endpoint_rejects_an_unresolved_start_before_routing(
+    monkeypatch,
+) -> None:
+    generate_called = False
+
+    def record_generate(*_args, **_kwargs):
+        nonlocal generate_called
+        generate_called = True
+
+    monkeypatch.setattr(routes.geocoder, "geocode_point", lambda _query: None)
+    monkeypatch.setattr(routes, "generate", record_generate)
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "start_address": "not a real start",
+            },
+        )
+
+    assert response.status_code == 422
+    assert "couldn’t find that start address" in response.json()["detail"]
+    assert generate_called is False
+
+
+def test_generate_endpoint_forwards_a_resolved_address_and_label(monkeypatch) -> None:
+    captured = {}
+
+    monkeypatch.setattr(
+        routes.geocoder,
+        "geocode_point",
+        lambda _query: SimpleNamespace(
+            lat=47.5149,
+            lon=19.0777,
+            name="Heroes' Square, Budapest",
+        ),
+    )
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured resolved start")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "start_address": "Hősök tere, Budapest",
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["start_point"] == (47.5149, 19.0777)
+    assert captured["start_label"] == "Heroes' Square, Budapest"
 
 
 def test_generate_endpoint_forwards_a_user_positioned_shape(monkeypatch) -> None:

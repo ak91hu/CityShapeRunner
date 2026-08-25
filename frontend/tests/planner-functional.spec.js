@@ -45,6 +45,7 @@ test("the planner uses a compact responsive layout with optional panels collapse
   await expect(page.locator(".image-reference-panel")).not.toHaveAttribute("open", "");
   await expect(page.locator(".suggest-panel")).not.toHaveAttribute("open", "");
   await expect(page.locator(".map-placement-panel")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".route-setup-panel")).not.toHaveAttribute("open", "");
   await expect(page.getByText("Other ways to start")).toBeVisible();
   const spacing = await page.locator(".generator-stage").evaluate((element) => {
     const style = getComputedStyle(element);
@@ -335,16 +336,17 @@ test("bug is submitted as a shape without exposing a letter B interpretation", a
   expect(interpretationRequests).toBe(0);
 });
 
-test("optional start point, direction, and route preferences reach generation", async ({ page }) => {
+test("route setup sends an address, first heading, and street priorities", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByLabel("Drawing and location").fill("a heart run in Tatabánya, about 8 km");
 
-  await page.getByText("Start point, direction, and route preferences", { exact: true }).click();
+  await page.getByText("Route setup", { exact: true }).click();
+  await page.getByRole("radio", { name: "Address or place" }).check();
   await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
-  await page.getByLabel("Preferred first direction").selectOption("90");
+  await page.getByRole("radio", { name: "East", exact: true }).check();
   await page.getByRole("checkbox", { name: "Avoid steps" }).check();
-  await page.getByRole("checkbox", { name: "Prefer greener streets (running)" }).check();
+  await page.getByRole("checkbox", { name: "Prefer green ways" }).check();
   await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
@@ -357,6 +359,63 @@ test("optional start point, direction, and route preferences reach generation", 
       avoid_fords: false,
       prefer_quiet: false,
       prefer_green: true,
+    },
+  });
+});
+
+test("route setup is organized into clear steps and can be reset", async ({ page }) => {
+  await page.goto("/");
+
+  const panel = page.locator(".route-setup-panel");
+  await panel.getByText("Route setup", { exact: true }).click();
+  await expect(panel.getByRole("heading", { name: "Choose the start" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Set the first heading" })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Choose street priorities" })).toBeVisible();
+
+  await panel.getByRole("radio", { name: "Address or place" }).check();
+  await panel.getByLabel("Start address or place").fill("Hősök tere, Budapest");
+  await panel.getByRole("radio", { name: "North", exact: true }).check();
+  await panel.getByRole("checkbox", { name: "Avoid ferries" }).check();
+  await expect(panel.locator(":scope > summary")).toContainText("3 active");
+  await expect(panel.locator(":scope > summary")).toContainText(
+    "Address start · North · 1 street preference",
+  );
+
+  await panel.getByRole("button", { name: "Reset setup" }).click();
+
+  await expect(panel.getByRole("radio", { name: "Flexible start" })).toBeChecked();
+  await expect(panel.getByRole("radio", { name: "Any direction" })).toBeChecked();
+  await expect(panel.getByRole("checkbox", { name: "Avoid ferries" })).not.toBeChecked();
+  await expect(panel.getByLabel("Start address or place")).toHaveCount(0);
+  await expect(panel.locator(":scope > summary")).toContainText("Flexible start");
+  await expect(panel.getByRole("button", { name: "Reset setup" })).toHaveCount(0);
+});
+
+test("route setup also reaches structured route suggestions", async ({ page }) => {
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+
+  const setup = page.locator(".route-setup-panel");
+  await setup.getByText("Route setup", { exact: true }).click();
+  await setup.getByRole("radio", { name: "North", exact: true }).check();
+  await setup.getByRole("checkbox", { name: "Avoid fords" }).check();
+
+  const suggestion = page.locator(".suggest-panel");
+  await suggestion.getByText("Choose city, activity, and distance").click();
+  await suggestion.getByLabel("City", { exact: true }).selectOption("Győr");
+  await suggestion.getByRole("radio", { name: "Running" }).check();
+  await suggestion.getByLabel("Distance", { exact: true }).fill("12");
+  await suggestion.getByRole("button", { name: "Find a route" }).click();
+
+  await expect.poll(() => capture.lastPayload()).toEqual({
+    prompt: "suggest a run route in Győr, about 12 km",
+    start_direction_deg: 0,
+    route_preferences: {
+      avoid_steps: false,
+      avoid_ferries: false,
+      avoid_fords: true,
+      prefer_quiet: false,
+      prefer_green: false,
     },
   });
 });
@@ -402,12 +461,14 @@ test("current location replaces an entered address and reaches generation", asyn
   });
   const capture = await mockGeneration(page);
   await page.goto("/");
-  await page.getByText("Start point, direction, and route preferences", { exact: true }).click();
+  await page.getByText("Route setup", { exact: true }).click();
+  await page.getByRole("radio", { name: "Address or place" }).check();
   await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
 
-  await page.getByRole("button", { name: "Use current location" }).click();
+  await page.getByRole("radio", { name: "Current location" }).check();
+  await page.getByRole("button", { name: "Use my location" }).click();
 
-  await expect(page.getByLabel("Start address or place")).toHaveValue("");
+  await expect(page.getByLabel("Start address or place")).toHaveCount(0);
   await expect(page.getByText("Current location selected for this request only.")).toBeVisible();
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => capture.lastPayload()).toEqual({

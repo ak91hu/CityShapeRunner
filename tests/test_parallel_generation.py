@@ -186,8 +186,22 @@ def test_directions_memo_distinguishes_every_request_input(routing_stub, monkeyp
     ors_client.snap_route_detailed([(47.5, 19.0), (47.52, 19.02)])  # other geometry
     ors_client.snap_route_detailed(straight, sport="bike")  # other profile
     ors_client.snap_route_detailed(straight, route_preferences=None)  # same as before
+    ors_client.snap_route_detailed(straight, start_direction_deg=90.0)  # other bearing
 
-    assert len(counter.calls) == 3  # sport changed the key, identical repeat did not
+    assert len(counter.calls) == 4  # geometry, profile, and bearing all change the key
+
+
+def test_directions_memo_reuses_equivalent_wrapped_headings(routing_stub, monkeypatch):
+    counter = RequestCounter()
+    straight = [(47.5, 19.0), (47.51, 19.01)]
+    monkeypatch.setattr(
+        ors_client, "_ors_request", counter.responder([(47.5, 19.0), (47.51, 19.01)])
+    )
+
+    ors_client.snap_route_detailed(straight, start_direction_deg=90.0)
+    ors_client.snap_route_detailed(straight, start_direction_deg=450.0)
+
+    assert len(counter.calls) == 1
 
 
 def test_directions_memo_never_caches_failures(routing_stub, monkeypatch):

@@ -7450,6 +7450,308 @@ textarea {
   accent-color: var(--brand);
 }
 
+.route-setup-panel {
+  overflow: hidden;
+  border-color: rgb(37 89 76 / 28%);
+  background: linear-gradient(135deg, #f4f8f5, #fbfaf6);
+}
+
+.route-setup-panel[open] {
+  box-shadow: 0 1rem 2.5rem rgb(20 48 41 / 8%);
+}
+
+.route-setup-summary-copy {
+  min-width: 0;
+}
+
+.route-setup-summary-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.route-setup-summary-title em {
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 780;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.route-setup-body {
+  gap: 0.8rem;
+  padding: clamp(0.75rem, 2vw, 1.15rem);
+  background: #f8f8f4;
+}
+
+.route-setup-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.15rem 0.15rem 0.35rem;
+}
+
+.route-setup-kicker {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--brand);
+  font-size: 0.68rem;
+  font-weight: 830;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.route-setup-intro h2 {
+  max-width: 34rem;
+  margin: 0.18rem 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.02rem, 2vw, 1.2rem);
+  line-height: 1.15;
+}
+
+.route-setup-intro p {
+  max-width: 42rem;
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.route-setup-reset {
+  min-height: 2.75rem;
+  flex: 0 0 auto;
+  padding-inline: 0.75rem;
+  font-size: 0.72rem;
+}
+
+.route-setup-step {
+  min-width: 0;
+  padding: clamp(0.8rem, 2vw, 1rem);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.route-setup-step-heading {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  margin-bottom: 0.75rem;
+}
+
+.route-setup-step-heading > span {
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-dark);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.route-setup-step-heading h3,
+.route-setup-step-heading p {
+  margin: 0;
+}
+
+.route-setup-step-heading h3 {
+  font-size: 0.84rem;
+}
+
+.route-setup-step-heading p {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.route-start-fieldset,
+.direction-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.route-start-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.route-choice-card {
+  min-height: 5.2rem;
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+}
+
+.route-choice-card:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+
+.route-choice-card:has(input:focus-visible),
+.direction-compass label:has(input:focus-visible),
+.route-preference-card:has(input:focus-visible) {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.route-choice-card input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0.08rem 0 0;
+  accent-color: var(--brand);
+}
+
+.route-choice-card span,
+.route-preference-card > span {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.route-choice-card strong,
+.route-preference-card strong {
+  font-size: 0.74rem;
+  line-height: 1.25;
+}
+
+.route-choice-card small,
+.route-preference-card small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 540;
+  line-height: 1.35;
+}
+
+.route-start-detail {
+  margin-top: 0.7rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: #f5f7f3;
+}
+
+.route-start-detail.field input {
+  width: 100%;
+}
+
+.route-location-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.route-location-detail > div {
+  min-width: 0;
+  display: grid;
+  gap: 0.14rem;
+}
+
+.route-location-detail strong {
+  font-size: 0.76rem;
+}
+
+.route-location-detail small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  overflow-wrap: anywhere;
+}
+
+.route-location-detail .button {
+  min-height: 2.75rem;
+  flex: 0 0 auto;
+  padding-inline: 0.75rem;
+  font-size: 0.72rem;
+}
+
+.direction-compass {
+  width: min(100%, 22rem);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.direction-compass label {
+  min-height: 3.25rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+}
+
+.direction-compass label:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+
+.direction-compass input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.direction-compass label > span[aria-hidden="true"] {
+  font-size: 1rem;
+  font-weight: 760;
+}
+
+.direction-compass small {
+  color: inherit;
+  font-size: 0.65rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-preference-grid .route-preference-card {
+  min-height: 4.1rem;
+  align-items: flex-start;
+  padding: 0.65rem;
+}
+
+.route-preference-grid .route-preference-card input {
+  margin-top: 0.05rem;
+}
+
+.route-setup-footnote {
+  margin: 0;
+  padding: 0.2rem 0.2rem 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
 .request-check-button {
   width: 100%;
 }
@@ -7571,6 +7873,25 @@ textarea {
   .route-preference-grid,
   .request-check-result dl {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .route-setup-intro,
+  .route-location-detail {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .route-setup-reset,
+  .route-location-detail .button {
+    width: 100%;
+  }
+
+  .route-start-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .route-choice-card {
+    min-height: 4.4rem;
   }
 
   .prompt-actions {
