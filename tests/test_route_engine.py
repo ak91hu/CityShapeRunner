@@ -38,7 +38,7 @@ from gps_art_wizzard.api.routes import (
 from gps_art_wizzard.config import RoutingConfig
 from gps_art_wizzard.llm import LLMResponse
 from gps_art_wizzard.llm import factory as llm_factory
-from gps_art_wizzard.orchestrator import Orchestrator
+from gps_art_wizzard.orchestrator import Orchestrator, generate
 from gps_art_wizzard.prompts import render
 from gps_art_wizzard.quality import quality_gate_report
 from gps_art_wizzard.state import (
@@ -2178,6 +2178,29 @@ def test_user_positioned_shape_controls_the_initial_map_footprint():
     assert state.route_draft.rotation_deg == placement.rotation_deg
     assert state.route_draft.lat_offset_m == 0.0
     assert state.route_draft.lon_offset_m == 0.0
+
+
+def test_generate_wrapper_forwards_user_positioned_map_footprint(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    placement = MapPlacement(47.5123, 19.0712, 2_350.0, 32.0, 650.0)
+    captured: dict[str, object] = {}
+
+    class StubOrchestrator:
+        def run(self, prompt: str, **kwargs: object) -> WorkflowState:
+            captured["prompt"] = prompt
+            captured.update(kwargs)
+            return WorkflowState(prompt=prompt)
+
+    monkeypatch.setattr(
+        "gps_art_wizzard.orchestrator.get_orchestrator",
+        lambda: StubOrchestrator(),
+    )
+
+    state = generate("heart in Budapest", map_placement=placement)
+
+    assert state.prompt == "heart in Budapest"
+    assert captured["map_placement"] is placement
 
 
 def test_user_positioned_preflight_stays_near_the_selected_footprint():

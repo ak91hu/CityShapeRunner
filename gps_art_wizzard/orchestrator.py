@@ -1163,6 +1163,7 @@ def generate(
     reference_image_data_url: str | None = None,
     reference_name: str | None = None,
     reference_kind: str | None = None,
+    map_placement: MapPlacement | None = None,
 ) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
     return get_orchestrator().run(
@@ -1176,4 +1177,5 @@ def generate(
         reference_image_data_url=reference_image_data_url,
         reference_name=reference_name,
         reference_kind=reference_kind,
+        map_placement=map_placement,
     )

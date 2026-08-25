@@ -196,6 +196,7 @@ class PreflightAgent(BaseAgent):
             (step, step),
         )
         manual = state.map_placement
+        offsets: tuple[tuple[float, float], ...]
         if manual is not None:
             manual_step = min(
                 manual.search_radius_m / math.sqrt(2.0),
