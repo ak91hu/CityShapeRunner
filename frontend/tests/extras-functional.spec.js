@@ -184,6 +184,7 @@ test("city picks appear for curated destinations and fill the prompt", async ({ 
 
   const strip = page.getByRole("region", { name: "Route inspiration" });
   await expect(strip).toBeVisible();
+  await strip.locator("summary").click();
   const chip = strip.locator(".city-pick-chip");
   await expect(chip).toHaveCount(1);
   await chip.click();

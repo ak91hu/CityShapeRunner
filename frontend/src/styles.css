@@ -6448,11 +6448,11 @@ textarea {
 
 /* Product promise, candidate-search evidence, recovery, and export guidance. */
 .planner-proof {
-  max-width: 52rem;
+  max-width: 24rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.6rem;
-  margin: 1.15rem 0 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.45rem;
+  margin: 0.9rem 0 0;
   padding: 0;
   list-style: none;
 }
@@ -6462,26 +6462,23 @@ textarea {
   display: flex;
   gap: 0.55rem;
   align-items: center;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid rgb(11 107 87 / 18%);
-  border-radius: var(--radius-sm);
-  background: rgb(255 253 248 / 68%);
+  padding: 0;
   color: var(--ink-soft);
-  font-size: 0.7rem;
+  font-size: 0.74rem;
   font-weight: 690;
   line-height: 1.35;
 }
 
 .planner-proof strong {
-  width: 1.55rem;
-  height: 1.55rem;
+  width: 1.4rem;
+  height: 1.4rem;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--brand);
   color: white;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
 }
 
 .candidate-card-metrics {
@@ -6565,29 +6562,106 @@ textarea {
   }
 }
 
-/* ---- Occasion strip ------------------------------------------------------- */
+/* ---- Local route inspiration ---------------------------------------------- */
 
-.occasion-strip {
-  margin-top: 0.9rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid rgb(11 107 87 / 12%);
-  display: grid;
-  gap: 0.5rem;
+.inspiration-panel {
+  margin: 0 0 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #faf9f4;
 }
 
-.occasion-strip ul {
+.inspiration-panel > summary {
+  min-height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.9rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.inspiration-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspiration-panel > summary > span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.inspiration-panel > summary strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.inspiration-panel > summary small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.inspiration-panel > summary b {
+  color: var(--brand);
+  font-size: 1.15rem;
+  transition: transform 150ms ease;
+}
+
+.inspiration-panel[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.inspiration-panel[open] > summary b {
+  transform: rotate(45deg);
+}
+
+.inspiration-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 0.9rem;
+}
+
+.inspiration-group {
+  min-width: 0;
+}
+
+.inspiration-group-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.inspiration-group-heading .eyebrow {
+  margin: 0;
+}
+
+.inspiration-group-heading small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspiration-group ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 0.45rem;
 }
 
 .occasion-chip {
+  width: 100%;
   display: grid;
   gap: 0.1rem;
-  padding: 0.42rem 0.6rem;
+  min-height: 3.25rem;
+  padding: 0.5rem 0.65rem;
   border: 1px solid var(--line-strong);
   border-radius: 0.55rem;
   background: var(--surface-tint);
@@ -6621,6 +6695,24 @@ textarea {
   font-size: 0.62rem;
   font-weight: 700;
   color: var(--accent);
+}
+
+@media (max-width: 48rem) {
+  .inspiration-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspiration-group ul {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .inspiration-group li {
+    flex: 0 0 min(82vw, 18rem);
+    scroll-snap-align: start;
+  }
 }
 
 /* ---- Route-lab additions --------------------------------------------------- */

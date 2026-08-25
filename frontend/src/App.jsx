@@ -1095,17 +1095,38 @@ function formatOccasionDate(isoDate) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
+function browserRegionHints() {
+  if (typeof window === "undefined") return {};
+  let timezone = "";
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    // Region hints are optional; the API can also use deployment headers.
+  }
+  return {
+    timezone,
+    locale: navigator.language || "",
+  };
+}
+
 function OccasionStrip({ disabled, onPick, city }) {
   const [items, setItems] = useState([]);
   const [destinations, setDestinations] = useState([]);
+  const [regionLabel, setRegionLabel] = useState("");
   useEffect(() => {
     let cancelled = false;
-    fetchOccasions({ daysAhead: 90 })
+    fetchOccasions({ daysAhead: 120, ...browserRegionHints() })
       .then((response) => {
-        if (!cancelled) setItems((response?.occasions ?? []).slice(0, 4));
+        if (!cancelled) {
+          setItems((response?.occasions ?? []).slice(0, 3));
+          setRegionLabel(response?.country_name || "your region");
+        }
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
+        if (!cancelled) {
+          setItems([]);
+          setRegionLabel("");
+        }
       });
     fetchDestinations()
       .then((response) => {
@@ -1130,10 +1151,58 @@ function OccasionStrip({ disabled, onPick, city }) {
     : [];
   if (!items.length && !cityPicks.length) return null;
   return (
-    <section className="occasion-strip" aria-label="Route inspiration">
-      {items.length > 0 && (
-        <>
-          <span className="eyebrow">Upcoming occasions</span>
+    <details className="inspiration-panel" role="region" aria-label="Route inspiration">
+      <summary>
+        <span>
+          <strong>Route inspiration</strong>
+          <small>
+            {cityPicks.length > 0
+              ? `${cityPicks.length} city pick${cityPicks.length === 1 ? "" : "s"} for ${city}`
+              : `Seasonal ideas for ${regionLabel || "your region"}`}
+            {cityPicks.length > 0 && items.length > 0
+              ? ` · ${items.length} upcoming near ${regionLabel || "you"}`
+              : ""}
+          </small>
+        </span>
+        <b aria-hidden="true">+</b>
+      </summary>
+      <div className="inspiration-groups">
+        {cityPicks.length > 0 && (
+          <section className="inspiration-group inspiration-group--city" aria-labelledby="city-picks-title">
+            <div className="inspiration-group-heading">
+              <span className="eyebrow" id="city-picks-title">City picks</span>
+              <small>Made for {city}</small>
+            </div>
+            <ul>
+              {cityPicks.map((pick) => (
+                <li key={`${pick.city}-${pick.shape_prompt}`}>
+                  <button
+                    type="button"
+                    className="occasion-chip city-pick-chip"
+                    onClick={() => onPick(pick)}
+                    disabled={disabled}
+                    title={pick.blurb}
+                  >
+                    <strong>{pick.name}</strong>
+                    <small>
+                      {pick.city}
+                      {pick.partner_ready ? " · official" : ""}
+                      {pick.sport ? ` · ${pick.sport === "bike" ? "Cycling" : "Running"}` : ""}
+                      {Number.isFinite(pick.distance_km) ? ` · ${pick.distance_km} km` : ""}
+                    </small>
+                    <em>{normaliseLabel(pick.shape_prompt)}</em>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {items.length > 0 && (
+          <section className="inspiration-group" aria-labelledby="occasions-title">
+            <div className="inspiration-group-heading">
+              <span className="eyebrow" id="occasions-title">Upcoming occasions</span>
+              <small>Relevant near {regionLabel || "you"}</small>
+            </div>
           <ul>
             {items.map((occasion) => (
               <li key={occasion.id}>
@@ -1161,36 +1230,10 @@ function OccasionStrip({ disabled, onPick, city }) {
               </li>
             ))}
           </ul>
-        </>
-      )}
-      {cityPicks.length > 0 && (
-        <>
-          <span className="eyebrow">City picks</span>
-          <ul>
-            {cityPicks.map((pick) => (
-              <li key={`${pick.city}-${pick.shape_prompt}`}>
-                <button
-                  type="button"
-                  className="occasion-chip city-pick-chip"
-                  onClick={() => onPick(pick)}
-                  disabled={disabled}
-                  title={pick.blurb}
-                >
-                  <strong>{pick.name}</strong>
-                  <small>
-                    {pick.city}
-                    {pick.partner_ready ? " · official" : ""}
-                    {pick.sport ? ` · ${pick.sport === "bike" ? "Cycling" : "Running"}` : ""}
-                    {Number.isFinite(pick.distance_km) ? ` · ${pick.distance_km} km` : ""}
-                  </small>
-                  <em>{normaliseLabel(pick.shape_prompt)}</em>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </section>
+          </section>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -4659,8 +4702,9 @@ export default function App() {
                   const activityWord = pickedSport === "bike" ? "cycling" : "running";
                   const distance =
                     Number.isFinite(pick.distance_km) ? String(pick.distance_km) : suggestDistance;
+                  const pickedCity = pick.city || suggestCity;
                   setPrompt(
-                    `${pick.shape_prompt} in ${suggestCity}, ${activityWord}, about ${distance} km`,
+                    `${pick.shape_prompt} in ${pickedCity}, ${activityWord}, about ${distance} km`,
                   );
                   setPromptError("");
                   promptRef.current?.focus();

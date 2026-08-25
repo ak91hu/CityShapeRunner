@@ -351,6 +351,66 @@ def test_occasions_endpoint_respects_the_requested_window():
         assert item["days_until"] <= 10
 
 
+def test_occasions_are_localised_without_leaking_hungarian_holidays_abroad():
+    with TestClient(create_app()) as client:
+        german = client.get(
+            "/occasions",
+            params={"days_ahead": 365, "country": "DE"},
+        ).json()
+
+    ids = {item["id"] for item in german["occasions"]}
+    assert german["country_code"] == "DE"
+    assert german["country_name"] == "Germany"
+    assert "german_unity_day" in ids
+    assert "state_foundation_day" not in ids
+    assert "remembrance_october_23" not in ids
+
+    with TestClient(create_app()) as client:
+        global_only = client.get(
+            "/occasions",
+            params={"days_ahead": 365, "country": "JP"},
+        ).json()
+    global_ids = {item["id"] for item in global_only["occasions"]}
+    assert global_only["country_code"] == "JP"
+    assert "state_foundation_day" not in global_ids
+
+
+def test_occasions_can_infer_region_from_timezone_or_locale():
+    with TestClient(create_app()) as client:
+        from_timezone = client.get(
+            "/occasions",
+            params={"days_ahead": 365, "timezone": "Europe/Paris"},
+        ).json()
+        from_locale = client.get(
+            "/occasions",
+            params={"days_ahead": 365, "locale": "pl-PL"},
+        ).json()
+
+    assert from_timezone["country_code"] == "FR"
+    assert from_timezone["location_basis"] == "timezone"
+    assert from_locale["country_code"] == "PL"
+    assert from_locale["location_basis"] == "locale"
+
+
+def test_network_country_hint_takes_priority_over_browser_hints():
+    with TestClient(create_app()) as client:
+        payload = client.get(
+            "/occasions",
+            params={
+                "days_ahead": 365,
+                "timezone": "Europe/Budapest",
+                "locale": "hu-HU",
+            },
+            headers={"cf-ipcountry": "GB"},
+        ).json()
+
+    ids = {item["id"] for item in payload["occasions"]}
+    assert payload["country_code"] == "GB"
+    assert payload["location_basis"] == "network_region"
+    assert "uk_bonfire_night" in ids
+    assert "state_foundation_day" not in ids
+
+
 def test_ongoing_multi_day_occasions_never_report_a_negative_countdown():
     # New Year's Eve lasts two days: on 1 January the occasion that started
     # on 31 December is still listed as "today", never with a past date or a
@@ -713,9 +773,10 @@ def test_destinations_endpoint_lists_curated_picks():
         response = client.get("/destinations")
     assert response.status_code == 200
     body = response.json()
-    assert len(body["destinations"]) >= 8
+    assert len(body["destinations"]) >= 40
     cities = {entry["city"] for entry in body["destinations"]}
-    assert "Budapest" in cities
+    assert {"Budapest", "Paris", "Berlin", "Madrid", "Amsterdam", "Dublin"} <= cities
+    assert all(len(entry["country_code"]) == 2 for entry in body["destinations"])
 
 
 # ---- gallery campaign tags -------------------------------------------------- #
