@@ -27,7 +27,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _reference_shape_payload,
     _validated_paths,
 )
-from gps_art_wizzard.agents.snap_agent import _simplify_road_geometry
+from gps_art_wizzard.agents.snap_agent import SnapAgent, _simplify_road_geometry
 from gps_art_wizzard.agents.validation_agent import ValidationAgent
 from gps_art_wizzard.api.routes import (
     EditedRouteRequest,
@@ -1319,6 +1319,70 @@ def test_ors_request_applies_supported_route_preferences():
     }
 
 
+@pytest.mark.parametrize(
+    ("coordinate_count", "expected"),
+    [
+        (1, None),
+        (2, [[90.0, 45.0]]),
+        (4, [[90.0, 45.0], [0.0, 180.0], [0.0, 180.0]]),
+    ],
+)
+def test_bearing_constraints_cover_every_routed_source_waypoint(
+    coordinate_count,
+    expected,
+):
+    coords = [[19.0 + index * 0.001, 47.0] for index in range(coordinate_count)]
+
+    assert ors_client._bearing_constraints(coords, 450.0) == expected
+
+
+def test_bearing_constraints_ignore_missing_and_non_finite_headings():
+    coords = [[19.0, 47.0], [19.001, 47.0]]
+
+    assert ors_client._bearing_constraints(coords, None) is None
+    assert ors_client._bearing_constraints(coords, math.nan) is None
+
+
+def test_ors_request_applies_the_first_heading_to_real_street_routing():
+    client = _FakeClient()
+
+    ors_client._ors_request(
+        "https://example.test/route",
+        {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0]],
+        preference="recommended",
+        continue_straight=False,
+        radius=120,
+        start_direction_deg=315.0,
+        client=client,
+    )
+
+    assert client.payload["bearings"] == [[315.0, 45.0], [0.0, 180.0]]
+    assert client.payload["optimized"] is False
+
+
+def test_ors_request_does_not_send_foot_weightings_for_a_bike_route():
+    client = _FakeClient()
+
+    ors_client._ors_request(
+        "https://example.test/route",
+        {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0]],
+        preference="recommended",
+        continue_straight=False,
+        radius=120,
+        sport="bike",
+        route_preferences=RoutePreferences(
+            avoid_steps=True,
+            prefer_quiet=True,
+            prefer_green=True,
+        ),
+        client=client,
+    )
+
+    assert client.payload["options"] == {"avoid_features": ["steps"]}
+
+
 class _ReadinessResponse:
     status_code = 200
     text = ""
@@ -2242,7 +2306,8 @@ def test_user_positioned_preflight_stays_near_the_selected_footprint():
     }
 
 
-def test_start_anchor_and_direction_control_the_first_route_segment():
+@pytest.mark.parametrize("direction", [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
+def test_start_anchor_and_direction_control_the_first_route_segment(direction):
     anchor = (47.5853, 18.4041)
     state = WorkflowState(
         prompt="eastbound arrow in Tatabánya",
@@ -2259,7 +2324,7 @@ def test_start_anchor_and_direction_control_the_first_route_segment():
             closed=False,
         ),
         start_point=anchor,
-        start_direction_deg=90.0,
+        start_direction_deg=direction,
     )
 
     PlacementAgent().run(state)
@@ -2267,9 +2332,56 @@ def test_start_anchor_and_direction_control_the_first_route_segment():
     assert state.route_draft is not None
     assert state.route_draft.waypoints[0] == pytest.approx(anchor)
     assert geo.bearing(*state.route_draft.waypoints[0], *state.route_draft.waypoints[1]) == pytest.approx(
-        90.0,
+        direction,
         abs=0.1,
     )
+
+
+def test_snap_agent_forwards_the_first_heading_to_street_routing(monkeypatch):
+    captured = {}
+
+    def fake_snap_route_detailed(
+        waypoints,
+        *,
+        sport,
+        closed,
+        route_preferences,
+        start_direction_deg,
+    ):
+        captured.update(
+            waypoints=waypoints,
+            sport=sport,
+            closed=closed,
+            route_preferences=route_preferences,
+            start_direction_deg=start_direction_deg,
+        )
+        return list(waypoints), 1_000.0, True, RouteReadiness()
+
+    monkeypatch.setattr(ors_client, "snap_route_detailed", fake_snap_route_detailed)
+    preferences = RoutePreferences(avoid_steps=True)
+    state = WorkflowState(
+        prompt="eastbound line in Tatabánya",
+        intent=Intent("line", None, "Tatabánya", "run", 8.0, None),
+        route_preferences=preferences,
+        route_draft=RouteDraft(
+            center_lat=47.58,
+            center_lon=18.39,
+            scale_m=1_000.0,
+            rotation_deg=0.0,
+            lat_offset_m=0.0,
+            lon_offset_m=0.0,
+            simplify_tolerance=0.8,
+            waypoints=[(47.5853, 18.4041), (47.5853, 18.4141)],
+            closed=False,
+            target_distance_km=8.0,
+            preferred_start_direction_deg=90.0,
+        ),
+    )
+
+    SnapAgent().run(state)
+
+    assert captured["start_direction_deg"] == 90.0
+    assert captured["route_preferences"] is preferences
 
 
 def test_refinement_shrinks_a_measured_route_that_is_over_target():

@@ -32,6 +32,7 @@ class SnapAgent(BaseAgent):
             sport=state.intent.sport,
             closed=draft.closed,
             route_preferences=state.route_preferences,
+            start_direction_deg=draft.preferred_start_direction_deg,
         )
         # Apply the refinement-controlled tolerance in local metre space, but
         # only on real road geometry. Degree-space tolerance over-simplifies

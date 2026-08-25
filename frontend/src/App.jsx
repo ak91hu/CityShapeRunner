@@ -21,6 +21,11 @@ import {
   removeGalleryImage,
   rescueArtwork,
 } from "./api.js";
+import RouteSetupPanel from "./RouteSetupPanel.jsx";
+import {
+  EMPTY_ROUTE_PREFERENCES,
+  buildRouteSetupPayload,
+} from "./routeSetup.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
 const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
@@ -4402,16 +4407,13 @@ export default function App() {
   const [suggestDistance, setSuggestDistance] = useState("10");
   const [suggestErrors, setSuggestErrors] = useState({});
   const [suggestNotice, setSuggestNotice] = useState("");
+  const [startMode, setStartMode] = useState("any");
   const [startAddress, setStartAddress] = useState("");
   const [startPoint, setStartPoint] = useState(null);
   const [startDirection, setStartDirection] = useState("");
-  const [routePreferences, setRoutePreferences] = useState({
-    avoid_steps: false,
-    avoid_ferries: false,
-    avoid_fords: false,
-    prefer_quiet: false,
-    prefer_green: false,
-  });
+  const [routePreferences, setRoutePreferences] = useState(() => ({
+    ...EMPTY_ROUTE_PREFERENCES,
+  }));
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [interpretation, setInterpretation] = useState(null);
@@ -4506,7 +4508,7 @@ export default function App() {
     setInterpretation(null);
     setInterpretationError("");
     setInterpretationBusy(false);
-  }, [prompt, routePreferences, startAddress, startDirection, startPoint]);
+  }, [prompt, routePreferences, startAddress, startDirection, startMode, startPoint]);
 
   const activeIdea = useMemo(
     () => QUICK_IDEAS.find((idea) => idea.prompt === prompt)?.label,
@@ -4606,20 +4608,17 @@ export default function App() {
     extraPayload = {},
     { includeStartConstraints = true } = {},
   ) {
-    const payload = { ...extraPayload };
-    if (includeStartConstraints) {
-      const cleanAddress = startAddress.trim();
-      if (cleanAddress) {
-        payload.start_address = cleanAddress;
-      } else if (startPoint) {
-        payload.start_point = startPoint;
-      }
-      if (startDirection !== "") payload.start_direction_deg = Number(startDirection);
-    }
-    if (Object.values(routePreferences).some(Boolean)) {
-      payload.route_preferences = routePreferences;
-    }
-    return payload;
+    return buildRouteSetupPayload(
+      {
+        startMode,
+        startAddress,
+        startPoint,
+        startDirection,
+        routePreferences,
+      },
+      extraPayload,
+      { includeStartConstraints },
+    );
   }
 
   const generate = useCallback(async (nextPrompt, extraPayload = {}) => {
@@ -4706,6 +4705,39 @@ export default function App() {
     }
   }
 
+  function changeStartMode(nextMode) {
+    setStartMode(nextMode);
+    setLocationError("");
+    if (nextMode === "any") {
+      setStartAddress("");
+      setStartPoint(null);
+    } else if (nextMode === "address") {
+      setStartPoint(null);
+    } else if (nextMode === "location") {
+      setStartAddress("");
+    }
+  }
+
+  function changeStartAddress(value) {
+    setStartMode("address");
+    setStartAddress(value);
+    setStartPoint(null);
+    setLocationError("");
+  }
+
+  function changeRoutePreference(key, checked) {
+    setRoutePreferences((current) => ({ ...current, [key]: checked }));
+  }
+
+  function resetRouteSetup() {
+    setStartMode("any");
+    setStartAddress("");
+    setStartPoint(null);
+    setStartDirection("");
+    setRoutePreferences({ ...EMPTY_ROUTE_PREFERENCES });
+    setLocationError("");
+  }
+
   function selectCurrentLocation() {
     if (!navigator.geolocation) {
       setLocationError("This browser does not provide location access. Enter an address instead.");
@@ -4715,6 +4747,7 @@ export default function App() {
     setLocationError("");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        setStartMode("location");
         setStartPoint({
           latitude: Number(position.coords.latitude.toFixed(6)),
           longitude: Number(position.coords.longitude.toFixed(6)),
@@ -4818,11 +4851,6 @@ export default function App() {
 
   const { minimum: minimumDistance, maximum: maximumDistance, activity: activityLabel } =
     distanceLimits(suggestSport);
-  const activePlanningOptionCount =
-    (startAddress.trim() || startPoint ? 1 : 0) +
-    (startDirection !== "" ? 1 : 0) +
-    Object.values(routePreferences).filter(Boolean).length;
-
   return (
     <div className="app-shell">
       <a className="skip-link" href="#route-designer">
@@ -5058,134 +5086,22 @@ export default function App() {
                 </div>
               </details>
 
-              <details className="planning-options-panel">
-                <summary>
-                  <span>
-                    <strong>Start point, direction, and route preferences</strong>
-                    <small>
-                      Optional{activePlanningOptionCount ? ` · ${activePlanningOptionCount} selected` : ""}
-                    </small>
-                  </span>
-                  <b aria-hidden="true">+</b>
-                </summary>
-                <div className="planning-options-body">
-                  <p>Apply these settings to free text, a suggested route, or an image route.</p>
-                  <div className="planning-options-grid">
-                    <div className="field planning-start-field">
-                      <label htmlFor="start-address">
-                        Start address or place <span>(optional)</span>
-                      </label>
-                      <input
-                        id="start-address"
-                        type="text"
-                        value={startAddress}
-                        maxLength={180}
-                        placeholder="Heroes’ Square, Budapest"
-                        autoComplete="street-address"
-                        aria-describedby="start-address-help"
-                        onChange={(event) => {
-                          setStartAddress(event.target.value);
-                          setStartPoint(null);
-                          setLocationError("");
-                        }}
-                        disabled={loading || locationBusy}
-                      />
-                      <small id="start-address-help" className="field-hint">
-                        Enter an address, or use your device location. Only one is sent.
-                      </small>
-                      <div className="location-actions">
-                        <button
-                          type="button"
-                          className="button button--secondary"
-                          onClick={selectCurrentLocation}
-                          disabled={loading || locationBusy}
-                        >
-                          {locationBusy
-                            ? "Finding location…"
-                            : startPoint
-                              ? "Location selected"
-                              : "Use current location"}
-                        </button>
-                        {startPoint && (
-                          <button
-                            type="button"
-                            className="button button--quiet"
-                            onClick={() => setStartPoint(null)}
-                            disabled={loading}
-                          >
-                            Clear location
-                          </button>
-                        )}
-                      </div>
-                      {startPoint && (
-                        <p className="planning-status" role="status">
-                          Current location selected for this request only.
-                        </p>
-                      )}
-                      {locationError && (
-                        <p className="field-error" role="alert">
-                          <span aria-hidden="true">!</span>
-                          {locationError}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="field">
-                      <label htmlFor="start-direction">
-                        Preferred first direction <span>(optional)</span>
-                      </label>
-                      <select
-                        id="start-direction"
-                        value={startDirection}
-                        onChange={(event) => setStartDirection(event.target.value)}
-                        disabled={loading}
-                      >
-                        <option value="">Any direction</option>
-                        <option value="0">North</option>
-                        <option value="45">North-east</option>
-                        <option value="90">East</option>
-                        <option value="135">South-east</option>
-                        <option value="180">South</option>
-                        <option value="225">South-west</option>
-                        <option value="270">West</option>
-                        <option value="315">North-west</option>
-                      </select>
-                      <small className="field-hint">
-                        Useful when you want the drawing to begin in a familiar direction.
-                      </small>
-                    </div>
-                  </div>
-
-                  <fieldset className="route-preferences-fieldset">
-                    <legend>Street preferences <span>(optional)</span></legend>
-                    <p>Select every option that matters for this route.</p>
-                    <div className="route-preference-grid">
-                      {[
-                        ["avoid_steps", "Avoid steps"],
-                        ["avoid_ferries", "Avoid ferries"],
-                        ["avoid_fords", "Avoid fords"],
-                        ["prefer_quiet", "Prefer quieter streets (running)"],
-                        ["prefer_green", "Prefer greener streets (running)"],
-                      ].map(([key, label]) => (
-                        <label key={key}>
-                          <input
-                            type="checkbox"
-                            checked={routePreferences[key]}
-                            onChange={(event) =>
-                              setRoutePreferences((current) => ({
-                                ...current,
-                                [key]: event.target.checked,
-                              }))
-                            }
-                            disabled={loading}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                </div>
-              </details>
+              <RouteSetupPanel
+                loading={loading}
+                locationBusy={locationBusy}
+                locationError={locationError}
+                routePreferences={routePreferences}
+                startAddress={startAddress}
+                startDirection={startDirection}
+                startMode={startMode}
+                startPoint={startPoint}
+                onCurrentLocation={selectCurrentLocation}
+                onPreferenceChange={changeRoutePreference}
+                onReset={resetRouteSetup}
+                onStartAddressChange={changeStartAddress}
+                onStartDirectionChange={setStartDirection}
+                onStartModeChange={changeStartMode}
+              />
 
               <div className="prompt-actions">
                 <button

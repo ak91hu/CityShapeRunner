@@ -83,6 +83,7 @@ def _directions_cache_key(
     closed: bool,
     start_radius: int,
     route_preferences: RoutePreferences | None,
+    start_direction_deg: float | None = None,
 ) -> tuple:
     cfg = get_settings().routing
     return (
@@ -94,6 +95,7 @@ def _directions_cache_key(
         bool(cfg.continue_straight),
         int(start_radius),
         _route_preferences_key(route_preferences),
+        None if start_direction_deg is None else round(start_direction_deg % 360.0, 3),
     )
 
 
@@ -1040,10 +1042,32 @@ def _build_route_readiness(
     )
 
 
+def _bearing_constraints(
+    coords: list,
+    start_direction_deg: float | None,
+) -> list[list[float]] | None:
+    """Build ORS bearing filters for the first routed street segment.
+
+    ORS requires one bearing pair per routed source waypoint. The requested
+    start gets a useful ±45° constraint; intermediate guide points use a 180°
+    deviation so they remain unrestricted.
+    """
+
+    if start_direction_deg is None or len(coords) < 2:
+        return None
+    direction = float(start_direction_deg)
+    if not math.isfinite(direction):
+        return None
+    return [[direction % 360.0, 45.0]] + [
+        [0.0, 180.0] for _ in range(max(0, len(coords) - 2))
+    ]
+
+
 def _ors_request(
     url: str, headers: dict, coords: list, *, preference: str, continue_straight: bool,
     radius: int, sport: str = "run",
     route_preferences: RoutePreferences | None = None,
+    start_direction_deg: float | None = None,
     client: httpx.Client | None = None,
 ) -> _ORSRouteResult | _ORSFailure:
     """Return a route or a structured failure from one ORS request."""
@@ -1057,6 +1081,12 @@ def _ors_request(
         "elevation": True,
         "extra_info": ["surface", "steepness", "waytype", "suitability"],
     }
+    bearings = _bearing_constraints(coords, start_direction_deg)
+    if bearings is not None:
+        payload["bearings"] = bearings
+        # ORS documents dynamic routing as mandatory when bearing filters are
+        # supplied. Without this, the request can succeed while ignoring them.
+        payload["optimized"] = False
     preferences = route_preferences or RoutePreferences()
     avoid_features = [
         feature
@@ -1194,6 +1224,7 @@ def _reduce_waypoints(waypoints: list[LatLon], *, closed: bool) -> list[LatLon] 
 def snap_route_detailed(
     waypoints: list[LatLon], *, sport: str = "run", closed: bool = False,
     route_preferences: RoutePreferences | None = None,
+    start_direction_deg: float | None = None,
 ) -> tuple[list[LatLon], float, bool, RouteReadiness]:
     """Snap waypoints and include readiness evidence for the returned route.
 
@@ -1223,6 +1254,7 @@ def snap_route_detailed(
         closed=closed,
         start_radius=start,
         route_preferences=route_preferences,
+        start_direction_deg=start_direction_deg,
     )
     cached = _directions_cache_get(cache_key)
     if cached is not None:
@@ -1267,6 +1299,7 @@ def snap_route_detailed(
                 radius=radius,
                 sport=sport,
                 route_preferences=route_preferences,
+                start_direction_deg=start_direction_deg,
                 client=client,
             )
             if isinstance(result, _ORSRouteResult | tuple):
@@ -1339,7 +1372,8 @@ def snap_route_detailed(
 
 
 def snap_route(
-    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False
+    waypoints: list[LatLon], *, sport: str = "run", closed: bool = False,
+    start_direction_deg: float | None = None,
 ) -> tuple[list[LatLon], float, bool]:
     """Compatibility wrapper returning route geometry, distance, and snap state."""
 
@@ -1347,5 +1381,6 @@ def snap_route(
         waypoints,
         sport=sport,
         closed=closed,
+        start_direction_deg=start_direction_deg,
     )
     return route, distance, snapped
