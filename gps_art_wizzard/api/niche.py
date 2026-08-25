@@ -4,13 +4,25 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from ..state import RoutePreferences
-from ..tools import art_rescue, geo, gpx_writer, ors_client, shape_similarity
+from ..tools import (
+    accessibility_readiness,
+    art_rescue,
+    destination_catalog,
+    geo,
+    gpx_writer,
+    lesson_pack,
+    night_readiness,
+    occasions,
+    ors_client,
+    route_landmarks,
+    shape_similarity,
+)
 from ..tools.timed_readiness import time_readiness
 
 router = APIRouter(tags=["GPS Art Intelligence"])
@@ -22,7 +34,12 @@ def _points(value: list[list[float]]) -> list[tuple[float, float]]:
         if len(point) < 2:
             raise ValueError("each point needs latitude and longitude")
         lat, lon = float(point[0]), float(point[1])
-        if not math.isfinite(lat) or not math.isfinite(lon) or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        if (
+            not math.isfinite(lat)
+            or not math.isfinite(lon)
+            or not -90 <= lat <= 90
+            or not -180 <= lon <= 180
+        ):
             raise ValueError("points must be finite latitude and longitude pairs")
         result.append((lat, lon))
     return result
@@ -41,7 +58,9 @@ class MuralPlanRequest(BaseModel):
         return value
 
 
-def _split_by_distance(points: list[tuple[float, float]], participants: int) -> list[list[tuple[float, float]]]:
+def _split_by_distance(
+    points: list[tuple[float, float]], participants: int
+) -> list[list[tuple[float, float]]]:
     total = geo.path_distance_m(points)
     if total <= 0:
         return []
@@ -68,7 +87,10 @@ def mural_plan(request: MuralPlanRequest) -> dict:
     points = _points(request.points)
     pieces = _split_by_distance(points, request.participants)
     if len(pieces) != request.participants:
-        raise HTTPException(status_code=422, detail="The route is too short to divide into that many mural sections.")
+        raise HTTPException(
+            status_code=422,
+            detail="The route is too short to divide into that many mural sections.",
+        )
     sections = []
     for index, piece in enumerate(pieces, start=1):
         distance_m = geo.path_distance_m(piece)
@@ -78,7 +100,12 @@ def mural_plan(request: MuralPlanRequest) -> dict:
                 "label": f"Artist {index}",
                 "points_preview": [[lat, lon] for lat, lon in piece],
                 "distance_km": distance_m / 1000,
-                "gpx": gpx_writer.to_gpx(piece, name=f"{request.name} - Artist {index}", sport=request.sport, total_distance_m=distance_m),
+                "gpx": gpx_writer.to_gpx(
+                    piece,
+                    name=f"{request.name} - Artist {index}",
+                    sport=request.sport,
+                    total_distance_m=distance_m,
+                ),
             }
         )
     return {
@@ -101,6 +128,115 @@ def timed_readiness(request: TimedReadinessRequest) -> dict:
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)
     return time_readiness(request.latitude, request.longitude, when)
+
+
+class NightReadinessRequest(BaseModel):
+    points: list[list[float]] = Field(min_length=2, max_length=5_000)
+
+    @field_validator("points")
+    @classmethod
+    def validate_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/night-readiness")
+def night_readiness_check(request: NightReadinessRequest) -> dict:
+    """Street-lighting and traffic exposure evidence for one routed polyline."""
+
+    return night_readiness.analyse(_points(request.points))
+
+
+class RouteLandmarksRequest(BaseModel):
+    points: list[list[float]] = Field(min_length=4, max_length=5_000)
+
+    @field_validator("points")
+    @classmethod
+    def validate_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/route-landmarks")
+def route_landmarks_along(request: RouteLandmarksRequest) -> dict:
+    """Named sights within a short corridor of the planned route."""
+
+    return route_landmarks.find_landmarks(_points(request.points))
+
+
+class AccessibilityReadinessRequest(BaseModel):
+    points: list[list[float]] = Field(min_length=2, max_length=5_000)
+
+    @field_validator("points")
+    @classmethod
+    def validate_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/accessibility-readiness")
+def accessibility_readiness_check(request: AccessibilityReadinessRequest) -> dict:
+    """Wheelchair, steps, and surface evidence for one routed polyline."""
+
+    return accessibility_readiness.analyse(_points(request.points))
+
+
+class LessonPackRequest(BaseModel):
+    reference_points: list[list[float]] = Field(min_length=3, max_length=500)
+    closed: bool = True
+    title: str = Field(default="My GPS drawing", min_length=1, max_length=80)
+    shape_name: str = Field(default="drawing", min_length=1, max_length=60)
+
+    @field_validator("reference_points")
+    @classmethod
+    def validate_points(cls, value):
+        _points(value)
+        return value
+
+
+@router.post("/lesson-pack")
+def build_a_lesson_pack(request: LessonPackRequest) -> dict:
+    """Classroom worksheet: lettered waypoints with bearings and distances."""
+
+    return lesson_pack.build_lesson_pack(
+        _points(request.reference_points),
+        closed=request.closed,
+        title=request.title,
+        shape_name=request.shape_name,
+    )
+
+
+@router.get("/destinations")
+def curated_destination_art() -> dict:
+    """Curated city art picks for the composer's inspiration strip."""
+
+    return {
+        "destinations": [
+            {
+                "city": entry.city,
+                "shape_prompt": entry.shape_prompt,
+                "name": entry.name,
+                "blurb": entry.blurb,
+                "distance_km": entry.distance_km,
+                "sport": entry.sport,
+                "partner_ready": entry.partner_ready,
+            }
+            for entry in destination_catalog.CATALOGUE
+        ]
+    }
+
+
+@router.get("/occasions")
+def upcoming_occasions(
+    days_ahead: int = Query(default=60, ge=1, le=365),
+) -> dict:
+    """Date-aware drawing suggestions for gifts, holidays, and national days."""
+
+    return {
+        "generated_on": date.today().isoformat(),
+        "days_ahead": days_ahead,
+        "occasions": occasions.upcoming_occasions(days_ahead=days_ahead),
+    }
 
 
 class InkproofRequest(BaseModel):
@@ -194,9 +330,7 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
         if key in allowed_preference_keys
     }
     route_preferences = (
-        RoutePreferences(**preference_values)
-        if any(preference_values.values())
-        else None
+        RoutePreferences(**preference_values) if any(preference_values.values()) else None
     )
     if route_preferences is None:
         routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
@@ -219,6 +353,8 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
         "snapped": snapped,
         "recognition_score": fidelity,
         "readiness": asdict(readiness),
-        "gpx": gpx_writer.to_gpx(routed, name=request.name, sport=request.sport, total_distance_m=distance_m),
+        "gpx": gpx_writer.to_gpx(
+            routed, name=request.name, sport=request.sport, total_distance_m=distance_m
+        ),
         "message": "Re-routed from the shape's strongest visual anchors.",
     }

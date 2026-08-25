@@ -210,6 +210,21 @@ request ID, GPX/TCX, or user identity. Removal tokens are stored only in the
 publishing browser; local-storage failure does not misreport a completed
 server-side upload or deletion as failed.
 
+The optional tools below the result add group and context layers. "Make it
+together" splits one drawing into balanced per-artist GPX sections, and
+"Combine finished runs" accepts the group's finished GPX files, scores the
+covered ink, and exports one honest merged track plus a separate missing-ink
+mission. A night-run check aggregates OpenStreetMap `lit` tags and road
+classes into lit/unlit shares, traffic exposure, and mappable unlit stretches.
+A sightseeing list names attractions within ~90 m of the line in running
+order. Upcoming occasions (Hungarian national days, movable feasts, and
+international dates) fill the prompt from the composer, and any street-routed
+route can be printed as a gift poster with a dedication and attribution. All
+of these are best-effort planning evidence: they store nothing server-side and
+degrade to an explicit "unavailable" message. See
+[gps-art-intelligence.md](gps-art-intelligence.md) for the exact endpoints and
+boundaries.
+
 HTTP middleware assigns or validates an `X-Request-ID` and emits structured
 start/completion/failure events. Agent, ORS, validation, editing, and export
 records inherit the same ID. JSON console logs and a rotating file log are

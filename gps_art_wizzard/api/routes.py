@@ -468,9 +468,42 @@ def _state_to_response(state) -> dict:
         [point[0], point[1]]
         for point in _even_sample(ideal_points, _MAX_PREVIEW_POINTS)
     ]
+    # The selected candidate usually shares the final guide geometry, so
+    # landmarks and downloads are memoised per unique polyline instead of
+    # being recomputed for the primary route and again per candidate.
+    landmark_memo: dict[tuple, list] = {}
+    download_memo: dict[tuple, tuple[str, str | None]] = {}
+
+    def memoised_landmarks(points):
+        key = tuple(points)
+        if key not in landmark_memo:
+            landmark_memo[key] = shape_similarity.salient_route_landmarks(points)
+        return landmark_memo[key]
+
+    def memoised_downloads(points, name, sport, total_distance_m):
+        key = (tuple(points), name, sport, total_distance_m)
+        if key not in download_memo:
+            gpx = gpx_writer.to_gpx(
+                points,
+                name=name,
+                sport=sport,
+                total_distance_m=total_distance_m,
+            )
+            try:
+                tcx = gpx_writer.to_tcx(
+                    points,
+                    name=name,
+                    sport=sport,
+                    total_distance_m=total_distance_m,
+                )
+            except Exception:  # noqa: BLE001
+                tcx = None
+            download_memo[key] = (gpx, tcx)
+        return download_memo[key]
+
     landmark_preview = [
         [point[0], point[1]]
-        for point in shape_similarity.salient_route_landmarks(ideal_points)
+        for point in memoised_landmarks(ideal_points)
     ]
     selected_shape = state.shape.name if state.shape else None
     selected_shape_source = state.shape.source if state.shape else "unknown"
@@ -606,21 +639,12 @@ def _state_to_response(state) -> dict:
             if state.intent
             else candidate.shape_name
         )
-        candidate_gpx = gpx_writer.to_gpx(
+        candidate_gpx, candidate_tcx = memoised_downloads(
             candidate.points,
-            name=export_name,
-            sport=sport,
-            total_distance_m=candidate.total_distance_m,
+            export_name,
+            sport,
+            candidate.total_distance_m,
         )
-        try:
-            candidate_tcx = gpx_writer.to_tcx(
-                candidate.points,
-                name=export_name,
-                sport=sport,
-                total_distance_m=candidate.total_distance_m,
-            )
-        except Exception:  # noqa: BLE001
-            candidate_tcx = None
         candidates.append(
             {
                 "id": candidate_id,
@@ -636,9 +660,7 @@ def _state_to_response(state) -> dict:
                 ],
                 "landmark_preview": [
                     [point[0], point[1]]
-                    for point in shape_similarity.salient_route_landmarks(
-                        candidate.ideal_points
-                    )
+                    for point in memoised_landmarks(candidate.ideal_points)
                 ],
                 "distance_km": distance_km,
                 "snapped": candidate_street_routed,

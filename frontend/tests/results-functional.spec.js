@@ -84,7 +84,7 @@ test("optional route tools are grouped after the decision and download cards", a
   expect(primaryBox).not.toBeNull();
   expect(labBox).not.toBeNull();
   expect(primaryBox.y + primaryBox.height).toBeLessThanOrEqual(labBox.y + 1);
-  await expect(lab).toContainText("Fine-tune or plan together");
+  await expect(lab).toContainText("Safety, quality, group & classroom tools");
   if (!(await lab.locator(".street-canvas-card").isVisible())) {
     await lab.locator("summary").click();
   }
@@ -377,12 +377,13 @@ test("Inkproof forecasts GPS drift and highlights fragile drawing details", asyn
   await expect(page.locator(".route-analysis-segment--inkproof")).toHaveCount(0);
 });
 
-test("post-activity Missing Ink tools are not shown to users", async ({ page }) => {
+test("post-activity Missing Ink rescue is offered for combining finished runs", async ({ page }) => {
   await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
 
-  await expect(page.locator(".art-rescue-card")).toHaveCount(0);
-  await expect(page.getByText("Free · after the activity", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Missing Ink rescue", { exact: true })).toHaveCount(0);
+  const rescue = page.locator(".art-rescue-card");
+  await expect(rescue.getByRole("heading", { name: "Combine finished runs" })).toBeVisible();
+  await expect(rescue.getByRole("button", { name: "Compare recordings" })).toBeDisabled();
 });
 
 test("community mural creates separate downloadable artist sections", async ({ page }) => {

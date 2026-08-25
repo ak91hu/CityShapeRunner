@@ -9,10 +9,13 @@ so the pipeline stays exercisable without claiming road feasibility.
 
 from __future__ import annotations
 
+import copy
 import logging
 import math
 import re
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import httpx
@@ -47,6 +50,87 @@ _FAILED_PAIR_PATTERN = re.compile(
     r"between\s+points?\s+(\d+).*?\band\s+(\d+)",
     flags=re.IGNORECASE,
 )
+
+# Memoised Directions responses. Refinement and recovery re-route nearly
+# identical guide geometry; serving the identical request from cache removes
+# duplicate paid calls without altering any returned coordinate.
+_DIRECTIONS_CACHE_MAX = 256
+_DIRECTIONS_CACHE_TTL_S = 300.0
+_directions_cache: OrderedDict[tuple, tuple[float, list[LatLon], float, bool, RouteReadiness]] = (
+    OrderedDict()
+)
+_directions_cache_lock = threading.Lock()
+
+
+def clear_directions_cache() -> None:
+    """Drop every memoised Directions response (used by tests and admin tooling)."""
+
+    with _directions_cache_lock:
+        _directions_cache.clear()
+
+
+def _route_preferences_key(
+    preferences: RoutePreferences | None,
+) -> tuple[tuple[str, object], ...]:
+    prefs = preferences or RoutePreferences()
+    return tuple(sorted(vars(prefs).items()))
+
+
+def _directions_cache_key(
+    prepared: list[LatLon],
+    *,
+    profile: str,
+    closed: bool,
+    start_radius: int,
+    route_preferences: RoutePreferences | None,
+) -> tuple:
+    cfg = get_settings().routing
+    return (
+        tuple((round(lat, 7), round(lon, 7)) for lat, lon in prepared),
+        profile,
+        bool(closed),
+        cfg.ors_base_url.rstrip("/"),
+        cfg.preference,
+        bool(cfg.continue_straight),
+        int(start_radius),
+        _route_preferences_key(route_preferences),
+    )
+
+
+def _directions_cache_get(key: tuple):
+    now = time.monotonic()
+    with _directions_cache_lock:
+        entry = _directions_cache.get(key)
+        if entry is None:
+            return None
+        stored_at, polyline, distance, snapped, readiness = entry
+        if now - stored_at > _DIRECTIONS_CACHE_TTL_S:
+            _directions_cache.pop(key, None)
+            return None
+        _directions_cache.move_to_end(key)
+    # Shallow-copy the mutable containers so callers can never mutate the
+    # cached geometry; individual points are immutable tuples.
+    return list(polyline), distance, snapped, copy.deepcopy(readiness)
+
+
+def _directions_cache_put(
+    key: tuple,
+    polyline: list[LatLon],
+    distance: float,
+    snapped: bool,
+    readiness: RouteReadiness,
+) -> None:
+    with _directions_cache_lock:
+        _directions_cache[key] = (
+            time.monotonic(),
+            list(polyline),
+            distance,
+            snapped,
+            copy.deepcopy(readiness),
+        )
+        _directions_cache.move_to_end(key)
+        while len(_directions_cache) > _DIRECTIONS_CACHE_MAX:
+            _directions_cache.popitem(last=False)
 
 _PROFILE_MAP = {
     "run": "foot-walking",
@@ -1131,6 +1215,25 @@ def snap_route_detailed(
         route, distance, snapped = _straight_line_connector(prepared, closed=closed)
         return route, distance, snapped, RouteReadiness()
 
+    profile = profile_for(sport)
+    start = max(1, int(cfg.snap_radius_m))
+    cache_key = _directions_cache_key(
+        prepared,
+        profile=profile,
+        closed=closed,
+        start_radius=start,
+        route_preferences=route_preferences,
+    )
+    cached = _directions_cache_get(cache_key)
+    if cached is not None:
+        polyline, distance, snapped, readiness = cached
+        log.info(
+            "ORS directions served from memo cache (%d pts, %.0f m)",
+            len(polyline),
+            distance,
+        )
+        return polyline, distance, snapped, readiness
+
     # The hosted API permits 50 coordinates, but treating that limit as a
     # target forces the router through unnecessary off-grid points and creates
     # U-turn scribbles. Preserve authored corners within a smaller visual-guide
@@ -1140,13 +1243,11 @@ def snap_route_detailed(
         closed=closed,
         max_points=min(_MAX_GUIDE_COORDINATES, _MAX_ORS_COORDINATES),
     )
-    profile = profile_for(sport)
     url = f"{cfg.ors_base_url.rstrip('/')}/v2/directions/{profile}/geojson"
     headers = {"Content-Type": "application/json"}
     if cfg.ors_api_key:
         headers["Authorization"] = cfg.ors_api_key
 
-    start = max(1, int(cfg.snap_radius_m))
     radii = [start] + [radius for radius in _RADIUS_RETRIES if radius > start]
 
     attempts = 0
@@ -1186,6 +1287,9 @@ def snap_route_detailed(
                     len(current_via),
                     fidelity,
                     "" if fidelity >= _ACCEPTABLE_FIDELITY else "; refinement required",
+                )
+                _directions_cache_put(
+                    cache_key, polyline, distance, True, readiness
                 )
                 return polyline, distance, True, readiness
 

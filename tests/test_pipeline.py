@@ -156,3 +156,76 @@ def test_unit_to_latlon_roundtrip():
     x, y = geo.latlon_to_unit(lat, lon, 47.5, 19.0, 10000.0)
     assert abs(x - 0.5) < 1e-9
     assert abs(y + 0.3) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# Graph wiring                                                                #
+# --------------------------------------------------------------------------- #
+def test_build_nodes_wires_every_pipeline_stage():
+    from gps_art_wizzard.graph import LINEAR_ORDER, build_nodes
+
+    nodes = build_nodes()
+
+    assert set(LINEAR_ORDER) <= set(nodes)
+    assert {"refinement", "export"} <= set(nodes)
+    for stage, node in nodes.items():
+        assert node.name == stage
+        assert callable(node.run)
+
+
+# --------------------------------------------------------------------------- #
+# Export formats parse back                                                   #
+# --------------------------------------------------------------------------- #
+def test_gpx_output_parses_back_with_point_and_metadata_integrity():
+    import gpxpy
+
+    from gps_art_wizzard.tools.gpx_writer import to_gpx
+
+    points = [(47.4979, 19.0402), (47.5010, 19.0450), (47.5040, 19.0480)]
+    xml = to_gpx(
+        points,
+        name="Heart in Budapest",
+        sport="run",
+        total_distance_m=8_400.0,
+    )
+
+    parsed = gpxpy.parse(xml)
+    assert len(parsed.tracks) == 1
+    assert parsed.name == "Heart in Budapest"
+    track_points = parsed.tracks[0].segments[0].points
+    assert [(p.latitude, p.longitude) for p in track_points] == points
+    assert "8.40 km" in parsed.description
+    assert "sport=run" in parsed.description
+
+
+def test_tcx_output_is_well_formed_and_carries_every_trackpoint():
+    import xml.etree.ElementTree as ET
+
+    from gps_art_wizzard.tools.gpx_writer import to_tcx
+
+    points = [(47.4979, 19.0402), (47.5010, 19.0450)]
+    xml = to_tcx(
+        points,
+        name="Loop & Run <test>",
+        sport="running",
+        total_distance_m=2_500.0,
+    )
+
+    root = ET.fromstring(xml)  # raises on malformed XML
+    tags = {element.tag.split("}")[-1]: element for element in root.iter()}
+    assert tags["Name"].text == "Loop & Run <test>"  # escaped, then unescaped by XML
+    assert float(tags["DistanceMeters"].text) == pytest.approx(2500.0)
+    trackpoints = [el for el in root.iter() if el.tag.endswith("Trackpoint")]
+    assert len(trackpoints) == len(points)
+    latitudes = [el for el in root.iter() if el.tag.endswith("LatitudeDegrees")]
+    assert [float(el.text) for el in latitudes] == pytest.approx(
+        [point[0] for point in points]
+    )
+    # One synthetic timestamp per point at the default 1 s sampling.
+    times = [
+        el
+        for el in root.iter()
+        if el.tag.split("}")[-1] == "Time"
+    ]
+    assert len(times) == len(points)
+    assert int(tags["TotalTimeSeconds"].text) == len(points)

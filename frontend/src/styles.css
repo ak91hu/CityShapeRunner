@@ -4752,7 +4752,10 @@ input,
 .timed-readiness-card,
 .recognition-repair-card,
 .mural-card,
-.inkproof-card {
+.inkproof-card,
+.night-card,
+.landmarks-card,
+.art-rescue-card {
   padding: 1rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
@@ -4762,7 +4765,10 @@ input,
 .street-canvas-card p,
 .mural-card p,
 .recognition-repair-card p,
-.inkproof-card p {
+.inkproof-card p,
+.night-card p,
+.landmarks-card p,
+.art-rescue-card p {
   margin: 0.55rem 0;
   color: var(--ink-soft);
   font-size: 0.74rem;
@@ -4905,6 +4911,9 @@ input,
   .map-card {
     grid-column: 1;
     grid-row: 1 / span 2;
+    /* Preserve a real separation before the full-width facts row. WebKit can
+       otherwise let a tall spanning map overrun the following implicit row. */
+    margin-bottom: 1.5rem;
   }
 
   .result-sidebar,
@@ -6553,5 +6562,915 @@ textarea {
 @media (max-width: 23rem) {
   .candidate-card-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Occasion strip ------------------------------------------------------- */
+
+.occasion-strip {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid rgb(11 107 87 / 12%);
+  display: grid;
+  gap: 0.5rem;
+}
+
+.occasion-strip ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.occasion-chip {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.55rem;
+  background: var(--surface-tint);
+  color: var(--brand-dark);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.occasion-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.occasion-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.occasion-chip strong {
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.occasion-chip small {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.occasion-chip em {
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---- Route-lab additions --------------------------------------------------- */
+
+.mural-note {
+  margin: 0.55rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.night-card > small,
+.landmarks-card > small {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.landmarks-list {
+  list-style: decimal;
+  margin: 0.65rem 0 0;
+  padding-left: 1.3rem;
+  display: grid;
+  gap: 0.32rem;
+}
+
+.landmarks-list li {
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.landmarks-list span {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.landmarks-list small {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.63rem;
+}
+
+.art-rescue-controls {
+  align-items: end;
+}
+
+.art-rescue-file-label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 720;
+  color: var(--brand-dark);
+}
+
+.art-rescue-file-label input {
+  max-width: 15rem;
+  font-size: 0.64rem;
+}
+
+.art-rescue-actions {
+  margin-top: 0.7rem;
+  flex-wrap: wrap;
+}
+
+/* ---- Gift poster overlay ---------------------------------------------------- */
+
+.poster-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgb(20 24 28 / 78%);
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.poster-sheet {
+  width: min(46rem, 100%);
+  background: #fdfcf9;
+  color: #17201f;
+  border-radius: 0.9rem;
+  padding: 1.2rem 1.2rem 1rem;
+  box-shadow: 0 22px 60px rgb(0 0 0 / 35%);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.poster-dedication {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 720;
+}
+
+.poster-dedication input {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.45rem;
+  background: #ffffff;
+}
+
+.poster-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.poster-sheet img {
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(23 32 31 / 14%);
+}
+
+.poster-stats {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+}
+
+.poster-stats div {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.poster-stats dt {
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5c6b69;
+}
+
+.poster-stats dd {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 740;
+}
+
+.poster-footer {
+  margin: 0;
+  font-size: 0.58rem;
+  color: #5c6b69;
+}
+
+.poster-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+@media print {
+  body.poster-print-open #root .app-shell > header,
+  body.poster-print-open #root .app-shell > footer,
+  body.poster-print-open #root .app-shell > main > *:not(.result),
+  body.poster-print-open .result > *:not(.poster-overlay) {
+    display: none !important;
+  }
+
+  body.poster-print-open .poster-overlay {
+    position: static;
+    z-index: auto;
+    background: none;
+    padding: 0;
+    overflow: visible;
+  }
+
+  body.poster-print-open .poster-sheet {
+    box-shadow: none;
+    border-radius: 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  body.poster-print-open .poster-dedication,
+  body.poster-print-open .poster-actions {
+    display: none !important;
+  }
+}
+
+/* ---- Route-lab group titles (progressive disclosure chunking) -------------- */
+
+.route-lab-group-title {
+  grid-column: 1 / -1;
+  margin: 0.4rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.route-lab-group-title:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.accessibility-card,
+.lesson-card {
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.accessibility-card p,
+.lesson-card p {
+  margin: 0.55rem 0;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.accessibility-card > small,
+.lesson-card > small {
+  display: block;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+/* ---- City picks ------------------------------------------------------------ */
+
+.city-pick-chip em {
+  color: var(--brand-dark);
+}
+
+/* ---- Reel overlay ----------------------------------------------------------- */
+
+.reel-overlay,
+.campaign-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgb(20 24 28 / 78%);
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.reel-sheet,
+.campaign-sheet {
+  width: min(46rem, 100%);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 0.9rem;
+  padding: 1.2rem;
+  box-shadow: 0 22px 60px rgb(0 0 0 / 35%);
+  display: grid;
+  gap: 0.7rem;
+}
+
+.reel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.6rem;
+}
+
+.reel-close {
+  border: 1px solid var(--line-strong);
+  background: var(--surface-tint);
+  color: var(--brand-dark);
+  border-radius: 0.45rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reel-intro {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.reel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.reel-controls label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 720;
+  color: var(--brand-dark);
+}
+
+.reel-controls select {
+  min-height: 2.4rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.reel-preview {
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line-strong);
+  background: #e7e3dc;
+}
+
+.reel-status {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.reel-sheet > small {
+  color: var(--muted);
+  font-size: 0.63rem;
+}
+
+/* ---- Campaign banner + builder ---------------------------------------------- */
+
+.campaign-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 0 auto 0.4rem;
+  padding: 0.55rem 1rem;
+  max-width: 78rem;
+  border: 1px solid rgb(228 84 47 / 35%);
+  border-radius: 0.6rem;
+  background: rgb(228 84 47 / 8%);
+}
+
+.campaign-banner strong {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 780;
+  color: var(--brand-dark);
+}
+
+.campaign-banner span {
+  font-size: 0.66rem;
+  color: var(--ink-soft);
+}
+
+.campaign-banner-dismiss {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
+.campaign-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.campaign-form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.66rem;
+  font-weight: 720;
+  color: var(--brand-dark);
+}
+
+.campaign-form input,
+.campaign-form select {
+  min-height: 2.4rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.campaign-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.campaign-link {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: 0.5rem;
+  background: var(--surface-tint);
+}
+
+.campaign-link code {
+  overflow-wrap: anywhere;
+  font-size: 0.64rem;
+  color: var(--ink-soft);
+}
+
+.campaign-link-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gallery-heading-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.campaign-filter-chip {
+  border-style: dashed;
+}
+
+/* ---- Lesson worksheet -------------------------------------------------------- */
+
+.lesson-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgb(20 24 28 / 78%);
+  display: grid;
+  place-items: center;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.lesson-sheet {
+  width: min(46rem, 100%);
+  background: #fdfcf9;
+  color: #17201f;
+  border-radius: 0.9rem;
+  padding: 1.2rem;
+  box-shadow: 0 22px 60px rgb(0 0 0 / 35%);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.lesson-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.lesson-subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.72rem;
+  color: #5c6b69;
+}
+
+.lesson-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.lesson-drawing {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.lesson-drawing svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid rgb(23 32 31 / 14%);
+  border-radius: 0.4rem;
+}
+
+.lesson-drawing small {
+  color: #5c6b69;
+  font-size: 0.6rem;
+}
+
+.lesson-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.68rem;
+}
+
+.lesson-table th,
+.lesson-table td {
+  padding: 0.32rem 0.4rem;
+  border-bottom: 1px solid rgb(23 32 31 / 12%);
+  text-align: left;
+}
+
+.lesson-table th {
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5c6b69;
+}
+
+.lesson-notes {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.66rem;
+  line-height: 1.55;
+  color: #3c4a48;
+}
+
+@media print {
+  body.lesson-print-open #root .app-shell > header,
+  body.lesson-print-open #root .app-shell > footer,
+  body.lesson-print-open #root .app-shell > main > *:not(.result),
+  body.lesson-print-open .result > *:not(.lesson-overlay) {
+    display: none !important;
+  }
+
+  body.lesson-print-open .lesson-overlay {
+    position: static;
+    z-index: auto;
+    background: none;
+    padding: 0;
+    overflow: visible;
+  }
+
+  body.lesson-print-open .lesson-sheet {
+    box-shadow: none;
+    border-radius: 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  body.lesson-print-open .poster-dedication,
+  body.lesson-print-open .poster-actions {
+    display: none !important;
+  }
+}
+
+@media (max-width: 48rem) {
+  .campaign-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lesson-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .campaign-banner {
+    margin: 0 0.75rem 0.4rem;
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+/* ---- Usability and complete planner controls ------------------------------- */
+
+.planning-options-panel {
+  margin: 0 0 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-tint);
+}
+
+.planning-options-panel > summary {
+  min-height: 3.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.planning-options-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.planning-options-panel > summary > span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.planning-options-panel > summary strong {
+  font-size: 0.8rem;
+}
+
+.planning-options-panel > summary small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 560;
+}
+
+.planning-options-panel > summary b {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--brand-dark);
+  font-size: 1rem;
+  transition: transform 160ms ease;
+}
+
+.planning-options-panel[open] > summary b {
+  transform: rotate(45deg);
+}
+
+.planning-options-body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.planning-options-body > p,
+.route-preferences-fieldset > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.planning-options-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(10rem, 0.65fr);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.planning-options-grid .field {
+  min-width: 0;
+}
+
+.planning-options-grid .field > label > span,
+.route-preferences-fieldset legend span {
+  color: var(--muted);
+  font-weight: 560;
+}
+
+.planning-options-grid input,
+.planning-options-grid select {
+  width: 100%;
+}
+
+.location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.location-actions .button {
+  min-height: 2.75rem;
+  padding-inline: 0.8rem;
+  font-size: 0.78rem;
+}
+
+.planning-status {
+  margin: 0.55rem 0 0;
+  color: var(--brand-dark);
+  font-size: 0.74rem;
+  font-weight: 680;
+}
+
+.route-preferences-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.route-preferences-fieldset legend {
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 720;
+}
+
+.route-preference-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.route-preference-grid label {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.route-preference-grid label:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-dark);
+}
+
+.route-preference-grid input {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  accent-color: var(--brand);
+}
+
+.request-check-button {
+  width: 100%;
+}
+
+.request-check-hint {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.request-check-result {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid #b7d1c5;
+  border-radius: var(--radius-md);
+  background: #f0f8f4;
+}
+
+.request-check-result > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.request-check-result > div:first-child strong {
+  font-size: 0.88rem;
+}
+
+.request-check-result > div:first-child span,
+.request-check-result > p,
+.request-check-result li {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+}
+
+.request-check-result > div:first-child span {
+  color: var(--brand-dark);
+  font-weight: 700;
+}
+
+.request-check-result dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.request-check-result dl > div {
+  min-width: 0;
+  padding: 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.request-check-result dt {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.request-check-result dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.request-check-result ul,
+.request-check-result > p {
+  margin: 0;
+}
+
+.request-check-error {
+  margin-top: 0.65rem;
+}
+
+.poster-overlay:focus,
+.lesson-overlay:focus,
+.reel-overlay:focus,
+.campaign-overlay:focus {
+  outline: none;
+}
+
+.reel-close,
+.campaign-banner-dismiss {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+.occasion-chip,
+.reel-controls select,
+.campaign-form input,
+.campaign-form select,
+.poster-dedication input {
+  min-height: 2.75rem;
+}
+
+.campaign-actions {
+  grid-column: 1 / -1;
+}
+
+.campaign-form .field-error {
+  margin: 0.15rem 0 0;
+}
+
+.campaign-link + .editor-error {
+  margin: 0;
+}
+
+@media (max-width: 48rem) {
+  .planning-options-grid,
+  .route-preference-grid,
+  .request-check-result dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prompt-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .request-check-button {
+    min-height: 2.75rem;
   }
 }

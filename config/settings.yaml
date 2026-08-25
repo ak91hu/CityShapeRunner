@@ -22,6 +22,9 @@ workflow:
   preflight_max_placements: 180
   preflight_shortlist: 7
   preflight_guide_points: 18
+  # Candidate measurements (road recovery, suggestion/fallback searches) run
+  # through this bounded worker pool. Keep <=4 for public API rate limits.
+  measurement_workers: 3
   # Free-text drawings use adaptive alternatives and rendered cue verification.
   ai_shape_verifier_enabled: true
   ai_shape_min_semantic_score: 0.68

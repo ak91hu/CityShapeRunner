@@ -1820,7 +1820,9 @@ def test_orchestrator_tries_remaining_preflight_placements_until_one_routes():
         {"snap": SnapNode(), "validation": ValidationNode()},
     )
 
-    assert attempts == [30.0, 90.0]
+    # Candidates are measured concurrently; only coverage of every placement
+    # is guaranteed, not the physical invocation order across worker threads.
+    assert sorted(attempts) == [30.0, 90.0]
     assert state.route_draft.rotation_deg == 90.0
     assert state.snapped.snapped is True
     assert state.validation.on_roads is True
@@ -2543,25 +2545,74 @@ def test_candidate_selection_prefers_visible_shape_over_distance_only_score():
     assert Orchestrator._candidate_is_better(incumbent, candidate) is False
 
 
-def test_suggestion_search_skips_extra_routes_when_primary_is_already_good():
+def _unexpected_node(reason: str):
+    """A pipeline node that must never execute in the given scenario."""
+
     class UnexpectedNode:
         def run(self, _state):
-            pytest.fail("a passing primary suggestion must not request another route")
+            pytest.fail(reason)
 
-    points = [(47.0, 19.0), (47.01, 19.01)]
-    state = WorkflowState(
-        prompt="suggest a run in Debrecen",
-        intent=Intent("butterfly", None, "Debrecen", "run", 10.0, None),
-        plan=Plan(
-            shape_strategy="template",
-            suggested_shape="butterfly",
-            suggestion_candidates=["butterfly", "heart", "diamond"],
-        ),
-        shape=Shape("butterfly", shape_library.butterfly()[1], True),
+    return UnexpectedNode()
+
+
+class OperationNode:
+    """Minimal node wrapping a callable, mirroring the agent interface."""
+
+    def __init__(self, operation):
+        self.operation = operation
+
+    def run(self, state):
+        self.operation(state)
+        return state
+
+
+def _template_pipeline_state(
+    *,
+    prompt: str,
+    shape_name: str,
+    city: str,
+    plan: Plan,
+    validation: Validation,
+    requested_shape: str | None = None,
+    errors: list[str] | None = None,
+    candidate_count: int = 0,
+    open_route: bool = False,
+) -> WorkflowState:
+    """Shared scaffolding for suggestion/fallback search unit tests."""
+    points = (
+        [(47.0, 19.0), (47.01, 19.01)]
+        if open_route
+        else [(47.0, 19.0), (47.01, 19.01), (47.0, 19.0)]
+    )
+    generated = shape_library.get_shape(shape_name)
+    assert generated is not None
+    return WorkflowState(
+        prompt=prompt,
+        requested_shape=requested_shape,
+        intent=Intent(generated[0], None, city, "run", 10.0, None),
+        plan=plan,
+        shape=Shape(generated[0], generated[1], generated[2]),
         route_draft=RouteDraft(
-            47.0, 19.0, 1_000.0, 0.0, 0.0, 0.0, 0.8, points, True, 10.0
+            47.0, 19.0, 1_000.0, 0.0, 0.0, 0.0, 0.8, list(points), True, 10.0
         ),
         snapped=SnappedRoute(points, 10_000.0, snapped=True),
+        validation=validation,
+        errors=list(errors or []),
+        candidate_count=candidate_count,
+    )
+
+
+def test_suggestion_search_skips_extra_routes_when_primary_is_already_good():
+    plan = Plan(
+        shape_strategy="template",
+        suggested_shape="butterfly",
+        suggestion_candidates=["butterfly", "heart", "diamond"],
+    )
+    state = _template_pipeline_state(
+        prompt="suggest a run in Debrecen",
+        shape_name="butterfly",
+        city="Debrecen",
+        plan=plan,
         validation=Validation(
             0.82,
             1.0,
@@ -2577,7 +2628,7 @@ def test_suggestion_search_skips_extra_routes_when_primary_is_already_good():
         ),
     )
     nodes = {
-        name: UnexpectedNode()
+        name: _unexpected_node("a passing primary suggestion must not request another route")
         for name in ("shape", "placement", "snap", "validation")
     }
 
@@ -2588,36 +2639,26 @@ def test_suggestion_search_skips_extra_routes_when_primary_is_already_good():
 
 
 def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
-    class Node:
-        def __init__(self, operation):
-            self.operation = operation
-
-        def run(self, state):
-            self.operation(state)
-            return state
-
     points = [(47.0, 19.0), (47.01, 19.01)]
-    state = WorkflowState(
+    plan = Plan(
+        shape_strategy="template",
+        suggested_shape="crown",
+        suggestion_candidates=["crown", "triangle", "diamond"],
+        suggestion_reasons={
+            "crown": "Crown reason.",
+            "triangle": "Triangle reason.",
+            "diamond": "Diamond reason.",
+        },
+        notes="Crown reason.",
+    )
+    state = _template_pipeline_state(
         prompt="suggest a run in Eger",
-        intent=Intent("crown", None, "Eger", "run", 10.0, None),
-        plan=Plan(
-            shape_strategy="template",
-            suggested_shape="crown",
-            suggestion_candidates=["crown", "triangle", "diamond"],
-            suggestion_reasons={
-                "crown": "Crown reason.",
-                "triangle": "Triangle reason.",
-                "diamond": "Diamond reason.",
-            },
-            notes="Crown reason.",
-        ),
-        shape=Shape("crown", shape_library.crown()[1], True),
-        route_draft=RouteDraft(
-            47.0, 19.0, 1_000.0, 0.0, 0.0, 0.0, 0.8, points, True, 10.0
-        ),
-        snapped=SnappedRoute(points, 10_000.0, snapped=True),
+        shape_name="crown",
+        city="Eger",
+        plan=plan,
         validation=Validation(0.44, 1.0, 0.9, 0.37, on_roads=True),
         errors=["snap: stale primary failure"],
+        open_route=True,
     )
     fidelity_by_shape = {"triangle": 0.58, "diamond": 0.76}
 
@@ -2653,10 +2694,10 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
         )
 
     nodes = {
-        "shape": Node(shape_node),
-        "placement": Node(placement_node),
-        "snap": Node(snap_node),
-        "validation": Node(validation_node),
+        "shape": OperationNode(shape_node),
+        "placement": OperationNode(placement_node),
+        "snap": OperationNode(snap_node),
+        "validation": OperationNode(validation_node),
     }
 
     Orchestrator(nodes={})._evaluate_suggestion_candidates(state, nodes)
@@ -2675,28 +2716,17 @@ def test_suggestion_search_measures_alternatives_and_keeps_best_shape():
 
 
 def test_failed_explicit_shape_is_retained_for_user_review():
-    class Node:
-        def __init__(self, operation):
-            self.operation = operation
-
-        def run(self, state):
-            self.operation(state)
-            return state
-
     points = [(47.0, 19.0), (47.01, 19.01), (47.0, 19.0)]
-    state = WorkflowState(
+    plan = Plan(
+        shape_strategy="template",
+        fallback_candidates=["triangle", "diamond", "arrow"],
+    )
+    state = _template_pipeline_state(
         prompt="a cat run in Tatabánya",
+        shape_name="cat",
+        city="Tatabánya",
+        plan=plan,
         requested_shape="cat",
-        intent=Intent("cat", None, "Tatabánya", "run", 10.0, None),
-        plan=Plan(
-            shape_strategy="template",
-            fallback_candidates=["triangle", "diamond", "arrow"],
-        ),
-        shape=Shape("cat", shape_library.cat()[1], True),
-        route_draft=RouteDraft(
-            47.0, 19.0, 1_000.0, 0.0, 0.0, 0.0, 0.8, points, True, 10.0
-        ),
-        snapped=SnappedRoute(points, 10_000.0, snapped=True),
         validation=Validation(
             0.48,
             1.0,
@@ -2747,10 +2777,10 @@ def test_failed_explicit_shape_is_retained_for_user_review():
         )
 
     nodes = {
-        "shape": Node(shape_node),
-        "placement": Node(placement_node),
-        "snap": Node(snap_node),
-        "validation": Node(validation_node),
+        "shape": OperationNode(shape_node),
+        "placement": OperationNode(placement_node),
+        "snap": OperationNode(snap_node),
+        "validation": OperationNode(validation_node),
     }
 
     Orchestrator(nodes={})._evaluate_fallback_candidates(state, nodes)

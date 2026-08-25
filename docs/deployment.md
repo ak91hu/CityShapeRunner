@@ -5,19 +5,22 @@ and serves the resulting static assets from the same FastAPI process as the API.
 Node, npm caches, source maps from development, test files, and Python build
 tools are not copied into the runtime image.
 
-Application and documentation releases are separate. Northflank builds and
-deploys the application container from `master`; GitHub Actions builds this
-MkDocs site on every change and publishes it to GitHub Pages only after all CI
-jobs pass on a `master` push. See [CI/CD and documentation delivery](ci-cd.md)
-for the exact dependency gate, permissions, Pages setup, and rollback path.
+Application and documentation releases share one GitHub quality gate but have
+separate destinations. After every required check succeeds, GitHub Actions asks
+Northflank to build the exact tested `master` commit and waits for its rollout;
+the same gate permits the MkDocs artifact to reach GitHub Pages. See
+[CI/CD and release delivery](ci-cd.md) for the dependency graph, immutable
+action pins, environment settings, API contract, and rollback path.
 
 ## Northflank Developer Sandbox
 
 The repository is prepared for a
 [Northflank combined service](https://northflank.com/docs/v1/application/getting-started/build-and-deploy-your-code).
 The service builds the root `Dockerfile`, runs the React SPA and FastAPI API in
-one container, exposes one HTTPS address on Northflank's `code.run` domain, and
-automatically builds and deploys new commits from the linked branch.
+one container, and exposes one HTTPS address on Northflank's `code.run` domain.
+Its direct repository CI must be disabled: GitHub Actions starts only an
+exact-SHA build that has passed the complete pre-deployment gate. Northflank CD
+then rolls out that successful build.
 
 Northflank's Developer Sandbox currently provides limited always-on services
 without the sleep cycle used by many free web-service plans. It is intended for
@@ -42,6 +45,12 @@ Inside the Northflank project:
    initial delay of at least 20 seconds, a 30-second interval, and a 5-second
    timeout.
 8. Select one free Sandbox instance and create the service.
+9. In the service's **CI/CD** controls, disable **CI** and keep **CD** enabled.
+   This is mandatory: Northflank CI would otherwise build a push before GitHub
+   has finished its tests.
+10. Create the `northflank-production` GitHub Environment, API token, and
+    project/service/URL variables described in
+    [Northflank production gate](ci-cd.md#northflank-production-gate).
 
 The final public URL is displayed in the service header and ends in
 `.code.run`. The application also accepts a platform-provided `PORT` variable

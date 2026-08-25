@@ -1,15 +1,23 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   analyseInkproof,
+  buildLessonPack,
   editRoute,
   generate as generateRoute,
   createMuralPlan,
+  fetchDestinations,
+  fetchOccasions,
+  interpretRoute,
   listGallery,
   publishGalleryImage,
   recordRouteAcceptance,
   repairRecognition,
+  requestAccessibilityReadiness,
+  requestNightReadiness,
+  requestRouteLandmarks,
   requestTimedReadiness,
   removeGalleryImage,
+  rescueArtwork,
 } from "./api.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
@@ -1081,6 +1089,1188 @@ function CommunityMuralCard({ activeRoute, shapeName, city, sport }) {
   );
 }
 
+function formatOccasionDate(isoDate) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+function OccasionStrip({ disabled, onPick, city }) {
+  const [items, setItems] = useState([]);
+  const [destinations, setDestinations] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchOccasions({ daysAhead: 90 })
+      .then((response) => {
+        if (!cancelled) setItems((response?.occasions ?? []).slice(0, 4));
+      })
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      });
+    fetchDestinations()
+      .then((response) => {
+        if (!cancelled) setDestinations(response?.destinations ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDestinations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const foldCity = (value) =>
+    String(value || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  const cityKey = foldCity(city);
+  const cityPicks = cityKey
+    ? destinations.filter((entry) => foldCity(entry.city) === cityKey).slice(0, 3)
+    : [];
+  if (!items.length && !cityPicks.length) return null;
+  return (
+    <section className="occasion-strip" aria-label="Route inspiration">
+      {items.length > 0 && (
+        <>
+          <span className="eyebrow">Upcoming occasions</span>
+          <ul>
+            {items.map((occasion) => (
+              <li key={occasion.id}>
+                <button
+                  type="button"
+                  className="occasion-chip"
+                  onClick={() => onPick(occasion)}
+                  disabled={disabled}
+                  title={occasion.detail}
+                >
+                  <strong>{occasion.name}</strong>
+                  <small>
+                    {formatOccasionDate(occasion.date)}
+                    {" · "}
+                    {occasion.days_until === 0
+                      ? "today"
+                      : occasion.days_until === 1
+                        ? "tomorrow"
+                        : `in ${occasion.days_until} days`}
+                    {occasion.sport ? ` · ${occasion.sport === "bike" ? "Cycling" : "Running"}` : ""}
+                    {Number.isFinite(occasion.distance_km) ? ` · ${occasion.distance_km} km` : ""}
+                  </small>
+                  <em>{normaliseLabel(occasion.shape_prompt)}</em>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {cityPicks.length > 0 && (
+        <>
+          <span className="eyebrow">City picks</span>
+          <ul>
+            {cityPicks.map((pick) => (
+              <li key={`${pick.city}-${pick.shape_prompt}`}>
+                <button
+                  type="button"
+                  className="occasion-chip city-pick-chip"
+                  onClick={() => onPick(pick)}
+                  disabled={disabled}
+                  title={pick.blurb}
+                >
+                  <strong>{pick.name}</strong>
+                  <small>
+                    {pick.city}
+                    {pick.partner_ready ? " · official" : ""}
+                    {pick.sport ? ` · ${pick.sport === "bike" ? "Cycling" : "Running"}` : ""}
+                    {Number.isFinite(pick.distance_km) ? ` · ${pick.distance_km} km` : ""}
+                  </small>
+                  <em>{normaliseLabel(pick.shape_prompt)}</em>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function NightReadinessCard({ points, overlayType, onOverlayChange }) {
+  const [report, setReport] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const active = overlayType === "night";
+  const check = async () => {
+    if (!Array.isArray(points) || points.length < 2) return;
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await requestNightReadiness({ points });
+      if (requestSequence.current === requestId) setReport(response);
+    } catch (requestError) {
+      if (requestSequence.current === requestId) {
+        setError(requestError.message || "We couldn’t fetch street-lighting data.");
+      }
+    } finally {
+      if (requestSequence.current === requestId) setBusy(false);
+    }
+  };
+  const toggleOverlay = () => {
+    if (!report) return;
+    onOverlayChange(
+      active
+        ? null
+        : {
+            type: "night",
+            segments: report.concerns
+              .filter((concern) => concern.segments_preview?.length > 1)
+              .map((concern) => ({
+                id: concern.code,
+                label: concern.label,
+                kind: "dark",
+                points_preview: concern.segments_preview,
+              })),
+          },
+    );
+  };
+  const share = (value) => (Number.isFinite(value) ? formatPercent(value) : "n/a");
+  return (
+    <section className="night-card" aria-labelledby="night-title">
+      <div>
+        <span className="eyebrow">After dark</span>
+        <h3 id="night-title">Night-run check</h3>
+        <p>Street lighting and traffic exposure from OpenStreetMap tags.</p>
+      </div>
+      <div className="mural-controls">
+        <button type="button" className="button button--secondary" onClick={check} disabled={busy || !points.length}>
+          {busy ? "Checking..." : report ? "Re-check" : "Check lighting"}
+        </button>
+      </div>
+      {report && report.available && (
+        <>
+          <dl className="readiness-metrics">
+            <div>
+              <dt>Lit streets</dt>
+              <dd>{share(report.lit_share)}</dd>
+            </div>
+            <div>
+              <dt>Unlit</dt>
+              <dd>{share(report.unlit_share)}</dd>
+            </div>
+            <div>
+              <dt>Traffic</dt>
+              <dd>{normaliseLabel(report.traffic_label)}</dd>
+            </div>
+          </dl>
+          {report.message && <p className="mural-note">{report.message}</p>}
+          {(report.concerns ?? []).length > 0 && (
+            <button type="button" className="button button--secondary" aria-pressed={active} onClick={toggleOverlay}>
+              {active ? "Hide unlit sections" : "Show unlit sections on map"}
+            </button>
+          )}
+        </>
+      )}
+      {report && !report.available && <p className="mural-note">{report.message}</p>}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      <small>Tags are volunteer-maintained and can be incomplete. A headlamp still beats a map layer.</small>
+    </section>
+  );
+}
+
+function LandmarksCard({ points, onMarkersChange }) {
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  useEffect(() => () => onMarkersChange?.([]), [onMarkersChange]);
+  const find = async () => {
+    if (!Array.isArray(points) || points.length < 4) return;
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await requestRouteLandmarks({ points });
+      if (requestSequence.current !== requestId) return;
+      setResult(response);
+      onMarkersChange?.(response.available ? response.landmarks : []);
+    } catch (requestError) {
+      if (requestSequence.current === requestId) {
+        setError(requestError.message || "We couldn’t look for sights.");
+      }
+    } finally {
+      if (requestSequence.current === requestId) setBusy(false);
+    }
+  };
+  return (
+    <section className="landmarks-card" aria-labelledby="landmarks-title">
+      <div>
+        <span className="eyebrow">Sightseeing</span>
+        <h3 id="landmarks-title">Sights along the route</h3>
+        <p>Named attractions within about 90 m of the line, in running order.</p>
+      </div>
+      <div className="mural-controls">
+        <button type="button" className="button button--secondary" onClick={find} disabled={busy || !points.length}>
+          {busy ? "Looking..." : result ? "Look again" : "Find sights"}
+        </button>
+      </div>
+      {result && result.available && result.landmarks.length > 0 && (
+        <ol className="landmarks-list">
+          {result.landmarks.map((landmark) => (
+            <li key={`${landmark.name}-${landmark.offset_km}`}>
+              <span>{landmark.name}</span>
+              <small>
+                {formatMetric(landmark.offset_km, 1)} km · {normaliseLabel(landmark.kind)}
+              </small>
+            </li>
+          ))}
+        </ol>
+      )}
+      {result && result.available && result.landmarks.length === 0 && (
+        <p className="mural-note">{result.message}</p>
+      )}
+      {result && !result.available && <p className="mural-note">{result.message}</p>}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      <small>Sights come from OpenStreetMap tourism and historic tags.</small>
+    </section>
+  );
+}
+
+function LessonPackCard({ activeRoute, shapeName, city, onOpen }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const guidePoints = Array.isArray(activeRoute.ideal_preview)
+    ? activeRoute.ideal_preview
+    : (Array.isArray(activeRoute.points_preview) ? activeRoute.points_preview : []);
+  const build = async () => {
+    if (guidePoints.length < 3) return;
+    setBusy(true);
+    setError("");
+    try {
+      const pack = await buildLessonPack({
+        reference_points: guidePoints,
+        closed: Boolean(activeRoute.closed),
+        title: `${shapeName} walk in ${city}`.slice(0, 80),
+        shape_name: String(shapeName || "drawing").slice(0, 60),
+      });
+      if (!pack?.available) {
+        setError(pack?.message || "This drawing can’t be turned into a worksheet yet.");
+        return;
+      }
+      onOpen(pack, guidePoints);
+    } catch (requestError) {
+      setError(requestError.message || "We couldn’t build the worksheet.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="lesson-card" aria-labelledby="lesson-title">
+      <div>
+        <span className="eyebrow">Classroom</span>
+        <h3 id="lesson-title">Geometry worksheet</h3>
+        <p>
+          Turn this drawing into a printable walk: lettered waypoints, compass bearings, and leg
+          distances for a class exercise.
+        </p>
+      </div>
+      <div className="mural-controls">
+        <button
+          type="button"
+          className="button button--secondary"
+          onClick={build}
+          disabled={busy || guidePoints.length < 3}
+        >
+          {busy ? "Building…" : "Build worksheet"}
+        </button>
+      </div>
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      <small>Bearings come from the same guide the planner routes over, so the walk matches the map.</small>
+    </section>
+  );
+}
+
+function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOverlayChange }) {
+  const [files, setFiles] = useState([]);
+  const [analysis, setAnalysis] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const active = overlayType === "rescue";
+  const plannedPoints = Array.isArray(activeRoute.points_preview) ? activeRoute.points_preview : [];
+  const compare = async () => {
+    if (!files.length || plannedPoints.length < 4) return;
+    setBusy(true);
+    setError("");
+    try {
+      const recordings = [];
+      for (const file of files) {
+        recordings.push({ name: file.name, gpx: await file.text() });
+      }
+      const response = await rescueArtwork({
+        planned_points: plannedPoints,
+        recordings,
+        tolerance_m: 25,
+        name: `${shapeName} mural in ${city}`,
+        sport: sport === "bike" ? "bike" : "run",
+      });
+      setAnalysis(response);
+      onOverlayChange(null);
+    } catch (requestError) {
+      setError(requestError.message || "We couldn’t compare those recordings.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleMissing = () => {
+    if (!analysis) return;
+    onOverlayChange(
+      active
+        ? null
+        : {
+            type: "rescue",
+            segments: analysis.missing_segments.map((segment) => ({
+              id: segment.id,
+              label: segment.label,
+              kind: "missing",
+              points_preview: segment.points_preview,
+            })),
+          },
+    );
+  };
+  return (
+    <section className="art-rescue-card" aria-labelledby="rescue-title">
+      <div>
+        <span className="eyebrow">Finish the mural</span>
+        <h3 id="rescue-title">Combine finished runs</h3>
+        <p>
+          Upload the group’s GPX files to see how much of the drawing is done and export only the
+          missing ink.
+        </p>
+      </div>
+      <div className="mural-controls art-rescue-controls">
+        <label className="art-rescue-file-label">
+          Recordings
+          <input
+            type="file"
+            multiple
+            accept=".gpx,application/gpx+xml,text/xml"
+            onChange={(event) => {
+              setFiles(Array.from(event.target.files ?? []));
+              setAnalysis(null);
+              setError("");
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="button button--secondary"
+          onClick={compare}
+          disabled={busy || files.length === 0 || plannedPoints.length < 4}
+        >
+          {busy ? "Comparing..." : "Compare recordings"}
+        </button>
+      </div>
+      {files.length > 0 && (
+        <p className="mural-note">
+          {files.length} file{files.length === 1 ? "" : "s"} ready; analysed in memory, never stored.
+        </p>
+      )}
+      {analysis && (
+        <>
+          <dl className="readiness-metrics">
+            <div>
+              <dt>Covered</dt>
+              <dd>{formatPercent(analysis.coverage)}</dd>
+            </div>
+            <div>
+              <dt>On the drawing</dt>
+              <dd>{formatPercent(analysis.precision)}</dd>
+            </div>
+            <div>
+              <dt>Art match</dt>
+              <dd>{formatPercent(analysis.art_match)}</dd>
+            </div>
+          </dl>
+          <p className="mural-note">{analysis.message}</p>
+          <div className="download-actions art-rescue-actions">
+            {analysis.merged_recording_gpx && (
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => saveFile(`${safeFilePart(`${shapeName}-${city}`)}-combined.gpx`, analysis.merged_recording_gpx, "application/gpx+xml")}
+              >
+                Combined GPX
+              </button>
+            )}
+            {analysis.missing_ink_gpx && (
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => saveFile(`${safeFilePart(`${shapeName}-${city}`)}-missing-ink.gpx`, analysis.missing_ink_gpx, "application/gpx+xml")}
+              >
+                Missing-ink mission
+              </button>
+            )}
+            {analysis.missing_segments.length > 0 && (
+              <button type="button" className="button button--secondary" aria-pressed={active} onClick={toggleMissing}>
+                {active ? "Hide missing parts" : "Show missing parts on map"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+const DIALOG_FOCUSABLE = [
+  "button:not(:disabled)",
+  "a[href]",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function useModalDialog(open, onClose, bodyClassName = null) {
+  const dialogRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    previousFocusRef.current = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    if (bodyClassName) document.body.classList.add(bodyClassName);
+
+    const focusInitialControl = () => {
+      const dialog = dialogRef.current;
+      const target =
+        dialog?.querySelector("[data-dialog-initial-focus]") ||
+        dialog?.querySelector(DIALOG_FOCUSABLE) ||
+        dialog;
+      target?.focus({ preventScroll: true });
+    };
+    window.requestAnimationFrame(focusInitialControl);
+
+    const handleKeyDown = (event) => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current?.();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = [...dialog.querySelectorAll(DIALOG_FOCUSABLE)].filter(
+        (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true",
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!dialog.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (bodyClassName) document.body.classList.remove(bodyClassName);
+      if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
+    };
+  }, [bodyClassName, open]);
+
+  return dialogRef;
+}
+
+function GiftPosterOverlay({ open, imageDataUrl, stats, dedication, onDedicationChange, onClose }) {
+  const dialogRef = useModalDialog(open, onClose, "poster-print-open");
+  if (!open) return null;
+  return (
+    <div
+      className="poster-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Gift poster preview"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <div className="poster-sheet">
+        <label className="poster-dedication">
+          Dedication
+          <input
+            data-dialog-initial-focus
+            type="text"
+            value={dedication}
+            maxLength={80}
+            placeholder="For Ada, every street a heartbeat"
+            onChange={(event) => onDedicationChange(event.target.value)}
+          />
+        </label>
+        {dedication && <p className="poster-dedication-print poster-title">{dedication}</p>}
+        {imageDataUrl ? (
+          <img src={imageDataUrl} alt="The finished GPS artwork on its street map" />
+        ) : (
+          <p>The map image could not be captured.</p>
+        )}
+        <dl className="poster-stats">
+          {stats.map(([term, value]) => (
+            <div key={term}>
+              <dt>{term}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="poster-footer">
+          Planned with GPS Art Wizard · Map data © OpenStreetMap contributors
+        </p>
+        <div className="poster-actions">
+          <button type="button" className="button button--primary" onClick={() => window.print()}>
+            Print
+          </button>
+          <button type="button" className="button button--secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessibilityCard({ points, overlayType, onOverlayChange }) {
+  const [report, setReport] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const active = overlayType === "barrier";
+  const check = async () => {
+    if (!Array.isArray(points) || points.length < 2) return;
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await requestAccessibilityReadiness({ points });
+      if (requestSequence.current === requestId) setReport(response);
+    } catch (requestError) {
+      if (requestSequence.current === requestId) {
+        setError(requestError.message || "We couldn’t fetch accessibility data.");
+      }
+    } finally {
+      if (requestSequence.current === requestId) setBusy(false);
+    }
+  };
+  const toggleOverlay = () => {
+    if (!report) return;
+    onOverlayChange(
+      active
+        ? null
+        : {
+            type: "barrier",
+            segments: report.concerns
+              .filter((concern) => concern.segments_preview?.length > 1)
+              .map((concern) => ({
+                id: concern.code,
+                label: concern.label,
+                kind: "dark",
+                points_preview: concern.segments_preview,
+              })),
+          },
+    );
+  };
+  const share = (value) => (Number.isFinite(value) ? formatPercent(value) : "n/a");
+  return (
+    <section className="accessibility-card" aria-labelledby="accessibility-title">
+      <div>
+        <span className="eyebrow">Wheels &amp; strollers</span>
+        <h3 id="accessibility-title">Accessibility check</h3>
+        <p>Steps, wheelchair tags, and surface types from OpenStreetMap.</p>
+      </div>
+      <div className="mural-controls">
+        <button type="button" className="button button--secondary" onClick={check} disabled={busy || !points.length}>
+          {busy ? "Checking..." : report ? "Re-check" : "Check accessibility"}
+        </button>
+      </div>
+      {report && report.available && (
+        <>
+          <dl className="readiness-metrics">
+            <div>
+              <dt>Wheelchair: yes</dt>
+              <dd>{share(report.wheelchair_yes_share)}</dd>
+            </div>
+            <div>
+              <dt>Restricted / steps</dt>
+              <dd>{share((report.wheelchair_no_share ?? 0) + (report.steps_share ?? 0))}</dd>
+            </div>
+            <div>
+              <dt>Untagged</dt>
+              <dd>{share(report.untagged_share)}</dd>
+            </div>
+          </dl>
+          {report.message && <p className="mural-note">{report.message}</p>}
+          {(report.concerns ?? []).length > 0 && (
+            <button type="button" className="button button--secondary" aria-pressed={active} onClick={toggleOverlay}>
+              {active ? "Hide barrier sections" : "Show barriers on map"}
+            </button>
+          )}
+        </>
+      )}
+      {report && !report.available && <p className="mural-note">{report.message}</p>}
+      {error && <p className="editor-error" role="alert">{error}</p>}
+      <small>Untagged streets are unknown, not accessible. Survey critical sections in person.</small>
+    </section>
+  );
+}
+
+function buildWorksheetSvg(points) {
+  if (!Array.isArray(points) || points.length < 3) return null;
+  const latitudes = points.map((point) => point[0]);
+  const longitudes = points.map((point) => point[1]);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
+  const spanLat = Math.max(maxLat - minLat, 1e-9);
+  const spanLon = Math.max(maxLon - minLon, 1e-9);
+  const size = 200;
+  const pad = 12;
+  const scale = (size - pad * 2) / Math.max(spanLat, spanLon);
+  const projectY = (lat) => pad + (maxLat - lat) * scale;
+  const projectX = (lon) => pad + (lon - minLon) * scale;
+  const path = points
+    .map((point, index) => `${index === 0 ? "M" : "L"}${projectX(point[1]).toFixed(1)} ${projectY(point[0]).toFixed(1)}`)
+    .join(" ");
+  return { path, size };
+}
+
+function LessonSheetOverlay({ open, pack, points, dedication, onDedicationChange, onClose }) {
+  const dialogRef = useModalDialog(open && Boolean(pack), onClose, "lesson-print-open");
+  if (!open || !pack) return null;
+  const svg = buildWorksheetSvg(points);
+  return (
+    <div
+      className="lesson-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Classroom worksheet preview"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <div className="lesson-sheet">
+        <label className="poster-dedication">
+          Class / title
+          <input
+            data-dialog-initial-focus
+            type="text"
+            value={dedication}
+            maxLength={80}
+            placeholder="7b - The heart walk"
+            onChange={(event) => onDedicationChange(event.target.value)}
+          />
+        </label>
+        <header className="lesson-header">
+          <h3>{pack.title}</h3>
+          {dedication && <p className="lesson-subtitle">{dedication}</p>}
+        </header>
+        <div className="lesson-grid">
+          <div className="lesson-drawing">
+            {svg && (
+              <svg viewBox={`0 0 ${svg.size} ${svg.size}`} role="img" aria-label="The drawing on graph paper">
+                <defs>
+                  <pattern id="lesson-grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                    <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#cfd8d4" strokeWidth="0.5" />
+                  </pattern>
+                </defs>
+                <rect width={svg.size} height={svg.size} fill="url(#lesson-grid)" />
+                <path
+                  d={svg.path}
+                  fill="none"
+                  stroke="#0b6b57"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+            <small>
+              Sketch at scale 1 : {pack.scale_ratio} (1 cm on paper ≈ {(pack.scale_ratio / 100).toFixed(0)} m)
+            </small>
+          </div>
+          <table className="lesson-table">
+            <thead>
+              <tr>
+                <th scope="col">From</th>
+                <th scope="col">To</th>
+                <th scope="col">Bearing</th>
+                <th scope="col">Compass</th>
+                <th scope="col">Distance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pack.waypoints.map((waypoint) => (
+                <tr key={waypoint.id}>
+                  <td>{waypoint.id}</td>
+                  <td>{waypoint.to_id}</td>
+                  <td>{waypoint.bearing_deg}°</td>
+                  <td>{waypoint.compass}</td>
+                  <td>{waypoint.leg_distance_m} m</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <ul className="lesson-notes">
+          {pack.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+        <p className="poster-footer">
+          Total ≈ {pack.total_distance_km} km · {pack.waypoint_count} waypoints ·
+          Planned with GPS Art Wizard · Map data © OpenStreetMap contributors
+        </p>
+        <div className="poster-actions">
+          <button type="button" className="button button--primary" onClick={() => window.print()}>
+            Print worksheet
+          </button>
+          <button type="button" className="button button--secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const REEL_DURATIONS = [
+  { value: 4, label: "4 s" },
+  { value: 8, label: "8 s" },
+  { value: 12, label: "12 s" },
+];
+
+function ReelOverlay({ open, onClose, startCapture, shapeName, city }) {
+  const [duration, setDuration] = useState(8);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [videoUrl, setVideoUrl] = useState(null);
+  const [fileExtension, setFileExtension] = useState("webm");
+  const [captureReady, setCaptureReady] = useState(false);
+  const previewRef = useRef(null);
+  const captureRef = useRef(null);
+  const dialogRef = useModalDialog(open, onClose);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    setStatus("");
+    setError("");
+    setVideoUrl(null);
+    setBusy(false);
+    setCaptureReady(false);
+    captureRef.current = null;
+    Promise.resolve()
+      .then(startCapture)
+      .then((capture) => {
+        if (!capture?.canvas) throw new Error("The map isn’t ready to record yet.");
+        if (!cancelled) {
+          captureRef.current = capture;
+          setCaptureReady(true);
+        }
+      })
+      .catch((captureError) => {
+        if (!cancelled) setError(captureError.message || "We couldn’t prepare the map for recording.");
+      });
+    return () => {
+      cancelled = true;
+      captureRef.current = null;
+      setCaptureReady(false);
+    };
+  }, [open, startCapture]);
+
+  useEffect(() => () => {
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+  }, [videoUrl]);
+
+  if (!open) return null;
+
+  const pickMimeType = () => {
+    const candidates = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4",
+    ];
+    for (const candidate of candidates) {
+      if (window.MediaRecorder?.isTypeSupported?.(candidate)) return candidate;
+    }
+    return null;
+  };
+
+  const record = async () => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    const mimeType = pickMimeType();
+    if (!mimeType || typeof capture.canvas.captureStream !== "function") {
+      setError("This browser can’t record video. Try Chrome, Edge, or Firefox.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Recording the drawing…");
+    setVideoUrl(null);
+    let stream = null;
+    try {
+      stream = capture.canvas.captureStream(30);
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const chunks = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      const finished = new Promise((resolve) => {
+        recorder.onstop = resolve;
+      });
+      recorder.start();
+      const frames = Math.round(duration * 30);
+      const holdFrames = Math.round(0.9 * 30);
+      for (let frame = 0; frame <= frames + holdFrames; frame += 1) {
+        const progress = Math.min(frame / frames, 1);
+        capture.frame(progress);
+        const preview = previewRef.current;
+        if (preview && preview.tagName === "CANVAS") {
+          const context = preview.getContext("2d");
+          context.clearRect(0, 0, preview.width, preview.height);
+          context.drawImage(capture.canvas, 0, 0);
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1000 / 30));
+      }
+      setStatus("Finishing the file…");
+      recorder.stop();
+      await finished;
+      const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+      setFileExtension(mimeType.startsWith("video/mp4") ? "mp4" : "webm");
+      setVideoUrl(URL.createObjectURL(blob));
+      setStatus("Ready. Download it or record again.");
+    } catch (recordError) {
+      setError(recordError.message || "Recording failed. Try a shorter reel.");
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+      setBusy(false);
+    }
+  };
+
+  const download = () => {
+    if (!videoUrl) return;
+    const anchor = document.createElement("a");
+    anchor.href = videoUrl;
+    anchor.download = `${safeFilePart(`${shapeName}-${city}`)}-reel.${fileExtension}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
+  return (
+    <div
+      className="reel-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reel recorder"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <div className="reel-sheet">
+        <div className="reel-heading">
+          <div>
+            <span className="eyebrow">Share it moving</span>
+            <h3>Record a drawing reel</h3>
+          </div>
+          <button type="button" className="reel-close" aria-label="Close reel recorder" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p className="reel-intro">
+          The route draws itself over the street map, ready for your feed. Everything is rendered
+          in this browser tab; nothing uploads.
+        </p>
+        <div className="reel-controls">
+          <label>
+            Length
+            <select
+              data-dialog-initial-focus
+              value={duration}
+              onChange={(event) => setDuration(Number(event.target.value))}
+              disabled={busy}
+            >
+              {REEL_DURATIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="button button--primary" onClick={record} disabled={busy || !captureReady}>
+            {busy ? "Recording…" : !captureReady ? "Preparing…" : videoUrl ? "Record again" : "Record reel"}
+          </button>
+          {videoUrl && (
+            <button type="button" className="button button--secondary" onClick={download}>
+              Download {fileExtension.toUpperCase()}
+            </button>
+          )}
+        </div>
+        <canvas
+          ref={previewRef}
+          className="reel-preview"
+          width={captureRef.current?.width ?? 640}
+          height={captureRef.current?.height ?? 400}
+          aria-label="Reel preview"
+        />
+        {status && <p className="reel-status" role="status">{status}</p>}
+        {error && <p className="editor-error" role="alert">{error}</p>}
+        <small>Recording happens locally at 30 fps. Reels include the OpenStreetMap attribution.</small>
+      </div>
+    </div>
+  );
+}
+
+const CAMPAIGN_SHAPE_IDEAS = [
+  "ribbon",
+  "heart",
+  "star",
+  "circle",
+  "cross",
+  "lightning",
+];
+
+function buildCampaignLink({ name, shape, hashtag, until }) {
+  const params = new URLSearchParams();
+  params.set("campaign", name);
+  params.set("shape", shape);
+  if (hashtag) params.set("hashtag", hashtag.startsWith("#") ? hashtag : `#${hashtag}`);
+  if (until) params.set("until", until);
+  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+}
+
+function validateCampaignName(value) {
+  const name = value.trim();
+  if (!name) return "Enter a campaign name.";
+  if ([...name].length < 2) return "Campaign name must be at least 2 characters.";
+  if ([...name].length > 60) return "Campaign name must be 60 characters or fewer.";
+  if (!/^[\p{L}\p{N}][\p{L}\p{M}\p{N} .,'’&()/-]*$/u.test(name)) {
+    return "Use letters, numbers, spaces, or common punctuation in the campaign name.";
+  }
+  return "";
+}
+
+function campaignSlug(name) {
+  const slug = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 41);
+  return slug.length >= 2 ? slug : "art-campaign";
+}
+
+function localIsoDate(date = new Date()) {
+  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localTime.toISOString().slice(0, 10);
+}
+
+function parseCampaignFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const name = (params.get("campaign") || "").trim();
+    if (validateCampaignName(name)) return null;
+    const shape = (params.get("shape") || "").trim();
+    if (!/^[a-z_]{2,40}$/.test(shape)) return null;
+    const hashtag = (params.get("hashtag") || "").trim().slice(0, 60);
+    const untilRaw = params.get("until") || "";
+    const until = /^\d{4}-\d{2}-\d{2}$/.test(untilRaw) ? untilRaw : null;
+    return {
+      name,
+      slug: campaignSlug(name),
+      shape,
+      hashtag,
+      until,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function CampaignBuilderOverlay({ open, onClose }) {
+  const [name, setName] = useState("");
+  const [shape, setShape] = useState("ribbon");
+  const [hashtag, setHashtag] = useState("");
+  const [until, setUntil] = useState("");
+  const [link, setLink] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const dialogRef = useModalDialog(open, onClose);
+  useEffect(() => {
+    if (!open) {
+      setLink(null);
+      setCopied(false);
+      setAttempted(false);
+      setCopyError("");
+    }
+  }, [open]);
+  useEffect(() => {
+    setLink(null);
+    setCopied(false);
+    setCopyError("");
+  }, [hashtag, name, shape, until]);
+  if (!open) return null;
+  const nameError = validateCampaignName(name);
+  const dateError = until && until < localIsoDate() ? "Choose today or a future end date." : "";
+  const create = (event) => {
+    event.preventDefault();
+    setAttempted(true);
+    if (nameError || dateError || !shape) return;
+    setLink(buildCampaignLink({ name: name.trim(), shape, hashtag: hashtag.trim(), until }));
+    setCopied(false);
+    setCopyError("");
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setCopyError("");
+    } catch {
+      setCopied(false);
+      setCopyError("The link could not be copied. Select the link above and copy it manually.");
+    }
+  };
+  return (
+    <div
+      className="campaign-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Charity art campaign builder"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <div className="campaign-sheet">
+        <div className="reel-heading">
+          <div>
+            <span className="eyebrow">Organise</span>
+            <h3>Charity art campaign kit</h3>
+          </div>
+          <button type="button" className="reel-close" aria-label="Close campaign builder" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        <p className="reel-intro">
+          Give your supporters one link. It opens this planner with the campaign drawing already
+          filled in, and every published map joins the campaign gallery. No accounts, no tracking.
+        </p>
+        <form className="campaign-form" onSubmit={create} noValidate>
+          <label>
+            Campaign name
+            <input
+              data-dialog-initial-focus
+              type="text"
+              value={name}
+              maxLength={60}
+              placeholder="Pink Ribbon Budapest 2026"
+              onChange={(event) => setName(event.target.value)}
+              aria-invalid={attempted && Boolean(nameError)}
+              aria-errormessage={attempted && nameError ? "campaign-name-error" : undefined}
+              required
+            />
+            {attempted && nameError && (
+              <span id="campaign-name-error" className="field-error" role="alert">
+                <span aria-hidden="true">!</span>
+                {nameError}
+              </span>
+            )}
+          </label>
+          <label>
+            Drawing
+            <select value={shape} onChange={(event) => setShape(event.target.value)}>
+              {CAMPAIGN_SHAPE_IDEAS.map((idea) => (
+                <option key={idea} value={idea}>
+                  {normaliseLabel(idea)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Hashtag (optional)
+            <input
+              type="text"
+              value={hashtag}
+              maxLength={60}
+              placeholder="#runforcare"
+              onChange={(event) => setHashtag(event.target.value)}
+            />
+          </label>
+          <label>
+            Runs until (optional)
+            <input
+              type="date"
+              value={until}
+              min={localIsoDate()}
+              onChange={(event) => setUntil(event.target.value)}
+              aria-invalid={attempted && Boolean(dateError)}
+              aria-errormessage={attempted && dateError ? "campaign-date-error" : undefined}
+            />
+            {attempted && dateError && (
+              <span id="campaign-date-error" className="field-error" role="alert">
+                <span aria-hidden="true">!</span>
+                {dateError}
+              </span>
+            )}
+          </label>
+          <div className="campaign-actions">
+            <button type="submit" className="button button--primary">
+              Create campaign link
+            </button>
+          </div>
+        </form>
+        {link && (
+          <div className="campaign-link" role="status">
+            <code>{link}</code>
+            <div className="campaign-link-actions">
+              <button type="button" className="button button--secondary" onClick={copy}>
+                {copied ? "Copied!" : "Copy link"}
+              </button>
+              <a className="button button--secondary" href={link}>
+                Open it
+              </a>
+            </div>
+          </div>
+        )}
+        {copyError && <p className="editor-error" role="alert">{copyError}</p>}
+        <small>The drawing list covers simple campaign shapes; supporters can still edit the prompt freely.</small>
+      </div>
+    </div>
+  );
+}
+
 const GPS_ACCURACY_PROFILES = [
   { value: 5, label: "Open sky / dual-band (5 m)" },
   { value: 10, label: "Typical phone or watch (10 m)" },
@@ -1481,7 +2671,7 @@ function GalleryLightbox({ assets, activeIndex, onClose, onMove }) {
   );
 }
 
-function GallerySection({ refreshKey = 0, publishedAsset = null }) {
+function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = null, onOpenCampaignBuilder }) {
   const [assets, setAssets] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [configured, setConfigured] = useState(true);
@@ -1490,7 +2680,13 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
   const [error, setError] = useState("");
   const [removalTokens, setRemovalTokens] = useState(readGalleryRemovalTokens);
   const [activeAssetId, setActiveAssetId] = useState(null);
+  const [campaignFilter, setCampaignFilter] = useState(campaignSlug);
   const removedAssetIdsRef = useRef(new Set());
+  const galleryRequestRef = useRef({ sequence: 0, controller: null });
+
+  useEffect(() => {
+    setCampaignFilter(campaignSlug);
+  }, [campaignSlug]);
 
   const activeAssetIndex = assets.findIndex((asset) => asset.id === activeAssetId);
 
@@ -1505,11 +2701,22 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
   }, [assets]);
 
   const loadGalleryPage = useCallback(async (cursor = null, replace = false) => {
+    const requestId = galleryRequestRef.current.sequence + 1;
+    galleryRequestRef.current.sequence = requestId;
+    galleryRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    galleryRequestRef.current.controller = controller;
     if (replace) setLoading(true);
     else setLoadingMore(true);
     setError("");
     try {
-      const response = await listGallery({ cursor, limit: 12 });
+      const response = await listGallery({
+        cursor,
+        limit: 12,
+        campaign: campaignFilter,
+        signal: controller.signal,
+      });
+      if (galleryRequestRef.current.sequence !== requestId) return;
       setConfigured(response.configured !== false);
       setAssets((current) =>
         mergeGalleryAssets(current, response.assets, {
@@ -1520,12 +2727,22 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
       );
       setNextCursor(response.next_cursor ?? null);
     } catch (galleryError) {
+      if (galleryError?.name === "AbortError") return;
+      if (galleryRequestRef.current.sequence !== requestId) return;
       setError(galleryError.message || "We couldn’t load the gallery. Please try again.");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (galleryRequestRef.current.sequence === requestId) {
+        galleryRequestRef.current.controller = null;
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
-  }, [publishedAsset]);
+  }, [publishedAsset, campaignFilter]);
+
+  useEffect(() => () => {
+    galleryRequestRef.current.sequence += 1;
+    galleryRequestRef.current.controller?.abort();
+  }, []);
 
   useEffect(() => {
     setRemovalTokens(readGalleryRemovalTokens());
@@ -1554,9 +2771,33 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
           <h2 id="gallery-title">Public gallery</h2>
           <p>Map images shared by users. Prompts, profiles, and route files are not published.</p>
         </div>
-        <a className="button button--quiet" href="#route-designer">
-          Plan a route
-        </a>
+        <div className="gallery-heading-actions">
+          {campaignFilter && (
+            <button
+              type="button"
+              className="button button--secondary campaign-filter-chip"
+              onClick={() => setCampaignFilter(null)}
+              aria-pressed="true"
+            >
+              {normaliseLabel(campaignFilter)} ×
+            </button>
+          )}
+          <button
+            type="button"
+            className="button button--quiet"
+            onClick={(event) => {
+              // Safari/WebKit does not focus a button after a pointer click.
+              // Focus it explicitly so modal cleanup has a reliable return target.
+              event.currentTarget.focus({ preventScroll: true });
+              onOpenCampaignBuilder?.();
+            }}
+          >
+            Organise a campaign
+          </button>
+          <a className="button button--quiet" href="#route-designer">
+            Plan a route
+          </a>
+        </div>
       </div>
 
       {loading && (
@@ -1588,7 +2829,10 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
               <button
                 type="button"
                 className="gallery-thumbnail"
-                onClick={() => setActiveAssetId(asset.id)}
+                onClick={(event) => {
+                  event.currentTarget.focus({ preventScroll: true });
+                  setActiveAssetId(asset.id);
+                }}
                 aria-label={`Open gallery image ${index + 1} of ${assets.length}`}
               >
                 <img
@@ -1641,7 +2885,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null }) {
   );
 }
 
-function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef }) {
+function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null }) {
   const candidates = result.candidates ?? [];
   const expandSecondaryContent = () =>
     typeof window === "undefined" || !window.matchMedia("(max-width: 48rem)").matches;
@@ -1649,7 +2893,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     candidates[0]?.id ?? "best",
   );
   const [requestDetailsOpen, setRequestDetailsOpen] = useState(expandSecondaryContent);
-  const [routeToolsOpen, setRouteToolsOpen] = useState(expandSecondaryContent);
+  const [routeToolsOpen, setRouteToolsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [controlPoints, setControlPoints] = useState([]);
   const [editedRoute, setEditedRoute] = useState(null);
@@ -1665,7 +2909,32 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   const [repairNotice, setRepairNotice] = useState("");
   const [activeConcernCode, setActiveConcernCode] = useState(null);
   const [labOverlay, setLabOverlay] = useState(null);
+  const [sightMarkers, setSightMarkers] = useState([]);
+  const [posterOpen, setPosterOpen] = useState(false);
+  const [posterImage, setPosterImage] = useState(null);
+  const [posterError, setPosterError] = useState("");
+  const [posterDedication, setPosterDedication] = useState("");
+  const [reelOpen, setReelOpen] = useState(false);
+  const [lessonOpen, setLessonOpen] = useState(false);
+  const [lessonPack, setLessonPack] = useState(null);
+  const [lessonPoints, setLessonPoints] = useState([]);
+  const [lessonDedication, setLessonDedication] = useState("");
   const mapCaptureRef = useRef(null);
+
+  const startReelCapture = useCallback(
+    () => mapCaptureRef.current?.startReelCapture(),
+    [],
+  );
+  const openLessonSheet = useCallback((pack, points) => {
+    setLessonPack(pack);
+    setLessonPoints(points);
+    setLessonOpen(true);
+  }, []);
+
+  const updateLabOverlay = useCallback((value) => {
+    setActiveConcernCode(null);
+    setLabOverlay(value);
+  }, []);
 
   useEffect(() => {
     setSelectedCandidateId(candidates[0]?.id ?? "best");
@@ -1681,8 +2950,9 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setPublishedAsset(null);
     setActiveConcernCode(null);
     setLabOverlay(null);
+    setSightMarkers([]);
     setRequestDetailsOpen(expandSecondaryContent());
-    setRouteToolsOpen(expandSecondaryContent());
+    setRouteToolsOpen(false);
   }, [result.request_id, result.prompt]);
 
   const chooseCandidate = useCallback((candidateId) => {
@@ -1697,6 +2967,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setPublishedAsset(null);
     setActiveConcernCode(null);
     setLabOverlay(null);
+    setSightMarkers([]);
   }, []);
 
   const selectedCandidate =
@@ -1902,6 +3173,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         image_data_url: imageDataUrl,
         publish_token: activeRoute.gallery_publish_token,
         confirm_public_location: true,
+        campaign: campaignSlug,
       });
       rememberGalleryRemovalToken(response.asset.id, response.removal_token);
       setPublishedAsset(response.asset);
@@ -1915,11 +3187,24 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     }
   }, [
     activeRoute.gallery_publish_token,
+    campaignSlug,
     canPublishGallery,
     galleryBusy,
     galleryConsent,
     onGalleryPublished,
   ]);
+
+  const openGiftPoster = useCallback(async () => {
+    setPosterError("");
+    try {
+      const imageDataUrl = await mapCaptureRef.current?.capturePng();
+      if (!imageDataUrl) throw new Error("The map isn’t ready to share yet.");
+      setPosterImage(imageDataUrl);
+      setPosterOpen(true);
+    } catch (posterCaptureError) {
+      setPosterError(posterCaptureError.message || "We couldn’t capture the map for the poster.");
+    }
+  }, []);
 
   const improveRecognition = useCallback(async () => {
     if (repairBusy || !(activeRoute.ideal_preview ?? []).length) return;
@@ -2143,6 +3428,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 landmarkPoints={
                   activeRoute.landmark_preview ?? result.landmark_preview
                 }
+                poiMarkers={sightMarkers}
                 readinessConcerns={readinessConcerns}
                 activeConcernCode={activeConcernCode}
                 analysisSegments={labOverlay?.segments ?? []}
@@ -2601,7 +3887,33 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   Download TCX
                 </button>
               )}
+              {roadRouted && (
+                <button
+                  type="button"
+                  className="button button--secondary gift-poster-button"
+                  onClick={openGiftPoster}
+                >
+                  Gift poster
+                </button>
+              )}
+              {roadRouted && (
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={(event) => {
+                    event.currentTarget.focus({ preventScroll: true });
+                    setReelOpen(true);
+                  }}
+                >
+                  Record reel
+                </button>
+              )}
             </div>
+            {posterError && (
+              <p className="editor-error" role="alert">
+                {posterError}
+              </p>
+            )}
             {roadRouted && activeRoute.gpx && (
               <details className="gpx-help">
                 <summary>Use this GPX with Garmin, Strava, or Komoot</summary>
@@ -2699,23 +4011,40 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         <summary className="route-lab-heading">
           <div>
             <span className="eyebrow">Optional tools</span>
-            <h3 id="route-lab-title">Fine-tune or plan together</h3>
+            <h3 id="route-lab-title">Safety, quality, group &amp; classroom tools</h3>
           </div>
-          <p>The route decision and download stay above; use these only when you need them.</p>
+          <p>Check lighting, access and sights, sharpen the drawing, or prepare a group activity.</p>
           <span className="route-lab-marker" aria-hidden="true">+</span>
         </summary>
         <div className="route-lab-grid">
+          <h4 className="route-lab-group-title">On the day</h4>
+          <TimedReadinessCard points={activeRoute.points_preview ?? []} />
+          <NightReadinessCard
+            key={`night-${activeRouteId}`}
+            points={activeRoute.points_preview ?? []}
+            overlayType={labOverlay?.type}
+            onOverlayChange={updateLabOverlay}
+          />
+          <AccessibilityCard
+            key={`accessibility-${activeRouteId}`}
+            points={activeRoute.points_preview ?? []}
+            overlayType={labOverlay?.type}
+            onOverlayChange={updateLabOverlay}
+          />
+          <LandmarksCard
+            key={`landmarks-${activeRouteId}`}
+            points={activeRoute.points_preview ?? []}
+            onMarkersChange={setSightMarkers}
+          />
+
+          <h4 className="route-lab-group-title">Sharpen the drawing</h4>
           <StreetCanvasCard candidates={result.street_canvas ?? []} />
           <InkproofCard
             key={`inkproof-${activeRouteId}`}
             points={activeRoute.points_preview ?? []}
             overlayType={labOverlay?.type}
-            onOverlayChange={(overlayValue) => {
-              setActiveConcernCode(null);
-              setLabOverlay(overlayValue);
-            }}
+            onOverlayChange={updateLabOverlay}
           />
-          <TimedReadinessCard points={activeRoute.points_preview ?? []} />
           <section className="recognition-repair-card" aria-labelledby="repair-title">
             <div>
               <span className="eyebrow">Recognition repair</span>
@@ -2732,11 +4061,31 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             </button>
             {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
           </section>
+
+          <h4 className="route-lab-group-title">Create together</h4>
           <CommunityMuralCard
             activeRoute={activeRoute}
             shapeName={shapeName}
             city={city}
             sport={result.intent?.sport}
+          />
+          <ArtRescueCard
+            key={`rescue-${activeRouteId}`}
+            activeRoute={activeRoute}
+            shapeName={shapeName}
+            city={city}
+            sport={result.intent?.sport}
+            overlayType={labOverlay?.type}
+            onOverlayChange={updateLabOverlay}
+          />
+
+          <h4 className="route-lab-group-title">Teach &amp; share</h4>
+          <LessonPackCard
+            key={`lesson-${activeRouteId}`}
+            activeRoute={activeRoute}
+            shapeName={shapeName}
+            city={city}
+            onOpen={openLessonSheet}
           />
         </div>
       </details>
@@ -2755,6 +4104,38 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           </details>
         </div>
       )}
+
+      <GiftPosterOverlay
+        open={posterOpen}
+        imageDataUrl={posterImage}
+        dedication={posterDedication}
+        onDedicationChange={setPosterDedication}
+        onClose={() => setPosterOpen(false)}
+        stats={[
+          ["Drawing", shapeName],
+          ["Distance", activeRoute.distance_km != null ? `${formatMetric(activeRoute.distance_km)} km` : "n/a"],
+          ["Activity", activity],
+          ["Place", city],
+          ["Planned", new Date().toLocaleDateString(undefined, { dateStyle: "long" })],
+        ]}
+      />
+
+      <ReelOverlay
+        open={reelOpen}
+        onClose={() => setReelOpen(false)}
+        startCapture={startReelCapture}
+        shapeName={shapeName}
+        city={city}
+      />
+
+      <LessonSheetOverlay
+        open={lessonOpen}
+        pack={lessonPack}
+        points={lessonPoints}
+        dedication={lessonDedication}
+        onDedicationChange={setLessonDedication}
+        onClose={() => setLessonOpen(false)}
+      />
     </section>
   );
 }
@@ -2778,15 +4159,32 @@ export default function App() {
   const [suggestDistance, setSuggestDistance] = useState("10");
   const [suggestErrors, setSuggestErrors] = useState({});
   const [suggestNotice, setSuggestNotice] = useState("");
+  const [startAddress, setStartAddress] = useState("");
+  const [startPoint, setStartPoint] = useState(null);
+  const [startDirection, setStartDirection] = useState("");
+  const [routePreferences, setRoutePreferences] = useState({
+    avoid_steps: false,
+    avoid_ferries: false,
+    avoid_fords: false,
+    prefer_quiet: false,
+    prefer_green: false,
+  });
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [interpretation, setInterpretation] = useState(null);
+  const [interpretationBusy, setInterpretationBusy] = useState(false);
+  const [interpretationError, setInterpretationError] = useState("");
   const [downloadNotice, setDownloadNotice] = useState("");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
+  const interpretationRef = useRef(null);
   const lastGenerationRef = useRef(null);
   const loadingRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
+  const promptSubmitPointerRef = useRef(false);
   const suggestCityRef = useRef(null);
   const suggestActivityRef = useRef(null);
   const suggestDistanceRef = useRef(null);
@@ -2794,6 +4192,18 @@ export default function App() {
   const imageCityRef = useRef(null);
   const imageSportRef = useRef(null);
   const imageDistanceRef = useRef(null);
+  const [campaign, setCampaign] = useState(() => parseCampaignFromUrl());
+  const [campaignBuilderOpen, setCampaignBuilderOpen] = useState(false);
+  const campaignApplied = useRef(false);
+
+  useEffect(() => {
+    if (!campaign || campaignApplied.current) return;
+    // A campaign link pre-fills the drawing once; supporters can still edit it.
+    campaignApplied.current = true;
+    const activityWord = suggestSport === "bike" ? "cycling" : "running";
+    setPrompt(`${campaign.shape} in ${suggestCity}, ${activityWord}, about ${suggestDistance} km`);
+    setPromptError("");
+  }, [campaign, suggestCity, suggestSport, suggestDistance]);
 
   useEffect(() => {
     if (!result) return;
@@ -2827,15 +4237,30 @@ export default function App() {
   }, [error]);
 
   useEffect(() => {
-    if (promptValidationAttempt > 0 && promptError) promptRef.current?.focus();
+    if (!(promptValidationAttempt > 0 && promptError)) return undefined;
+    // Run after the pointer-submit default action. Safari/WebKit otherwise
+    // clears a focus applied during React's discrete-event effect flush.
+    const timer = window.setTimeout(() => {
+      promptRef.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [promptError, promptValidationAttempt]);
 
   useEffect(
     () => () => {
       requestRef.current?.abort();
+      interpretationRef.current?.abort();
     },
     [],
   );
+
+  useEffect(() => {
+    interpretationRef.current?.abort();
+    interpretationRef.current = null;
+    setInterpretation(null);
+    setInterpretationError("");
+    setInterpretationBusy(false);
+  }, [prompt, routePreferences, startAddress, startDirection, startPoint]);
 
   const activeIdea = useMemo(
     () => QUICK_IDEAS.find((idea) => idea.prompt === prompt)?.label,
@@ -2848,6 +4273,21 @@ export default function App() {
       `${idea.label} ${idea.category}`.toLocaleLowerCase("en").includes(query),
     );
   }, [ideaQuery]);
+
+  function buildPlanningPayload(extraPayload = {}) {
+    const payload = { ...extraPayload };
+    const cleanAddress = startAddress.trim();
+    if (cleanAddress) {
+      payload.start_address = cleanAddress;
+    } else if (startPoint) {
+      payload.start_point = startPoint;
+    }
+    if (startDirection !== "") payload.start_direction_deg = Number(startDirection);
+    if (Object.values(routePreferences).some(Boolean)) {
+      payload.route_preferences = routePreferences;
+    }
+    return payload;
+  }
 
   const generate = useCallback(async (nextPrompt, extraPayload = {}) => {
     const cleanPrompt = normaliseRoutePrompt(nextPrompt);
@@ -2897,19 +4337,86 @@ export default function App() {
     window.requestAnimationFrame(() => promptRef.current?.focus());
   }, []);
 
+  async function checkInterpretation() {
+    if (loading || interpretationBusy) return;
+    const validation = validateRoutePrompt(prompt);
+    setPromptError(validation.error);
+    if (validation.error) {
+      setPromptValidationAttempt((current) => current + 1);
+      window.setTimeout(() => promptRef.current?.focus({ preventScroll: true }), 0);
+      return;
+    }
+
+    const controller = new AbortController();
+    interpretationRef.current?.abort();
+    interpretationRef.current = controller;
+    setInterpretationBusy(true);
+    setInterpretationError("");
+    setInterpretation(null);
+    try {
+      const response = await interpretRoute(validation.value, {
+        signal: controller.signal,
+        payload: buildPlanningPayload(),
+      });
+      setInterpretation(response);
+    } catch (requestError) {
+      if (requestError.name !== "AbortError") {
+        setInterpretationError(
+          requestError.message || "We couldn’t check the request. You can still find routes.",
+        );
+      }
+    } finally {
+      if (interpretationRef.current === controller) {
+        interpretationRef.current = null;
+        setInterpretationBusy(false);
+      }
+    }
+  }
+
+  function selectCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationError("This browser does not provide location access. Enter an address instead.");
+      return;
+    }
+    setLocationBusy(true);
+    setLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setStartPoint({
+          latitude: Number(position.coords.latitude.toFixed(6)),
+          longitude: Number(position.coords.longitude.toFixed(6)),
+          label: "Current location",
+        });
+        setStartAddress("");
+        setLocationBusy(false);
+      },
+      (locationRequestError) => {
+        setLocationBusy(false);
+        setLocationError(
+          locationRequestError.code === 1
+            ? "Location access was not allowed. Enter an address or change browser permission."
+            : "Your location could not be found. Enter an address instead.",
+        );
+      },
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
+    );
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
+    promptSubmitPointerRef.current = false;
     if (loading) return;
 
     const validation = validateRoutePrompt(prompt);
     setPromptError(validation.error);
     if (validation.error) {
       setPromptValidationAttempt((current) => current + 1);
+      window.setTimeout(() => promptRef.current?.focus({ preventScroll: true }), 0);
       return;
     }
 
     setPrompt(validation.value);
-    generate(validation.value);
+    generate(validation.value, buildPlanningPayload());
   }
 
   function handleSuggest(event) {
@@ -2932,7 +4439,7 @@ export default function App() {
     const suggestionPrompt = `suggest a ${suggestSport} route in ${suggestCity}, about ${numericDistance} km`;
     setPrompt(suggestionPrompt);
     setPromptError("");
-    generate(suggestionPrompt);
+    generate(suggestionPrompt, buildPlanningPayload());
   }
 
   function handleImageImport(event) {
@@ -2960,7 +4467,7 @@ export default function App() {
     setImageUrl(checkedUrl.value);
     setPrompt(imagePrompt);
     setPromptError("");
-    generate(imagePrompt, { reference_image_url: checkedUrl.value });
+    generate(imagePrompt, buildPlanningPayload({ reference_image_url: checkedUrl.value }));
   }
 
   function cancelGeneration() {
@@ -2978,6 +4485,10 @@ export default function App() {
 
   const { minimum: minimumDistance, maximum: maximumDistance, activity: activityLabel } =
     distanceLimits(suggestSport);
+  const activePlanningOptionCount =
+    (startAddress.trim() || startPoint ? 1 : 0) +
+    (startDirection !== "" ? 1 : 0) +
+    Object.values(routePreferences).filter(Boolean).length;
 
   return (
     <div className="app-shell">
@@ -3004,6 +4515,27 @@ export default function App() {
           <a href="#gallery">Gallery</a>
         </nav>
       </header>
+
+      {campaign && (
+        <div className="campaign-banner" role="region" aria-label="Active art campaign">
+          <div>
+            <strong>{campaign.name}</strong>
+            <span>
+              {campaign.hashtag ? `${campaign.hashtag} · ` : ""}
+              Drawing: {normaliseLabel(campaign.shape)}
+              {campaign.until ? ` · runs until ${campaign.until}` : ""}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="campaign-banner-dismiss"
+            aria-label="Dismiss campaign banner"
+            onClick={() => setCampaign(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <main>
         <section
@@ -3053,6 +4585,7 @@ export default function App() {
                   onBlur={(event) => {
                     const nextControl = event.relatedTarget;
                     if (
+                      promptSubmitPointerRef.current ||
                       nextControl?.type === "submit" &&
                       nextControl.form === event.currentTarget.form
                     ) {
@@ -3116,6 +4649,24 @@ export default function App() {
                 </div>
               </fieldset>
 
+              <OccasionStrip
+                disabled={loading}
+                city={suggestCity}
+                onPick={(pick) => {
+                  const pickedSport = ["run", "bike"].includes(pick.sport)
+                    ? pick.sport
+                    : suggestSport;
+                  const activityWord = pickedSport === "bike" ? "cycling" : "running";
+                  const distance =
+                    Number.isFinite(pick.distance_km) ? String(pick.distance_km) : suggestDistance;
+                  setPrompt(
+                    `${pick.shape_prompt} in ${suggestCity}, ${activityWord}, about ${distance} km`,
+                  );
+                  setPromptError("");
+                  promptRef.current?.focus();
+                }}
+              />
+
               <details className="idea-catalog">
                 <summary>
                   <span>
@@ -3173,16 +4724,218 @@ export default function App() {
                 </div>
               </details>
 
-              <div className="prompt-actions prompt-actions--single">
+              <details className="planning-options-panel">
+                <summary>
+                  <span>
+                    <strong>Start point, direction, and route preferences</strong>
+                    <small>
+                      Optional{activePlanningOptionCount ? ` · ${activePlanningOptionCount} selected` : ""}
+                    </small>
+                  </span>
+                  <b aria-hidden="true">+</b>
+                </summary>
+                <div className="planning-options-body">
+                  <p>Apply these settings to free text, a suggested route, or an image route.</p>
+                  <div className="planning-options-grid">
+                    <div className="field planning-start-field">
+                      <label htmlFor="start-address">
+                        Start address or place <span>(optional)</span>
+                      </label>
+                      <input
+                        id="start-address"
+                        type="text"
+                        value={startAddress}
+                        maxLength={180}
+                        placeholder="Heroes’ Square, Budapest"
+                        autoComplete="street-address"
+                        aria-describedby="start-address-help"
+                        onChange={(event) => {
+                          setStartAddress(event.target.value);
+                          setStartPoint(null);
+                          setLocationError("");
+                        }}
+                        disabled={loading || locationBusy}
+                      />
+                      <small id="start-address-help" className="field-hint">
+                        Enter an address, or use your device location. Only one is sent.
+                      </small>
+                      <div className="location-actions">
+                        <button
+                          type="button"
+                          className="button button--secondary"
+                          onClick={selectCurrentLocation}
+                          disabled={loading || locationBusy}
+                        >
+                          {locationBusy
+                            ? "Finding location…"
+                            : startPoint
+                              ? "Location selected"
+                              : "Use current location"}
+                        </button>
+                        {startPoint && (
+                          <button
+                            type="button"
+                            className="button button--quiet"
+                            onClick={() => setStartPoint(null)}
+                            disabled={loading}
+                          >
+                            Clear location
+                          </button>
+                        )}
+                      </div>
+                      {startPoint && (
+                        <p className="planning-status" role="status">
+                          Current location selected for this request only.
+                        </p>
+                      )}
+                      {locationError && (
+                        <p className="field-error" role="alert">
+                          <span aria-hidden="true">!</span>
+                          {locationError}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="field">
+                      <label htmlFor="start-direction">
+                        Preferred first direction <span>(optional)</span>
+                      </label>
+                      <select
+                        id="start-direction"
+                        value={startDirection}
+                        onChange={(event) => setStartDirection(event.target.value)}
+                        disabled={loading}
+                      >
+                        <option value="">Any direction</option>
+                        <option value="0">North</option>
+                        <option value="45">North-east</option>
+                        <option value="90">East</option>
+                        <option value="135">South-east</option>
+                        <option value="180">South</option>
+                        <option value="225">South-west</option>
+                        <option value="270">West</option>
+                        <option value="315">North-west</option>
+                      </select>
+                      <small className="field-hint">
+                        Useful when you want the drawing to begin in a familiar direction.
+                      </small>
+                    </div>
+                  </div>
+
+                  <fieldset className="route-preferences-fieldset">
+                    <legend>Street preferences <span>(optional)</span></legend>
+                    <p>Select every option that matters for this route.</p>
+                    <div className="route-preference-grid">
+                      {[
+                        ["avoid_steps", "Avoid steps"],
+                        ["avoid_ferries", "Avoid ferries"],
+                        ["avoid_fords", "Avoid fords"],
+                        ["prefer_quiet", "Prefer quieter streets (running)"],
+                        ["prefer_green", "Prefer greener streets (running)"],
+                      ].map(([key, label]) => (
+                        <label key={key}>
+                          <input
+                            type="checkbox"
+                            checked={routePreferences[key]}
+                            onChange={(event) =>
+                              setRoutePreferences((current) => ({
+                                ...current,
+                                [key]: event.target.checked,
+                              }))
+                            }
+                            disabled={loading}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
+              </details>
+
+              <div className="prompt-actions">
                 <button
                   type="submit"
                   className="button button--primary generate-button"
+                  onPointerDown={() => {
+                    promptSubmitPointerRef.current = true;
+                  }}
+                  onPointerUp={() => {
+                    promptSubmitPointerRef.current = false;
+                  }}
+                  onPointerCancel={() => {
+                    promptSubmitPointerRef.current = false;
+                  }}
                   disabled={loading}
                 >
                   <span>{loading ? "Finding routes…" : "Find routes"}</span>
                   <span className="button-arrow" aria-hidden="true">→</span>
                 </button>
+                <button
+                  type="button"
+                  className="button button--secondary request-check-button"
+                  onClick={checkInterpretation}
+                  disabled={loading || interpretationBusy}
+                >
+                  {interpretationBusy ? "Checking request…" : "Preview request"}
+                </button>
               </div>
+              <p className="request-check-hint">
+                Optional: confirm the drawing, place, activity, and distance without waiting for
+                routing.
+              </p>
+              {interpretation && (
+                <section
+                  className="request-check-result"
+                  aria-labelledby="request-check-title"
+                  role="status"
+                >
+                  <div>
+                    <strong id="request-check-title">We’ll plan {interpretation.drawing_label}</strong>
+                    <span>
+                      {interpretation.needs_clarification
+                        ? "Check the details below"
+                        : "Ready to find street routes"}
+                    </span>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Place</dt>
+                      <dd>
+                        {interpretation.intent?.city
+                          ? normaliseLabel(interpretation.intent.city)
+                          : "Planner default"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Activity</dt>
+                      <dd>{interpretation.intent?.sport === "bike" ? "Cycling" : "Running"}</dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {Number.isFinite(interpretation.intent?.distance_km)
+                          ? `${interpretation.intent.distance_km} km`
+                          : "Planner default"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {(interpretation.clarifications ?? []).length > 0 && (
+                    <ul>
+                      {interpretation.clarifications.map((item) => (
+                        <li key={`${item.field}-${item.question}`}>{item.question}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <p>Edit the sentence or optional settings if anything looks wrong.</p>
+                </section>
+              )}
+              {interpretationError && (
+                <p className="field-error request-check-error" role="alert">
+                  <span aria-hidden="true">!</span>
+                  {interpretationError}
+                </p>
+              )}
             </form>
 
             <div className="alternate-starts-heading">
@@ -3531,11 +5284,14 @@ export default function App() {
             }}
             onEditRequest={focusPrompt}
             focusRef={resultRef}
+            campaignSlug={campaign?.slug ?? null}
           />
         )}
         <GallerySection
           refreshKey={galleryRefreshKey}
           publishedAsset={lastPublishedGalleryAsset}
+          campaignSlug={campaign?.slug ?? null}
+          onOpenCampaignBuilder={() => setCampaignBuilderOpen(true)}
         />
       </main>
 
@@ -3545,6 +5301,11 @@ export default function App() {
       <div className="sr-only" aria-live="polite">
         {downloadNotice}
       </div>
+
+      <CampaignBuilderOverlay
+        open={campaignBuilderOpen}
+        onClose={() => setCampaignBuilderOpen(false)}
+      />
     </div>
   );
 }

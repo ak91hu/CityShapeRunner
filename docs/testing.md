@@ -5,9 +5,10 @@ The project has two complementary automated suites:
 - Python unit and integration tests validate configuration, request contracts,
   geometry, route selection, provider fallback, export, gallery security,
   logging, and the complete offline planning pipeline.
-- Playwright functional tests drive the React UI in desktop Chromium and a
-  Pixel 7-sized mobile Chromium project. Network fixtures keep these tests
-  repeatable and prevent calls to paid or rate-limited services.
+- Playwright functional tests drive the React UI in desktop Chromium, a Pixel
+  7-sized mobile Chromium project, desktop Firefox, and desktop WebKit. Network
+  fixtures keep these tests repeatable and prevent calls to paid or rate-limited
+  services.
 
 ## One-time setup
 
@@ -17,7 +18,7 @@ Install the backend development dependencies and frontend lockfile exactly:
 python -m pip install -e ".[dev,all]"
 cd frontend
 npm ci
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 ```
 
 Node.js 24 and Python 3.12 or newer match the supported local and CI
@@ -36,6 +37,7 @@ python -m pytest -q
 cd frontend
 npm run build
 npm run test:e2e
+npm run test:cross-browser
 ```
 
 The PowerShell equivalent is:
@@ -49,6 +51,7 @@ python -m pytest -q
 Set-Location frontend
 npm run build
 npm run test:e2e
+npm run test:cross-browser
 ```
 
 `npm run test:e2e` starts a fresh Vite server on `127.0.0.1:4173`; do not start
@@ -58,9 +61,10 @@ browser projects execute serially.
 
 ### Browser tests and live services
 
-The default Playwright run contains 87 logical browser tests. Each test runs in
-desktop Chromium and a Pixel 7-sized Chromium project, so a complete run reports
-174 executions.
+The suite contains 109 logical browser scenarios. The default desktop/mobile
+Chromium leg reports 218 executions, and the Firefox/WebKit compatibility leg
+reports another 218. The production gate requires both legs, for 436
+deterministic browser executions in total.
 
 These tests are deterministic functional UI tests, not live-service smoke tests.
 They intercept the HTTP boundary for route generation, editing, acceptance, and
@@ -107,9 +111,9 @@ npx playwright test --grep "gallery"
 npm run test:e2e:ui
 ```
 
-Use the Chromium-only command for a quick development loop, then run
-`npm run test:e2e` before handing off a change so the mobile project is also
-covered.
+Use the Chromium-only command for a quick development loop, then run both
+`npm run test:e2e` and `npm run test:cross-browser` before handing off a change
+so mobile Chromium, Firefox, and WebKit are also covered.
 
 ## Coverage map
 

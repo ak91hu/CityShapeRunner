@@ -91,6 +91,12 @@ class WorkflowConfig:
     preflight_guide_points: int = field(
         default_factory=lambda: _int("PREFLIGHT_GUIDE_POINTS", 18)
     )
+    # Candidate route measurements (road recovery, suggestion and fallback
+    # searches) run concurrently through this bounded worker pool. Higher
+    # values trade API rate limits for lower wall-clock time.
+    measurement_workers: int = field(
+        default_factory=lambda: _int("MEASUREMENT_WORKERS", 3)
+    )
     ai_shape_verifier_enabled: bool = field(
         default_factory=lambda: _bool("AI_SHAPE_VERIFIER_ENABLED", True)
     )
@@ -195,6 +201,7 @@ def get_settings() -> Settings:
                     "preflight_max_placements": "PREFLIGHT_MAX_PLACEMENTS",
                     "preflight_shortlist": "PREFLIGHT_SHORTLIST",
                     "preflight_guide_points": "PREFLIGHT_GUIDE_POINTS",
+                    "measurement_workers": "MEASUREMENT_WORKERS",
                     "ai_shape_verifier_enabled": "AI_SHAPE_VERIFIER_ENABLED",
                     "ai_shape_min_semantic_score": "AI_SHAPE_MIN_SEMANTIC_SCORE",
                     "ai_shape_max_candidates": "AI_SHAPE_MAX_CANDIDATES",

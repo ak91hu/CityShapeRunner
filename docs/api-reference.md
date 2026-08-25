@@ -53,6 +53,12 @@ FastAPI errors use:
 | `POST` | `/inkproof-analysis` | Estimate whether GPS drift erases fine details | `200` |
 | `POST` | `/art-rescue` | Compare recorded GPX sessions with planned ink | `200` |
 | `POST` | `/recognition-repair` | Re-route from the strongest visual landmarks | `200` |
+| `POST` | `/night-readiness` | Street-lighting and traffic exposure evidence | `200` |
+| `POST` | `/route-landmarks` | Named sights within a corridor of the route | `200` |
+| `POST` | `/accessibility-readiness` | Wheelchair, steps, and surface evidence for a route | `200` |
+| `POST` | `/lesson-pack` | Classroom worksheet with lettered waypoints and bearings | `200` |
+| `GET` | `/destinations` | Curated city art picks for inspiration | `200` |
+| `GET` | `/occasions` | Date-aware drawing suggestions for gifts and holidays | `200` |
 
 ## Health
 
@@ -258,6 +264,30 @@ Accepts 4–5,000 planned points, 1–12 named GPX recordings (each at most 2,00
 ### `POST /recognition-repair`
 
 Accepts 4–500 reference points, sport, closure flag, name, and route preferences. It extracts salient visual landmarks, street-routes those anchors, and returns the repaired preview, guide points, distance, recognition score, readiness, and GPX.
+
+### `POST /night-readiness`
+
+Accepts 2–5,000 routed points. The route's padded bounding box is queried against a public Overpass mirror for highways with an explicit `lit` tag. Every ~25 m sample is assigned to its nearest tagged segment and aggregated into `lit_share`, `unlit_share`, `unknown_share`, a class-weighted `traffic_exposure` score with a `traffic_label`, and up to six map-ready unlit-stretch concerns. Boxes wider than 12 km diagonally, missing tag coverage, and any Overpass outage return `available: false` instead of failing. Responses are cached per rounded bbox for ten minutes; `OVERPASS_BASE_URL` and `OVERPASS_USER_AGENT` override the endpoint and user agent. `GEOCODE_OFFLINE=1` short-circuits the network lookup.
+
+### `POST /route-landmarks`
+
+Accepts 4–5,000 routed points and returns named OpenStreetMap tourism/historic attractions within 90 m of the line, ordered by kilometre offset and capped at 14. Duplicate names collapse; Overpass outages degrade to `available: false`.
+
+### `POST /accessibility-readiness`
+
+Accepts 2–5,000 routed points. The route's padded bounding box is queried against a public Overpass mirror and every ~25 m sample is assigned to its nearest tagged highway segment. The response reports honest shares of explicitly accessible, restricted, barrier (steps), unpaved, paved, and untagged ground, plus up to six map-ready barrier concerns of at least 30 m so the map can highlight exactly where a wheelchair user would be blocked. Sparse OSM tagging means an untagged street is unknown, not accessible; boxes wider than 12 km diagonally and any Overpass outage return `available: false` instead of failing.
+
+### `POST /lesson-pack`
+
+Accepts 3–500 reference points, a closure flag (default true), a `title` (1–80 characters), and a `shape_name` (1–60 characters). It reduces the drawing to at most 12 lettered waypoints, each carrying its initial bearing as a 16-point compass name and metric leg length, cumulative distance, and the paper scale that fits the figure on an A4 worksheet. Routes shorter than 100 m or legs shorter than 20 m are merged or rejected with `422`; all values are deterministic and derived from the same guide the planner routes over.
+
+### `GET /destinations`
+
+Returns the curated destination catalogue for the composer's inspiration strip: each item carries `city` and a ready-to-use `shape_prompt` that resolves through the normal template fast path. No request body or query parameters.
+
+### `GET /occasions`
+
+Query `days_ahead` (1–365, default 60). Returns the deterministic occasion catalogue entries starting inside the window, soonest first: fixed national days (including 15 March, 20 August, and 23 October), computable movable feasts (Western Easter, Mother's/Children's/Father's Day, first Advent), and international dates. Each item carries `date`, `days_until`, and a `shape_prompt` that resolves through the normal template fast path.
 
 ## Compatibility guidance
 

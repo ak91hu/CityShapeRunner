@@ -213,7 +213,9 @@ class PreflightAgent(BaseAgent):
         for scale_factor in scale_factors:
             for rotation_delta in rotation_deltas:
                 for lat_delta, lon_delta in offsets:
-                    draft = copy.deepcopy(base)
+                    # Shallow scalar copy suffices: ``project`` below replaces
+                    # the waypoint list wholesale and never reads the base's.
+                    draft = copy.copy(base)
                     draft.scale_m = max(25.0, base.scale_m * scale_factor)
                     draft.rotation_deg = (
                         base.rotation_deg + rotation_delta

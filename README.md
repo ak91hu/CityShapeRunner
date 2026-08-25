@@ -269,7 +269,7 @@ from `frontend/`, or directly from FastAPI after `frontend/dist` has been built.
 
 The backend suite is deterministic and runs without paid providers. The UI
 suite uses Playwright with mocked API, map-tile, and gallery responses, and runs
-every functional scenario in desktop and mobile Chromium.
+every functional scenario in desktop/mobile Chromium, Firefox, and WebKit.
 
 ```bash
 GEOCODE_OFFLINE=1 python -m pytest -q
@@ -280,15 +280,16 @@ cd frontend
 npm ci
 npm run build
 npm run test:e2e
+npm run test:cross-browser
 ```
 
 On Windows PowerShell, use `$env:GEOCODE_OFFLINE = "1"` before pytest. Install
-the browser once with `cd frontend && npx playwright install chromium`. See the
+the browsers once with `cd frontend && npx playwright install chromium firefox webkit`. See the
 [testing guide](docs/testing.md) for targeted commands, suite ownership,
 Playwright debugging, and the Windows temporary-directory workaround.
 
-An optional compatibility run exercises the same suite in desktop Firefox and
-WebKit (Safari's browser engine) without changing the Chromium CI gate:
+The second command exercises the required desktop Firefox and WebKit (Safari's
+browser engine) compatibility leg. To run only that leg locally:
 
 ```bash
 cd frontend
@@ -300,18 +301,22 @@ npm run test:cross-browser
 
 The searchable [MkDocs technical documentation](https://ak91hu.github.io/CityShapeRunner/)
 is built with warnings treated as errors on every CI run and deployed to GitHub
-Pages only after the backend, frontend, production-container, and documentation
-jobs all pass on `master`. For local authoring, install `.[docs]` and run
+Pages only after backend quality/tests, the production frontend, all four
+browser profiles, the production container smoke, and documentation jobs pass
+on `master`. For local authoring, install `.[docs]` and run
 `python -m mkdocs serve`; the [CI/CD guide](docs/ci-cd.md) documents the release
 gate and one-time Pages configuration.
 
 The recommended hobby deployment is the
 [Northflank Developer Sandbox with Grafana Cloud Logs](docs/deployment.md#northflank-developer-sandbox).
 A Northflank combined service builds the repository's multi-stage Dockerfile,
-serves the SPA and API from one HTTPS `*.code.run` endpoint, and automatically
-rebuilds the `master` branch after a push. The free Sandbox is always-on but
-resource-limited and has no production SLA; the deployment guide records the
-exact service, port, health-check, environment, and Loki-sink settings.
+serves the SPA and API from one HTTPS `*.code.run` endpoint, and accepts only
+the exact tested `master` SHA from the GitHub deployment job. Direct Northflank
+CI is disabled so a push cannot bypass the quality gate; the job waits for the
+Northflank build, rollout, and public health check. The free Sandbox is
+always-on but resource-limited and has no production SLA; the deployment guide
+records the exact service, port, health-check, environment, and Loki-sink
+settings.
 
 > Generated routes are planning candidates, not safety guarantees. Review every
 > route against current access rules, crossings, closures, terrain, and local

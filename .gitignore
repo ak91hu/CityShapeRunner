@@ -13,13 +13,17 @@ env/
 
 # Tooling
 .pytest_cache/
-.pytest-tmp/
+# pytest --basetemp scratch dirs (pyproject pins .pytest-tmp; ad-hoc runs
+# historically littered suffixed variants - all covered by the wildcard).
+.pytest-*/
 .ruff_cache/
 .mypy_cache/
 .coverage
 htmlcov/
 site/
-.tmp/
+.tmp*/
+.codex-test-temp/
+pytest-tmp*/
 
 # Node / browser tests
 node_modules/

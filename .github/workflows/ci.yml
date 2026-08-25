@@ -1,49 +1,99 @@
-name: CI
+name: CI/CD
+
+run-name: CI/CD · ${{ github.event_name }} · ${{ github.ref_name }} · ${{ github.sha }}
 
 on:
   push:
+    branches:
+      - master
   pull_request:
+    branches:
+      - master
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      deploy_northflank:
+        description: Deploy master to Northflank after the complete quality gate
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Supersede stale PR/feature-branch runs, but never interrupt a master release.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "24"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  backend:
-    name: Python 3.14
+  backend-quality:
+    name: Backend · lint and types
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: pyproject.toml
 
       - name: Install application and quality tools
-        run: python -m pip install --disable-pip-version-check -e ".[dev,all]"
+        run: python -m pip install -e ".[dev,all]"
 
-      - name: Lint
+      - name: Lint Python sources
         run: python -m ruff check .
 
-      - name: Type-check
+      - name: Type-check application
         run: python -m mypy --ignore-missing-imports gps_art_wizzard
 
-      - name: Run unit and integration tests
+  backend-tests:
+    name: Backend · unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install application and test dependencies
+        run: python -m pip install -e ".[dev,all]"
+
+      - name: Run deterministic unit and integration tests
         env:
           GEOCODE_OFFLINE: "1"
-        run: python -m pytest -q
+        run: |
+          mkdir -p test-results
+          python -m pytest -q --junitxml=test-results/backend-junit.xml
 
-  frontend:
-    name: Node 24 and Playwright
+      - name: Upload backend test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-test-results
+          path: test-results/backend-junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  frontend-build:
+    name: Frontend · production build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -52,81 +102,223 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies
+      - name: Install locked frontend dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Build frontend
+      - name: Build optimized frontend
         run: npm run build
 
-      - name: Run functional UI tests
-        run: npm run test:e2e
-
-  container:
-    name: Production container
+  ui-tests:
+    name: UI · ${{ matrix.label }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Chromium desktop and mobile
+            browsers: chromium
+            command: test:e2e
+            artifact: chromium
+          - label: Firefox and WebKit
+            browsers: firefox webkit
+            command: test:cross-browser
+            artifact: firefox-webkit
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Build Northflank production image
-        run: docker build --tag gps-art-wizard:${{ github.sha }} .
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.browsers }}
+
+      - name: Run functional UI suite
+        run: npm run ${{ matrix.command }}
+
+      - name: Upload Playwright diagnostics
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-${{ matrix.artifact }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
 
   docs:
-    name: MkDocs technical documentation
+    name: Docs · strict build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.14"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: pyproject.toml
 
       - name: Install documentation toolchain
-        run: python -m pip install --disable-pip-version-check -e ".[docs]"
+        run: python -m pip install -e ".[docs]"
 
       - name: Build documentation with warnings as errors
         run: python -m mkdocs build --strict
 
       - name: Configure GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
       - name: Upload GitHub Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: site
 
+  container:
+    name: Container · build and smoke test
+    needs:
+      - backend-quality
+      - backend-tests
+      - frontend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build the exact Northflank production image
+        run: docker build --tag gps-art-wizard:${{ github.sha }} .
+
+      - name: Start production image
+        run: |
+          docker run --detach \
+            --name gps-art-wizard-ci \
+            --publish 127.0.0.1:8000:8000 \
+            --env API_HOST=0.0.0.0 \
+            --env GEOCODE_OFFLINE=1 \
+            gps-art-wizard:${{ github.sha }}
+
+      - name: Verify health and compiled SPA
+        run: |
+          curl --fail --silent --show-error \
+            --retry 20 --retry-delay 2 --retry-all-errors \
+            http://127.0.0.1:8000/health \
+            | jq --exit-status '.status == "ok"'
+          curl --fail --silent --show-error http://127.0.0.1:8000/ \
+            | grep --fixed-strings '<div id="root">'
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker logs gps-art-wizard-ci
+
+      - name: Remove smoke-test container
+        if: always()
+        run: docker rm --force gps-art-wizard-ci || true
+
+  quality-gate:
+    name: Quality gate
+    if: always()
+    needs:
+      - backend-quality
+      - backend-tests
+      - frontend-build
+      - ui-tests
+      - docs
+      - container
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every pre-deployment check
+        env:
+          BACKEND_QUALITY: ${{ needs.backend-quality.result }}
+          BACKEND_TESTS: ${{ needs.backend-tests.result }}
+          FRONTEND_BUILD: ${{ needs.frontend-build.result }}
+          UI_TESTS: ${{ needs.ui-tests.result }}
+          DOCS: ${{ needs.docs.result }}
+          CONTAINER: ${{ needs.container.result }}
+        run: |
+          printf '%s\n' \
+            "backend-quality=$BACKEND_QUALITY" \
+            "backend-tests=$BACKEND_TESTS" \
+            "frontend-build=$FRONTEND_BUILD" \
+            "ui-tests=$UI_TESTS" \
+            "docs=$DOCS" \
+            "container=$CONTAINER"
+          test "$BACKEND_QUALITY" = success
+          test "$BACKEND_TESTS" = success
+          test "$FRONTEND_BUILD" = success
+          test "$UI_TESTS" = success
+          test "$DOCS" = success
+          test "$CONTAINER" = success
+
+  deploy-northflank:
+    name: Deploy · Northflank production
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.deploy_northflank))
+    needs:
+      - quality-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    concurrency:
+      group: northflank-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    environment:
+      name: northflank-production
+      url: ${{ vars.NORTHFLANK_PRODUCTION_URL }}
+
+    steps:
+      - name: Check out deployment helper
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build, deploy, and verify the tested commit
+        env:
+          NORTHFLANK_API_TOKEN: ${{ secrets.NORTHFLANK_API_TOKEN }}
+          NORTHFLANK_TEAM_ID: ${{ vars.NORTHFLANK_TEAM_ID }}
+          NORTHFLANK_PROJECT_ID: ${{ vars.NORTHFLANK_PROJECT_ID }}
+          NORTHFLANK_SERVICE_ID: ${{ vars.NORTHFLANK_SERVICE_ID }}
+          NORTHFLANK_PRODUCTION_URL: ${{ vars.NORTHFLANK_PRODUCTION_URL }}
+        run: bash .github/scripts/deploy-northflank.sh
+
   deploy-docs:
-    name: Deploy technical documentation
+    name: Deploy · technical documentation
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs:
-      - backend
-      - frontend
-      - container
+      - quality-gate
       - docs
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -141,4 +333,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
