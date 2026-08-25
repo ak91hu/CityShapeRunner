@@ -141,6 +141,17 @@ class Shape:
     selected_candidate: int | None = None
 
 
+@dataclass(frozen=True)
+class MapPlacement:
+    """A user-positioned drawing footprint that bounds placement search."""
+
+    center_lat: float
+    center_lon: float
+    scale_m: float
+    rotation_deg: float
+    search_radius_m: float = 900.0
+
+
 @dataclass
 class RouteDraft:
     center_lat: float
@@ -311,6 +322,7 @@ class WorkflowState:
     reference_image_data_url: str | None = None
     reference_name: str | None = None
     reference_kind: str | None = None
+    map_placement: MapPlacement | None = None
     workflow: WorkflowTrace | None = None
 
     def snapshot(self) -> dict[str, Any]:

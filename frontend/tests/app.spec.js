@@ -320,9 +320,9 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByText("Planner online")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
   await page.getByText("Choose city, activity, and distance").click();
-  await expect(page.getByLabel("City")).toBeVisible();
+  await expect(page.getByLabel("City", { exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Activity" })).toBeVisible();
-  await expect(page.getByLabel("Distance")).toBeVisible();
+  await expect(page.getByLabel("Distance", { exact: true })).toBeVisible();
   const suggestionButton = page.getByRole("button", { name: "Find a route" });
   await expect(suggestionButton).toBeVisible();
   await expect(
@@ -343,34 +343,34 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
       actionsBox.x + actionsBox.width - 1,
     );
   }
-  for (const option of await page.locator(".activity-option").all()) {
+  for (const option of await page.locator(".suggest-form .activity-option").all()) {
     const box = await option.boundingBox();
     expect(box).not.toBeNull();
     expect(box.height).toBeGreaterThanOrEqual(44);
   }
-  await expect(page.getByLabel("City").locator('option[value="Miskolc"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Eger"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator("option")).toHaveCount(230);
-  await expect(page.getByLabel("City").locator("optgroup")).toHaveCount(3);
-  await expect(page.getByLabel("City").locator('optgroup[label="Hungary"] option')).toHaveCount(50);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Miskolc"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Eger"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator("option")).toHaveCount(230);
+  await expect(page.getByLabel("City", { exact: true }).locator("optgroup")).toHaveCount(3);
+  await expect(page.getByLabel("City", { exact: true }).locator('optgroup[label="Hungary"] option')).toHaveCount(50);
   await expect(
-    page.getByLabel("City").locator('optgroup[label="Lake Balaton shore"] option'),
+    page.getByLabel("City", { exact: true }).locator('optgroup[label="Lake Balaton shore"] option'),
   ).toHaveCount(44);
-  await expect(page.getByLabel("City").locator('optgroup[label="Europe"] option')).toHaveCount(136);
+  await expect(page.getByLabel("City", { exact: true }).locator('optgroup[label="Europe"] option')).toHaveCount(136);
   const cityValues = await page
-    .getByLabel("City")
+    .getByLabel("City", { exact: true })
     .locator("option")
     .evaluateAll((options) => options.map((option) => option.value));
   expect(new Set(cityValues).size).toBe(230);
-  await expect(page.getByLabel("City").locator('option[value="Érd"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Szolnok"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Érd"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Szolnok"]')).toHaveCount(1);
   await expect(
-    page.getByLabel("City").locator('option[value="Szigetszentmiklós"]'),
+    page.getByLabel("City", { exact: true }).locator('option[value="Szigetszentmiklós"]'),
   ).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Tata"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Stockholm"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Kraków"]')).toHaveCount(1);
-  await expect(page.getByLabel("City").locator('option[value="Timișoara"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Tata"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Stockholm"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Kraków"]')).toHaveCount(1);
+  await expect(page.getByLabel("City", { exact: true }).locator('option[value="Timișoara"]')).toHaveCount(1);
   await page.getByText("More shapes, letters, and numbers").click();
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(158);
   await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
@@ -495,9 +495,9 @@ test("smart suggestion validates inputs and submits the selected city, activity,
   await page.goto("/");
 
   await page.getByText("Choose city, activity, and distance").click();
-  await page.getByLabel("City").selectOption("Pécs");
+  await page.getByLabel("City", { exact: true }).selectOption("Pécs");
   await page.getByRole("radio", { name: "Cycling" }).check();
-  await page.getByLabel("Distance").fill("25");
+  await page.getByLabel("Distance", { exact: true }).fill("25");
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => submittedPrompt).toBe("suggest a bike route in Pécs, about 25 km");

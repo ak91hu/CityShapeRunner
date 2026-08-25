@@ -513,7 +513,7 @@ test("choosing cycling raises the suggested distance to its valid minimum", asyn
   await page.goto("/");
 
   await page.getByText("Choose city, activity, and distance").click();
-  const distance = page.getByLabel("Distance");
+  const distance = page.getByLabel("Distance", { exact: true });
   await distance.fill("3");
   await page.getByRole("radio", { name: "Cycling" }).check();
 
