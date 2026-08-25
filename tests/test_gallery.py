@@ -173,10 +173,29 @@ def test_gallery_search_filters_non_gallery_resources(cloudinary_env, monkeypatc
                 ),
                 "width": 900,
                 "height": 600,
+                "campaign": None,
             }
         ],
         "next_cursor": "next-page",
     }
+
+
+def test_gallery_campaign_slug_is_validated_inside_the_storage_boundary(
+    cloudinary_env,
+    monkeypatch,
+):
+    called = False
+
+    def fake_post(*_args, **_kwargs):  # pragma: no cover - assertion guard
+        nonlocal called
+        called = True
+        raise AssertionError("invalid campaign must not reach Cloudinary")
+
+    monkeypatch.setattr(cloudinary_gallery.httpx, "post", fake_post)
+    with pytest.raises(cloudinary_gallery.GalleryImageError, match="Campaign"):
+        cloudinary_gallery.list_gallery_images(campaign="bad OR tags=private")
+
+    assert called is False
 
 
 def test_gallery_api_requires_public_location_consent(cloudinary_env):
@@ -210,8 +229,8 @@ def test_gallery_api_publishes_without_forwarding_personal_fields(
     public_id = "gps-art-gallery/" + ("b" * 32)
     seen = {}
 
-    def fake_upload(image_data_url, publish_token):
-        seen.update(image_data_url=image_data_url, publish_token=publish_token)
+    def fake_upload(image_data_url, publish_token, *, campaign=None):
+        seen.update(image_data_url=image_data_url, publish_token=publish_token, campaign=campaign)
         return {
             "asset": {
                 "id": public_id,
@@ -238,5 +257,130 @@ def test_gallery_api_publishes_without_forwarding_personal_fields(
         )
     assert response.status_code == 200
     assert response.json()["asset"]["id"] == public_id
-    assert set(seen) == {"image_data_url", "publish_token"}
+    assert set(seen) == {"image_data_url", "publish_token", "campaign"}
+    assert seen["campaign"] is None
+
+
+# ---- removal capability: token verification + delete endpoint ------------- #
+
+
+def test_removal_token_binds_the_signature_to_one_public_id(cloudinary_env):
+    config = cloudinary_gallery.get_cloudinary_config()
+    public_id = "gps-art-gallery/" + ("d" * 32)
+    token = cloudinary_gallery.removal_token(public_id, config)
+
+    cloudinary_gallery.verify_removal_token(public_id, token, config)  # must not raise
+    with pytest.raises(cloudinary_gallery.GalleryTokenError):
+        cloudinary_gallery.verify_removal_token(public_id, "f" * 64, config)
+    with pytest.raises(cloudinary_gallery.GalleryTokenError):
+        # A valid token for a DIFFERENT asset must not authorise this one.
+        other = cloudinary_gallery.removal_token(
+            "gps-art-gallery/" + ("e" * 32), config
+        )
+        cloudinary_gallery.verify_removal_token(public_id, other, config)
+
+
+def test_delete_gallery_image_sends_signed_destroy_request(cloudinary_env, monkeypatch):
+    config = cloudinary_gallery.get_cloudinary_config()
+    public_id = "gps-art-gallery/" + ("1" * 32)
+    token = cloudinary_gallery.removal_token(public_id, config)
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return httpx.Response(200, json={"result": "ok"})
+
+    monkeypatch.setattr(cloudinary_gallery.httpx, "post", fake_post)
+    removed = cloudinary_gallery.delete_gallery_image(public_id, token)
+
+    assert removed is True
+    assert captured["url"].endswith("/test-cloud/image/destroy")
+    assert captured["data"]["public_id"] == public_id
+    assert captured["data"]["invalidate"] == "true"
+    assert captured["data"]["api_key"] == "test-key"
+    assert "test-secret" not in captured["data"].values()
+    assert captured["data"]["signature"]
+
+
+def test_delete_gallery_image_accepts_not_found_and_rejects_other_results(
+    cloudinary_env,
+    monkeypatch,
+):
+    public_id = "gps-art-gallery/" + ("2" * 32)
+    token = cloudinary_gallery.removal_token(
+        public_id, cloudinary_gallery.get_cloudinary_config()
+    )
+
+    def responding(result):
+        def fake_post(_url, **_kwargs):
+            return httpx.Response(200, json={"result": result})
+
+        return fake_post
+
+    monkeypatch.setattr(cloudinary_gallery.httpx, "post", responding("not found"))
+    # An already-removed asset is not an error; it simply reports no removal.
+    assert cloudinary_gallery.delete_gallery_image(public_id, token) is False
+
+    monkeypatch.setattr(cloudinary_gallery.httpx, "post", responding("deleted"))
+    with pytest.raises(cloudinary_gallery.CloudinaryGalleryError):
+        cloudinary_gallery.delete_gallery_image(public_id, token)
+
+    def server_error(_url, **_kwargs):
+        return httpx.Response(500, json={"error": {"message": "boom"}})
+
+    monkeypatch.setattr(cloudinary_gallery.httpx, "post", server_error)
+    with pytest.raises(cloudinary_gallery.CloudinaryGalleryError):
+        cloudinary_gallery.delete_gallery_image(public_id, token)
+
+
+def test_gallery_delete_endpoint_removes_with_a_valid_token(cloudinary_env, monkeypatch):
+    public_id = "gps-art-gallery/" + ("3" * 32)
+    seen = {}
+
+    def fake_delete(public_id_arg, token_arg):
+        seen.update(id=public_id_arg, token=token_arg)
+        return True
+
+    monkeypatch.setattr(
+        gallery_api.cloudinary_gallery, "delete_gallery_image", fake_delete
+    )
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/gallery/delete",
+            json={"public_id": public_id, "removal_token": "a" * 64},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"removed": True}
+    assert seen == {"id": public_id, "token": "a" * 64}
+
+
+def test_gallery_delete_endpoint_rejects_tampered_tokens_and_bad_ids(cloudinary_env):
+    public_id = "gps-art-gallery/" + ("4" * 32)
+
+    with TestClient(create_app()) as client:
+        tampered = client.post(
+            "/gallery/delete",
+            json={"public_id": public_id, "removal_token": "b" * 64},
+        )
+        malformed = client.post(
+            "/gallery/delete",
+            json={"public_id": "gps-art-gallery/zzz", "removal_token": "c" * 64},
+        )
+
+    assert tampered.status_code == 403
+    assert malformed.status_code == 422
+
+
+def test_gallery_delete_endpoint_is_unavailable_without_configuration(monkeypatch):
+    monkeypatch.delenv("CLOUDINARY_URL", raising=False)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/gallery/delete",
+            json={
+                "public_id": "gps-art-gallery/" + ("5" * 32),
+                "removal_token": "d" * 64,
+            },
+        )
+    assert response.status_code == 503
 

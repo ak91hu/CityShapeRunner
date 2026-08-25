@@ -15,9 +15,11 @@ continues with another deterministic transform.
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import logging
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from .config import get_settings
@@ -28,6 +30,11 @@ from .state import FitDecision, Intent, LatLon, RoutePreferences, Shape, Workflo
 from .workflow_runtime import WorkflowRuntime
 
 log = logging.getLogger(__name__)
+
+# Upper bound for the candidate-measurement worker pool. Public routing APIs
+# enforce per-minute quotas; a small pool already collapses the wall-clock
+# time of the recovery/suggestion/fallback searches from a sum to a maximum.
+_MAX_MEASUREMENT_WORKERS = 6
 
 
 class WorkflowNode(Protocol):
@@ -103,8 +110,8 @@ class Orchestrator:
         n["preflight"].run(state)
         n["snap"].run(state)
         n["validation"].run(state)
-        self._recover_unroutable_placement(state, n)
-        self._evaluate_suggestion_candidates(state, n)
+        self._recover_unroutable_placement(state, n, runtime=runtime)
+        self._evaluate_suggestion_candidates(state, n, runtime=runtime)
 
         threshold = cfg.validation_score_threshold
         max_iter = cfg.max_refinement_iterations
@@ -122,9 +129,13 @@ class Orchestrator:
         # Geometry tweaks cannot turn the explicit no-road-data preview into a
         # feasible route. Skipping those no-op iterations keeps offline/local
         # use fast and avoids implying that refinement solved road access.
+        # Once the run's wall-clock budget is exhausted, further speculative
+        # iterations cannot finish before the client timeout anyway; the best
+        # measured route so far is kept instead.
         while (
             best_v.on_roads
             and not self._passes_quality(best_v)
+            and not runtime.deadline_exceeded()
             and state.iterations < max_iter
         ):
             state.iterations += 1
@@ -190,7 +201,7 @@ class Orchestrator:
         # gates, route a small city-aware set of simpler shapes.  A replacement
         # is accepted only after it passes the same street, silhouette,
         # distance, and closure checks as the original.
-        self._evaluate_fallback_candidates(state, n)
+        self._evaluate_fallback_candidates(state, n, runtime=runtime)
         if state.validation is not None:
             best_v = state.validation
         best_snapped = copy.deepcopy(state.snapped)
@@ -252,17 +263,147 @@ class Orchestrator:
         runtime.finish(state)
         return state
 
+    def _measurement_worker_count(self, job_count: int) -> int:
+        try:
+            configured = int(get_settings().workflow.measurement_workers)
+        except (TypeError, ValueError):
+            configured = 1
+        return max(1, min(configured, _MAX_MEASUREMENT_WORKERS, max(1, job_count)))
+
+    def _measure_candidates(
+        self,
+        jobs: list[tuple[str, WorkflowState, str]],
+        nodes: Mapping[str, WorkflowNode],
+        *,
+        fallback_sources: list[WorkflowState] | None = None,
+    ) -> list[tuple[WorkflowState, Exception | None]]:
+        """Measure independent candidate pipelines concurrently, in input order.
+
+        Each job owns a prepared clone state, so the shared agents stay
+        thread-safe while ORS Directions round trips overlap. Results are
+        returned in the caller's priority order together with any candidate
+        error, keeping selection semantics identical to the sequential walk
+        this replaces. The third tuple element names fallback candidates.
+        """
+        if not jobs:
+            return []
+        workers = self._measurement_worker_count(len(jobs))
+        if fallback_sources is None:
+            measurement_sources: list[WorkflowState] = [job[1] for job in jobs]
+        else:
+            measurement_sources = fallback_sources
+        contexts = [contextvars.copy_context() for _ in jobs]
+
+        def execute(index: int) -> tuple[WorkflowState, Exception | None]:
+            label, job_state, shape_name = jobs[index]
+            source = measurement_sources[index]
+            context = contexts[index]
+            try:
+                if label == "fallback":
+                    measured = context.run(
+                        self._measure_fallback_shape,
+                        source,
+                        shape_name,
+                        nodes,
+                    )
+                    return measured, None
+                if label == "road_recovery":
+                    def recover_route() -> WorkflowState:
+                        self._run_candidate_node(nodes["snap"], job_state)
+                        self._run_candidate_node(nodes["validation"], job_state)
+                        return job_state
+
+                    return context.run(recover_route), None
+                measured = context.run(
+                    self._run_candidate_pipeline, job_state, nodes
+                )
+                return measured, None
+            except (RuntimeError, TypeError, ValueError) as exc:
+                # One broken alternative must not abort the whole search; the
+                # sequential implementation skipped such candidates too.
+                return job_state, exc
+
+        if workers <= 1:
+            return [execute(index) for index in range(len(jobs))]
+        with ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="gps-art-measure",
+        ) as pool:
+            return list(pool.map(execute, range(len(jobs))))
+
+    @staticmethod
+    def _run_candidate_pipeline(
+        state: WorkflowState,
+        nodes: Mapping[str, WorkflowNode],
+    ) -> WorkflowState:
+        """Run shape→placement→preflight→snap→validation on one clone state."""
+        Orchestrator._run_candidate_node(nodes["shape"], state)
+        Orchestrator._run_candidate_node(nodes["placement"], state)
+        preflight = nodes.get("preflight")
+        if preflight is not None:
+            Orchestrator._run_candidate_node(preflight, state)
+        Orchestrator._run_candidate_node(nodes["snap"], state)
+        Orchestrator._run_candidate_node(nodes["validation"], state)
+        return state
+
+    @staticmethod
+    def _run_candidate_node(node: WorkflowNode, state: WorkflowState) -> WorkflowState:
+        """Run one speculative node without making its failure terminal."""
+
+        recoverable = getattr(node, "run_recoverable", None)
+        if callable(recoverable):
+            return recoverable(state)
+        return node.run(state)
+
+    @staticmethod
+    def _measurement_shell(source: WorkflowState) -> WorkflowState:
+        """Clone exactly what an independent candidate measurement mutates.
+
+        A whole-state ``deepcopy`` would duplicate every previously evaluated
+        polyline carried by the parent state, only for those lists to be reset
+        immediately. The shell shares read-only references (prompt, preferences,
+        geocoded context) and gives the clone private copies of the containers
+        and nested records the candidate pipeline writes to.
+        """
+        shell = copy.copy(source)
+        shell.history = []
+        shell.errors = []
+        shell.placement_candidates = []
+        shell.preflight_candidates = []
+        shell.candidates = []
+        shell.intent = (
+            copy.deepcopy(source.intent) if source.intent is not None else None
+        )
+        shell.plan = copy.deepcopy(source.plan) if source.plan is not None else None
+        if source.reference_shape is not None:
+            shell.reference_shape = copy.deepcopy(source.reference_shape)
+        shell.workflow = None
+        return shell
+
+    @staticmethod
+    def _is_connected(candidate_state: WorkflowState) -> bool:
+        validation = candidate_state.validation
+        return bool(
+            validation
+            and validation.on_roads
+            and candidate_state.snapped
+            and candidate_state.snapped.snapped
+        )
+
     def _recover_unroutable_placement(
         self,
         state: WorkflowState,
         nodes: Mapping[str, WorkflowNode],
+        runtime: WorkflowRuntime | None = None,
     ) -> None:
         """Try the remaining road-ranked placements when Directions rejects the first.
 
         Snap preflight proves proximity to roads, not connectivity between every
         waypoint.  The former pipeline stopped immediately when the top-ranked
-        placement could not be routed and exposed its straight-line guide.  Keep
-        walking the bounded shortlist until one candidate follows real streets.
+        placement could not be routed and exposed its straight-line guide. All
+        shortlisted placements are measured concurrently, then the first
+        road-connected one in preflight priority order wins — exactly the choice
+        the sequential walk made, without paying its summed latency.
         """
 
         validation = state.validation
@@ -283,73 +424,96 @@ class Orchestrator:
         primary_snapped = copy.deepcopy(state.snapped)
         primary_validation = copy.deepcopy(validation)
         primary_errors = list(state.errors)
-        attempt = 0
 
-        while state.placement_candidates:
-            attempt += 1
-            state.route_draft = copy.deepcopy(state.placement_candidates.pop(0))
-            attempt_errors = list(state.errors)
-            try:
-                nodes["snap"].run(state)
-                nodes["validation"].run(state)
-            except (RuntimeError, TypeError, ValueError) as exc:
-                state.errors = attempt_errors
-                state.history.append(
-                    {
-                        "agent": "road_recovery",
-                        "attempt": attempt,
-                        "rotation_deg": state.route_draft.rotation_deg,
-                        "scale_m": state.route_draft.scale_m,
-                        "preflight_score": state.route_draft.preflight_score,
-                        "on_roads": False,
-                        "error_type": type(exc).__name__,
-                    }
-                )
+        queued = [copy.deepcopy(draft) for draft in state.placement_candidates]
+        jobs: list[tuple[str, WorkflowState, str]] = []
+        for draft in queued:
+            job_state = self._measurement_shell(state)
+            job_state.candidate_count = 0
+            job_state.preflight_count = 0
+            job_state.errors = list(primary_errors)
+            job_state.route_draft = copy.deepcopy(draft)
+            jobs.append(("road_recovery", job_state, ""))
+
+        results = self._measure_candidates(jobs, nodes)
+
+        connected_index: int | None = None
+        total_candidate_count = 0
+        total_preflight_count = 0
+        evaluated: list = []
+        history_entries: list[dict] = []
+        for attempt, (candidate_state, error) in enumerate(results, start=1):
+            candidate_draft = candidate_state.route_draft
+            entry = {
+                "agent": "road_recovery",
+                "attempt": attempt,
+                "rotation_deg": (
+                    candidate_draft.rotation_deg if candidate_draft else None
+                ),
+                "scale_m": candidate_draft.scale_m if candidate_draft else None,
+                "preflight_score": (
+                    candidate_draft.preflight_score if candidate_draft else None
+                ),
+            }
+            if error is not None:
+                entry.update({"on_roads": False, "error_type": type(error).__name__})
                 log.warning(
                     "road recovery candidate %d failed with %s; trying next placement",
                     attempt,
-                    type(exc).__name__,
+                    type(error).__name__,
                 )
+                history_entries.append(entry)
                 continue
-            candidate_validation = state.validation
-            candidate_is_connected = bool(
-                candidate_validation
-                and candidate_validation.on_roads
-                and state.snapped
-                and state.snapped.snapped
-            )
-            state.history.append(
-                {
-                    "agent": "road_recovery",
-                    "attempt": attempt,
-                    "rotation_deg": state.route_draft.rotation_deg,
-                    "scale_m": state.route_draft.scale_m,
-                    "preflight_score": state.route_draft.preflight_score,
-                    "on_roads": candidate_is_connected,
-                }
-            )
-            if candidate_is_connected:
-                log.info(
-                    "road recovery found a connected placement on attempt %d "
-                    "(preflight=%s)",
-                    attempt,
-                    state.route_draft.preflight_score,
-                )
-                return
+            total_candidate_count += candidate_state.candidate_count
+            total_preflight_count += candidate_state.preflight_count
+            evaluated.extend(candidate_state.candidates)
+            connected = self._is_connected(candidate_state)
+            entry["on_roads"] = connected
+            history_entries.append(entry)
+            if connected and connected_index is None:
+                connected_index = attempt - 1
 
-        state.route_draft = primary_draft
-        state.snapped = primary_snapped
-        state.validation = primary_validation
-        state.errors = primary_errors
-        log.warning(
-            "road recovery exhausted %d additional placements; no connected route found",
-            attempt,
+        state.candidate_count += total_candidate_count
+        state.preflight_count += total_preflight_count
+        state.candidates.extend(evaluated)
+        state.history.extend(history_entries)
+
+        if connected_index is None:
+            state.route_draft = primary_draft
+            state.snapped = primary_snapped
+            state.validation = primary_validation
+            state.errors = primary_errors
+            state.placement_candidates = []
+            log.warning(
+                "road recovery exhausted %d additional placements; no connected route found",
+                len(results),
+            )
+            return
+
+        winner = results[connected_index][0]
+        state.route_draft = winner.route_draft
+        state.snapped = winner.snapped
+        state.validation = winner.validation
+        state.errors = winner.errors
+        # Placements ranked behind the winner were never consumed by the
+        # sequential walk; keep them available for refinement.
+        state.placement_candidates = [
+            copy.deepcopy(result_state.route_draft)
+            for result_state, error in results[connected_index + 1 :]
+            if error is None and result_state.route_draft is not None
+        ]
+        log.info(
+            "road recovery found a connected placement on attempt %d "
+            "(preflight=%s)",
+            connected_index + 1,
+            winner.route_draft.preflight_score if winner.route_draft else None,
         )
 
     def _evaluate_fallback_candidates(
         self,
         state: WorkflowState,
         nodes: Mapping[str, WorkflowNode],
+        runtime: WorkflowRuntime | None = None,
     ) -> None:
         """Handle unavailable-source substitutions without replacing explicit shapes."""
         validation = state.validation
@@ -448,21 +612,43 @@ class Orchestrator:
         best_below_target: WorkflowState | None = None
 
         if validation.on_roads:
-            for candidate_name in plan.fallback_candidates:
-                if candidate_name == shape.name:
-                    continue
-                attempted.append(candidate_name)
-                candidate = self._measure_fallback_shape(
-                    state,
-                    candidate_name,
-                    nodes,
+            alternative_names = [
+                candidate_name
+                for candidate_name in plan.fallback_candidates
+                if candidate_name != shape.name
+            ]
+            # Near the deadline further replacement routings cannot finish
+            # inside the client timeout; keep the requested route instead.
+            if runtime is not None and runtime.deadline_exceeded():
+                log.warning(
+                    "fallback search skipped: workflow deadline already exceeded"
                 )
+                alternative_names = []
+            jobs: list[tuple[str, WorkflowState, str]] = []
+            for candidate_name in alternative_names:
+                # The fallback branch of ``_measure_candidates`` sources every
+                # measurement from ``primary_state`` and passes the candidate
+                # name separately, so the job state is a shared placeholder.
+                jobs.append(("fallback", primary_state, candidate_name))
+
+            results = self._measure_candidates(
+                jobs,
+                nodes,
+                fallback_sources=[primary_state] * len(jobs),
+            )
+
+            for candidate_name, (candidate, _error) in zip(
+                [job[2] for job in jobs],
+                results,
+                strict=True,
+            ):
+                attempted.append(candidate_name)
                 state.candidate_count += candidate.candidate_count
                 state.preflight_count += candidate.preflight_count
                 state.preflight_candidates.extend(
-                    copy.deepcopy(candidate.preflight_candidates)
+                    candidate.preflight_candidates
                 )
-                state.candidates.extend(copy.deepcopy(candidate.candidates))
+                state.candidates.extend(candidate.candidates)
                 candidate_validation = candidate.validation
                 if candidate_validation is None:
                     continue
@@ -606,7 +792,7 @@ class Orchestrator:
         nodes: Mapping[str, WorkflowNode],
     ) -> WorkflowState:
         """Route one simple shape and one targeted second placement."""
-        candidate = copy.deepcopy(source)
+        candidate = self._measurement_shell(source)
         if candidate.intent is None:
             return candidate
         candidate.intent.shape = shape_name
@@ -631,13 +817,13 @@ class Orchestrator:
         candidate.preflight_count = 0
         candidate.iterations = 0
 
-        nodes["shape"].run(candidate)
-        nodes["placement"].run(candidate)
+        self._run_candidate_node(nodes["shape"], candidate)
+        self._run_candidate_node(nodes["placement"], candidate)
         preflight = nodes.get("preflight")
         if preflight is not None:
-            preflight.run(candidate)
-        nodes["snap"].run(candidate)
-        nodes["validation"].run(candidate)
+            self._run_candidate_node(preflight, candidate)
+        self._run_candidate_node(nodes["snap"], candidate)
+        self._run_candidate_node(nodes["validation"], candidate)
         best = copy.deepcopy(candidate)
         if candidate.validation is None or self._passes_quality(candidate.validation):
             return best
@@ -668,9 +854,9 @@ class Orchestrator:
             else:
                 return best
 
-        nodes["placement"].run(trial)
-        nodes["snap"].run(trial)
-        nodes["validation"].run(trial)
+        self._run_candidate_node(nodes["placement"], trial)
+        self._run_candidate_node(nodes["snap"], trial)
+        self._run_candidate_node(nodes["validation"], trial)
         candidate.candidate_count += trial.candidate_count
         candidate.preflight_count += trial.preflight_count
         if (
@@ -793,6 +979,7 @@ class Orchestrator:
         self,
         state: WorkflowState,
         nodes: Mapping[str, WorkflowNode],
+        runtime: WorkflowRuntime | None = None,
     ) -> None:
         """Measure a few city-specific templates before refining the winner."""
         plan = state.plan
@@ -825,33 +1012,43 @@ class Orchestrator:
         best_errors = list(state.errors)
         primary_shape_name = state.shape.name
 
-        for candidate_name in plan.suggestion_candidates:
-            if candidate_name == primary_shape_name:
-                continue
-            candidate_state = copy.deepcopy(state)
+        alternative_names = [
+            candidate_name
+            for candidate_name in plan.suggestion_candidates
+            if candidate_name != primary_shape_name
+        ]
+        # Near the deadline further template routings cannot finish inside the
+        # client timeout; keep the best measured route instead.
+        if runtime is not None and runtime.deadline_exceeded():
+            log.warning(
+                "suggestion search skipped: workflow deadline already exceeded"
+            )
+            alternative_names = []
+
+        jobs: list[tuple[str, WorkflowState, str]] = []
+        for candidate_name in alternative_names:
+            candidate_state = self._measurement_shell(state)
             if candidate_state.intent is None:
                 continue
             candidate_state.candidate_count = 0
             candidate_state.preflight_count = 0
-            candidate_state.placement_candidates = []
-            candidate_state.preflight_candidates = []
-            candidate_state.candidates = []
             candidate_state.intent.shape = candidate_name
             candidate_state.route_draft = None
-            candidate_state.history = []
-            nodes["shape"].run(candidate_state)
-            nodes["placement"].run(candidate_state)
-            preflight = nodes.get("preflight")
-            if preflight is not None:
-                preflight.run(candidate_state)
-            nodes["snap"].run(candidate_state)
-            nodes["validation"].run(candidate_state)
+            jobs.append(("candidate", candidate_state, candidate_name))
+
+        results = self._measure_candidates(jobs, nodes)
+
+        for candidate_name, (candidate_state, _error) in zip(
+            [job[2] for job in jobs],
+            results,
+            strict=True,
+        ):
             state.candidate_count += candidate_state.candidate_count
             state.preflight_count += candidate_state.preflight_count
             state.preflight_candidates.extend(
-                copy.deepcopy(candidate_state.preflight_candidates)
+                candidate_state.preflight_candidates
             )
-            state.candidates.extend(copy.deepcopy(candidate_state.candidates))
+            state.candidates.extend(candidate_state.candidates)
             candidate_validation = candidate_state.validation
             if (
                 candidate_validation is None

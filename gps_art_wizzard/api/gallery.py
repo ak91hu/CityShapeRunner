@@ -13,18 +13,29 @@ from ..tools import cloudinary_gallery
 router = APIRouter(tags=["gallery"])
 log = logging.getLogger(__name__)
 _PUBLIC_ID_RE = re.compile(r"^gps-art-gallery/[a-f0-9]{32}$")
+_CAMPAIGN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 
 
 class GalleryPublishRequest(BaseModel):
     image_data_url: str = Field(..., min_length=100, max_length=8_000_000)
     publish_token: str = Field(..., min_length=20, max_length=500)
     confirm_public_location: bool
+    campaign: str | None = Field(default=None, min_length=2, max_length=41)
 
     @field_validator("confirm_public_location")
     @classmethod
     def require_public_location_confirmation(cls, value: bool) -> bool:
         if value is not True:
             raise ValueError("publishing requires confirmation that the mapped location is public")
+        return value
+
+    @field_validator("campaign")
+    @classmethod
+    def validate_campaign(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _CAMPAIGN_RE.fullmatch(value):
+            raise ValueError("campaign must be a short lowercase slug (letters, digits, dashes)")
         return value
 
 
@@ -58,12 +69,15 @@ def get_gallery(
     response: Response,
     limit: int = Query(default=24, ge=1, le=50),
     cursor: str | None = Query(default=None, min_length=1, max_length=500),
+    campaign: str | None = Query(default=None, min_length=2, max_length=41),
 ) -> dict:
     response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=300"
     if not cloudinary_gallery.is_configured():
         return {"configured": False, "assets": [], "next_cursor": None}
+    if campaign is not None and not _CAMPAIGN_RE.fullmatch(campaign):
+        raise HTTPException(status_code=422, detail="campaign must be a short lowercase slug")
     try:
-        return cloudinary_gallery.list_gallery_images(limit=limit, cursor=cursor)
+        return cloudinary_gallery.list_gallery_images(limit=limit, cursor=cursor, campaign=campaign)
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "Anonymous gallery listing failed",
@@ -80,6 +94,7 @@ def publish_gallery_image(
         result = cloudinary_gallery.upload_gallery_image(
             req.image_data_url,
             req.publish_token,
+            campaign=req.campaign,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning(

@@ -27,6 +27,7 @@ from urllib.parse import quote, unquote, urlsplit
 import httpx
 
 _PUBLIC_ID_RE = re.compile(r"^gps-art-gallery/[a-f0-9]{32}$")
+_CAMPAIGN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 _PNG_PREFIX = "data:image/png;base64,"
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_METADATA_CHUNKS = {b"eXIf", b"iTXt", b"tEXt", b"tIME", b"zTXt"}
@@ -40,7 +41,7 @@ _GALLERY_LIST_CACHE_MAX_ENTRIES = 64
 _THUMBNAIL_TRANSFORMATION = "c_limit,f_auto,q_auto:good,w_720"
 _PREVIEW_TRANSFORMATION = "c_limit,f_auto,q_auto:good,w_1600"
 _GALLERY_LIST_CACHE: dict[
-    tuple[str, int, str | None],
+    tuple[str, int, str | None, str | None],
     tuple[float, dict],
 ] = {}
 _GALLERY_LIST_CACHE_LOCK = threading.Lock()
@@ -62,6 +63,16 @@ class CloudinaryGalleryError(RuntimeError):
     """Raised when Cloudinary cannot complete a gallery operation."""
 
 
+def _validated_campaign(campaign: str | None) -> str | None:
+    if campaign is None:
+        return None
+    if not isinstance(campaign, str) or not _CAMPAIGN_RE.fullmatch(campaign):
+        raise GalleryImageError(
+            "Campaign must be a short lowercase slug (letters, digits, dashes)."
+        )
+    return campaign
+
+
 @dataclass(frozen=True)
 class CloudinaryConfig:
     cloud_name: str
@@ -76,6 +87,7 @@ class GalleryAsset(TypedDict):
     preview_url: NotRequired[str]
     width: int
     height: int
+    campaign: NotRequired[str | None]
 
 
 class GalleryUploadResult(TypedDict):
@@ -104,8 +116,7 @@ def get_cloudinary_config() -> CloudinaryConfig:
     api_key = unquote(parsed.username or "").strip()
     api_secret = unquote(parsed.password or "").strip()
     if parsed.scheme != "cloudinary" or any(
-        _looks_like_placeholder(value)
-        for value in (cloud_name, api_key, api_secret)
+        _looks_like_placeholder(value) for value in (cloud_name, api_key, api_secret)
     ):
         raise GalleryConfigurationError(
             "Cloudinary gallery storage has an incomplete CLOUDINARY_URL."
@@ -316,6 +327,18 @@ def _public_asset(resource: dict) -> GalleryAsset | None:
     secure_url = str(resource.get("secure_url", ""))
     if not _PUBLIC_ID_RE.fullmatch(public_id) or not secure_url.startswith("https://"):
         return None
+    tags = resource.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    campaign = next(
+        (
+            str(tag)[len("campaign-") :]
+            for tag in tags
+            if str(tag).startswith("campaign-")
+            and _CAMPAIGN_RE.fullmatch(str(tag)[len("campaign-") :])
+        ),
+        None,
+    )
     return {
         "id": public_id,
         "image_url": secure_url,
@@ -329,6 +352,7 @@ def _public_asset(resource: dict) -> GalleryAsset | None:
         ),
         "width": int(resource.get("width") or 0),
         "height": int(resource.get("height") or 0),
+        "campaign": campaign,
     }
 
 
@@ -350,15 +374,21 @@ def _clear_gallery_list_cache() -> None:
 def upload_gallery_image(
     image_data_url: str,
     publish_token: str,
+    *,
+    campaign: str | None = None,
 ) -> GalleryUploadResult:
+    campaign = _validated_campaign(campaign)
     config = get_cloudinary_config()
     public_id = verify_publish_token(publish_token, config=config)
     png, width, height = _strip_and_validate_png(image_data_url)
     timestamp = int(time.time())
+    tags = "gps-art-gallery"
+    if campaign:
+        tags += f",campaign-{campaign}"
     signed_params: dict[str, object] = {
         "overwrite": "false",
         "public_id": public_id,
-        "tags": "gps-art-gallery",
+        "tags": tags,
         "timestamp": timestamp,
     }
     form = {
@@ -395,19 +425,29 @@ def upload_gallery_image(
     }
 
 
-def list_gallery_images(*, limit: int = 24, cursor: str | None = None) -> dict:
+def list_gallery_images(
+    *,
+    limit: int = 24,
+    cursor: str | None = None,
+    campaign: str | None = None,
+) -> dict:
+    campaign = _validated_campaign(campaign)
     config = get_cloudinary_config()
-    cache_key = (config.cloud_name, limit, cursor)
+    cache_key = (config.cloud_name, limit, cursor, campaign)
     now = time.monotonic()
     with _GALLERY_LIST_CACHE_LOCK:
         cached = _GALLERY_LIST_CACHE.get(cache_key)
         if cached and cached[0] > now:
             return deepcopy(cached[1])
 
+    expression = "resource_type:image AND tags=gps-art-gallery"
+    if campaign:
+        expression += f" AND tags=campaign-{campaign}"
     query: dict[str, object] = {
-        "expression": "resource_type:image AND tags=gps-art-gallery",
+        "expression": expression,
         "sort_by": [{"created_at": "desc"}],
         "max_results": limit,
+        "with_field": ["tags"],
     }
     if cursor:
         query["next_cursor"] = cursor
@@ -439,9 +479,7 @@ def list_gallery_images(*, limit: int = 24, cursor: str | None = None) -> dict:
     }
     with _GALLERY_LIST_CACHE_LOCK:
         expired_keys = [
-            key
-            for key, (expires_at, _) in _GALLERY_LIST_CACHE.items()
-            if expires_at <= now
+            key for key, (expires_at, _) in _GALLERY_LIST_CACHE.items() if expires_at <= now
         ]
         for key in expired_keys:
             _GALLERY_LIST_CACHE.pop(key, None)

@@ -19,6 +19,7 @@ flowchart TB
     Sink --> Grafana[(Grafana Cloud)]
     GitHub[GitHub Actions] -->|validated master docs| Pages[(GitHub Pages)]
     GitHub -->|container build gate| RegistryCheck[Ephemeral CI image]
+    GitHub -->|tested master SHA| NF
 
     classDef core fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
     classDef external fill:#fff0eb,stroke:#d95d39,color:#5c2a1c;
@@ -26,7 +27,10 @@ flowchart TB
     class ORS,NOM,LLM,Cloud,OSM,Sink,Grafana,Pages,RegistryCheck external;
 ```
 
-The application service and documentation have separate delivery targets. Northflank follows `master` for the runtime container; GitHub Actions publishes MkDocs to Pages only after backend, frontend, container, and strict-doc jobs succeed.
+The application service and documentation have separate delivery targets behind
+one GitHub quality gate. GitHub Actions requests an exact-SHA Northflank build
+only after every backend, browser, frontend, documentation, and container check
+succeeds; the same gate controls the MkDocs Pages release.
 
 ## Container build
 
@@ -207,17 +211,18 @@ Browser timeouts are 120 seconds for image generation and 180 seconds for standa
 ```mermaid
 flowchart LR
     Commit[Commit on master] --> CI{Parallel CI}
-    CI --> Py[432 Python tests + lint/types]
-    CI --> Web[Build + 174 browser scenarios]
-    CI --> Image[Production Docker build]
+    CI --> Py[555 Python tests + lint/types]
+    CI --> Web[Vite build + 436 browser checks]
+    Py --> Image[Production Docker build + smoke test]
+    Web --> Image
     CI --> Docs[MkDocs strict build]
     Py --> Gate{All green?}
     Web --> Gate
     Image --> Gate
     Docs --> Gate
     Gate -->|yes| Pages[Deploy technical docs]
-    Gate -->|no| Block[No Pages deployment]
-    Commit --> Northflank[Northflank linked build]
+    Gate -->|yes| Northflank[Build exact tested SHA]
+    Gate -->|no| Block[No production deployment]
     Northflank --> Health{Container health passes?}
     Health -->|yes| Runtime[Serve new revision]
     Health -->|no| Previous[Keep/restore healthy revision]
@@ -230,7 +235,11 @@ flowchart LR
 
 GitHub Pages requires the repository's **Settings → Pages → Build and deployment → Source** to be **GitHub Actions**. Without that one-time setting, the strict MkDocs build can pass but `configure-pages` returns `Not Found` and deployment is skipped.
 
-Application deployment is independently performed by Northflank's linked-repository configuration. The CI Docker job validates build reproducibility but is not itself the Northflank deploy action.
+Direct repository CI is disabled on the Northflank combined service while its
+CD remains enabled. The GitHub deployment job verifies that setting, requests
+the tested commit through the Northflank API, waits for build and rollout, then
+checks the public `/health` response. This prevents an untested push from
+bypassing the GitHub gate.
 
 ## Operational diagnosis
 

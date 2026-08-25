@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -136,6 +137,15 @@ class _InstrumentedNode:
             lambda: self._node.run(state),
         )
 
+    def run_recoverable(self, state: WorkflowState) -> WorkflowState:
+        """Record a speculative candidate failure without finalising the run."""
+
+        return self._runtime.run_step(
+            self._stage,
+            lambda: self._node.run(state),
+            recoverable=True,
+        )
+
 
 _ACTIVE_RUNTIME: ContextVar[WorkflowRuntime | None] = ContextVar(
     "gps_art_workflow_runtime",
@@ -166,6 +176,10 @@ class WorkflowRuntime:
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
         self._started = clock()
+        # Candidate measurements run in a bounded worker pool; every trace
+        # mutation goes through this lock so telemetry stays consistent.
+        # Reentrant: finalisation degrades the trace while holding the lock.
+        self._lock = threading.RLock()
         self._max_events = max(8, int(max_events))
         self._sequence = 0
         self._deadline_noted = False
@@ -207,9 +221,16 @@ class WorkflowRuntime:
         finally:
             _ACTIVE_RUNTIME.reset(token)
 
-    def run_step(self, stage: str, operation: Callable[[], _T]) -> _T:
-        attempt = self.trace.step_attempts.get(stage, 0) + 1
-        self.trace.step_attempts[stage] = attempt
+    def run_step(
+        self,
+        stage: str,
+        operation: Callable[[], _T],
+        *,
+        recoverable: bool = False,
+    ) -> _T:
+        with self._lock:
+            attempt = self.trace.step_attempts.get(stage, 0) + 1
+            self.trace.step_attempts[stage] = attempt
         started = self._clock()
         self._note_deadline_if_needed()
         self._emit(stage, attempt, StepStatus.RUNNING)
@@ -229,7 +250,8 @@ class WorkflowRuntime:
         except Exception as exc:
             duration_ms = self._milliseconds(self._clock() - started)
             category = classify_error(exc)
-            self.trace.step_failures += 1
+            with self._lock:
+                self.trace.step_failures += 1
             self._emit(
                 stage,
                 attempt,
@@ -250,7 +272,8 @@ class WorkflowRuntime:
                     "workflow_error_type": type(exc).__name__,
                 },
             )
-            self.fail(exc)
+            if not recoverable:
+                self.fail(exc)
             raise
 
         duration_ms = self._milliseconds(self._clock() - started)
@@ -277,63 +300,76 @@ class WorkflowRuntime:
         if self._elapsed() >= self.trace.max_duration_seconds:
             self._note_deadline_if_needed()
             return False, "deadline_exceeded"
-        if self.trace.llm_attempts >= self.trace.max_llm_calls:
+        with self._lock:
+            exhausted = self.trace.llm_attempts >= self.trace.max_llm_calls
+        if exhausted:
             self._degrade("llm_call_budget_exhausted")
             return False, "call_budget_exhausted"
         return True, None
 
+    def deadline_exceeded(self) -> bool:
+        """True once the advisory wall-clock budget for this run is used up."""
+
+        return self._elapsed() >= self.trace.max_duration_seconds
+
     def record_llm_attempt(self, provider: str) -> None:
-        self.trace.llm_attempts += 1
-        self.trace.provider_attempts[provider] = (
-            self.trace.provider_attempts.get(provider, 0) + 1
-        )
+        with self._lock:
+            self.trace.llm_attempts += 1
+            self.trace.provider_attempts[provider] = (
+                self.trace.provider_attempts.get(provider, 0) + 1
+            )
 
     def record_llm_success(self, usage: Mapping[str, Any] | None) -> None:
-        self.trace.llm_successes += 1
-        for key, value in (usage or {}).items():
-            if (
-                isinstance(key, str)
-                and _SAFE_METRIC_KEY.fullmatch(key)
-                and isinstance(value, int)
-                and not isinstance(value, bool)
-                and value >= 0
-            ):
-                self.trace.llm_usage[key] = self.trace.llm_usage.get(key, 0) + value
+        with self._lock:
+            self.trace.llm_successes += 1
+            for key, value in (usage or {}).items():
+                if (
+                    isinstance(key, str)
+                    and _SAFE_METRIC_KEY.fullmatch(key)
+                    and isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value >= 0
+                ):
+                    self.trace.llm_usage[key] = self.trace.llm_usage.get(key, 0) + value
 
     def record_deterministic_fallback(self, reason: str) -> None:
-        self.trace.deterministic_fallbacks += 1
+        with self._lock:
+            self.trace.deterministic_fallbacks += 1
         self._degrade(f"llm_fallback:{reason}")
 
     def finish(self, state: WorkflowState) -> None:
         """Finalise once; quality outcome is separate from execution failures."""
 
-        if self._finished:
-            return
-        self.trace.duration_ms = self._milliseconds(self._elapsed())
-        if state.validation is None:
-            self.trace.status = WorkflowStatus.FAILED
-            self.trace.error_category = self.trace.error_category or "quality"
-        elif state.below_threshold:
-            self.trace.status = WorkflowStatus.NEEDS_REVIEW
-            self._degrade("quality_gates_not_met")
-            self.trace.error_category = None
-        else:
-            self.trace.status = WorkflowStatus.COMPLETED
-            self.trace.error_category = None
+        with self._lock:
+            if self._finished:
+                return
+            self.trace.duration_ms = self._milliseconds(self._elapsed())
+            if state.validation is None:
+                self.trace.status = WorkflowStatus.FAILED
+                self.trace.error_category = self.trace.error_category or "quality"
+            elif state.below_threshold:
+                self.trace.status = WorkflowStatus.NEEDS_REVIEW
+                self._degrade("quality_gates_not_met")
+                self.trace.error_category = None
+            else:
+                self.trace.status = WorkflowStatus.COMPLETED
+                self.trace.error_category = None
+            self._finished = True
         self._log_finished()
 
     def fail(self, exc: Exception) -> None:
         """Finalise a failed run without retaining exception text."""
 
-        if self._finished:
-            return
-        self.trace.duration_ms = self._milliseconds(self._elapsed())
-        self.trace.status = WorkflowStatus.FAILED
-        self.trace.error_category = classify_error(exc)
+        with self._lock:
+            if self._finished:
+                return
+            self.trace.duration_ms = self._milliseconds(self._elapsed())
+            self.trace.status = WorkflowStatus.FAILED
+            self.trace.error_category = classify_error(exc)
+            self._finished = True
         self._log_finished(error_type=type(exc).__name__)
 
     def _log_finished(self, *, error_type: str | None = None) -> None:
-        self._finished = True
         log.info(
             "Workflow finished",
             extra={
@@ -366,26 +402,28 @@ class WorkflowRuntime:
         duration_ms: int | None = None,
         error_category: str | None = None,
     ) -> None:
-        self._sequence += 1
-        if len(self.trace.events) >= self._max_events:
-            self.trace.dropped_events += 1
-            return
-        self.trace.events.append(
-            WorkflowEvent(
-                sequence=self._sequence,
-                stage=stage,
-                attempt=attempt,
-                status=status,
-                elapsed_ms=self._milliseconds(self._elapsed()),
-                duration_ms=duration_ms,
-                error_category=error_category,
+        with self._lock:
+            self._sequence += 1
+            if len(self.trace.events) >= self._max_events:
+                self.trace.dropped_events += 1
+                return
+            self.trace.events.append(
+                WorkflowEvent(
+                    sequence=self._sequence,
+                    stage=stage,
+                    attempt=attempt,
+                    status=status,
+                    elapsed_ms=self._milliseconds(self._elapsed()),
+                    duration_ms=duration_ms,
+                    error_category=error_category,
+                )
             )
-        )
 
     def _note_deadline_if_needed(self) -> None:
-        if self._deadline_noted or self._elapsed() < self.trace.max_duration_seconds:
-            return
-        self._deadline_noted = True
+        with self._lock:
+            if self._deadline_noted or self._elapsed() < self.trace.max_duration_seconds:
+                return
+            self._deadline_noted = True
         self._degrade("workflow_deadline_exceeded")
         log.warning(
             "Workflow advisory deadline exceeded; optional AI calls will use fallback",
@@ -396,8 +434,9 @@ class WorkflowRuntime:
         )
 
     def _degrade(self, reason: str) -> None:
-        if reason not in self.trace.degraded_reasons:
-            self.trace.degraded_reasons.append(reason)
+        with self._lock:
+            if reason not in self.trace.degraded_reasons:
+                self.trace.degraded_reasons.append(reason)
 
 
 def classify_error(exc: Exception) -> str:

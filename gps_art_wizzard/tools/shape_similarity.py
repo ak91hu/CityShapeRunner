@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 
@@ -104,27 +105,41 @@ def resample(points: np.ndarray, n: int) -> np.ndarray:
 
 
 def discrete_frechet(p: np.ndarray, q: np.ndarray) -> float:
-    """Discrete Fréchet distance in O(n*m) time and O(m) working memory."""
+    """Discrete Fréchet distance in O(n*m) time and O(n*m) working memory.
+
+    The classic dynamic program is evaluated anti-diagonal by anti-diagonal so
+    each wavefront is one vectorised ``min``/``max`` pass instead of a Python
+    inner loop. ``min``/``max`` are exact for floats, and the pairwise
+    distances are the same Euclidean values as before, so results match the
+    scalar implementation bit for bit.
+    """
     n, m = len(p), len(q)
     if n == 0 or m == 0:
         return float("inf")
 
-    distances = np.linalg.norm(q - p[0], axis=1)
-    previous = np.empty(m, dtype=float)
-    previous[0] = distances[0]
-    for j in range(1, m):
-        previous[j] = max(previous[j - 1], distances[j])
-    for i in range(1, n):
-        distances = np.linalg.norm(q - p[i], axis=1)
-        current = np.empty(m, dtype=float)
-        current[0] = max(previous[0], distances[0])
-        for j in range(1, m):
-            current[j] = max(
-                min(previous[j], previous[j - 1], current[j - 1]),
-                distances[j],
-            )
-        previous = current
-    return float(previous[-1])
+    delta = q[np.newaxis, :, :] - p[:, np.newaxis, :]
+    distances = np.sqrt(np.einsum("ijk,ijk->ij", delta, delta))
+    # Flat padded table (row-major); row 0 / column 0 stay +inf except the
+    # origin so the recurrence reproduces the classic prefix maxima exactly.
+    width = m + 1
+    cost = np.full((n + 1) * width, np.inf)
+    cost[0] = 0.0
+    index_pool = np.arange(max(n, m) + 1)
+    for anti in range(2, n + m + 1):
+        i_lo = max(1, anti - m)
+        i_hi = min(n, anti - 1)
+        ii = index_pool[i_lo : i_hi + 1]
+        jj = anti - ii
+        flat = ii * width + jj      # cell (i, j)
+        up = flat - width           # (i-1, j)
+        diagonal = up - 1           # (i-1, j-1)
+        left = flat - 1             # (i, j-1)
+        best = np.minimum(cost.take(up), cost.take(diagonal))
+        best = np.minimum(best, cost.take(left))
+        # distances holds the unpadded n×m table: row (i-1), column (j-1).
+        step = distances.take(flat - ii - width)
+        cost.put(flat, np.maximum(step, best))
+    return float(cost[n * width + m])
 
 
 def hausdorff(p: np.ndarray, q: np.ndarray) -> float:
@@ -205,24 +220,33 @@ def _signed_turns(points: np.ndarray, span: int) -> np.ndarray:
     """
     count = len(points)
     turns = np.zeros(count, dtype=float)
-    closed = count >= 3 and np.linalg.norm(points[0] - points[-1]) <= 0.05
+    closed = count >= 3 and bool(np.linalg.norm(points[0] - points[-1]) <= 0.05)
     core_count = count - 1 if closed else count
     if core_count < 2 * span + 1:
         return turns
 
-    indices = range(core_count) if closed else range(span, core_count - span)
-    for index in indices:
-        previous_index = (index - span) % core_count if closed else index - span
-        next_index = (index + span) % core_count if closed else index + span
-        incoming = points[index] - points[previous_index]
-        outgoing = points[next_index] - points[index]
-        incoming_length = float(np.linalg.norm(incoming))
-        outgoing_length = float(np.linalg.norm(outgoing))
-        if incoming_length <= 1e-9 or outgoing_length <= 1e-9:
-            continue
-        cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0]
-        dot = float(np.dot(incoming, outgoing))
-        turns[index] = math.atan2(cross, dot)
+    if closed:
+        indices = np.arange(core_count)
+        previous_indices = (indices - span) % core_count
+        next_indices = (indices + span) % core_count
+    else:
+        indices = np.arange(span, core_count - span)
+        previous_indices = indices - span
+        next_indices = indices + span
+
+    incoming = points[indices] - points[previous_indices]
+    outgoing = points[next_indices] - points[indices]
+    incoming_length = np.linalg.norm(incoming, axis=1)
+    outgoing_length = np.linalg.norm(outgoing, axis=1)
+    valid = (incoming_length > 1e-9) & (outgoing_length > 1e-9)
+    valid_incoming = incoming[valid]
+    valid_outgoing = outgoing[valid]
+    cross = (
+        valid_incoming[:, 0] * valid_outgoing[:, 1]
+        - valid_incoming[:, 1] * valid_outgoing[:, 0]
+    )
+    dot = np.sum(valid_incoming * valid_outgoing, axis=1)
+    turns[indices[valid]] = np.arctan2(cross, dot)
     if closed:
         turns[-1] = turns[0]
     return turns
@@ -428,36 +452,49 @@ def _extent_similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
 
 
 def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiagnostics:
-    spatial = _similarity(reference, candidate)
+    # Orientation-invariant components: reversing or cyclically rotating a
+    # polyline keeps its point set, arc length, extents, and extreme-turn
+    # events unchanged (and Hausdorff is set-based), so these are computed
+    # once instead of once per candidate variant below.
+    haus = hausdorff(reference, candidate)
     coverage, mean_deviation = _coverage_components(reference, candidate)
-    turning = _turning_similarity(reference, candidate)
-    landmarks = _landmark_similarity(reference, candidate)
     length, length_ratio = _length_components(reference, candidate)
     extent = _extent_similarity(reference, candidate)
     reversals = _reversal_similarity(reference, candidate)
 
-    components = (spatial, coverage, turning, landmarks, length, extent, reversals)
     weights = (0.22, 0.18, 0.15, 0.19, 0.11, 0.08, 0.07)
-    # A weighted geometric mean prevents a good distance/outline average from
-    # hiding one catastrophically lost recognition cue.
-    fidelity = math.exp(
-        sum(
-            weight * math.log(max(component, 1e-12))
-            for component, weight in zip(components, weights, strict=True)
+    best: SimilarityDiagnostics | None = None
+    best_fidelity = -1.0
+    for oriented in _candidate_orientations(reference, candidate):
+        frechet = discrete_frechet(reference, oriented)
+        spatial = float(0.6 * math.exp(-frechet / 0.35) + 0.4 * math.exp(-haus / 0.30))
+        turning = _turning_similarity(reference, oriented)
+        landmarks = _landmark_similarity(reference, oriented)
+        components = (spatial, coverage, turning, landmarks, length, extent, reversals)
+        # A weighted geometric mean prevents a good distance/outline average
+        # from hiding one catastrophically lost recognition cue.
+        fidelity = math.exp(
+            sum(
+                weight * math.log(max(component, 1e-12))
+                for component, weight in zip(components, weights, strict=True)
+            )
         )
-    )
-    return SimilarityDiagnostics(
-        fidelity=float(min(1.0, max(0.0, fidelity))),
-        spatial_similarity=float(spatial),
-        coverage_similarity=float(coverage),
-        turning_similarity=float(turning),
-        length_similarity=float(length),
-        extent_similarity=float(extent),
-        route_length_ratio=float(length_ratio),
-        mean_deviation_ratio=float(mean_deviation),
-        landmark_similarity=float(landmarks),
-        reversal_similarity=float(reversals),
-    )
+        if fidelity > best_fidelity:
+            best_fidelity = fidelity
+            best = SimilarityDiagnostics(
+                fidelity=float(min(1.0, max(0.0, fidelity))),
+                spatial_similarity=float(spatial),
+                coverage_similarity=float(coverage),
+                turning_similarity=float(turning),
+                length_similarity=float(length),
+                extent_similarity=float(extent),
+                route_length_ratio=float(length_ratio),
+                mean_deviation_ratio=float(mean_deviation),
+                landmark_similarity=float(landmarks),
+                reversal_similarity=float(reversals),
+            )
+    assert best is not None  # _candidate_orientations always yields variants
+    return best
 
 
 def _candidate_orientations(reference: np.ndarray, candidate: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -545,6 +582,21 @@ def fidelity_between_routes(reference: list[LatLon], snapped: list[LatLon], *, n
     return similarity_diagnostics_between_routes(reference, snapped, n=n).fidelity
 
 
+@lru_cache(maxsize=256)
+def _similarity_diagnostics_cached(
+    reference: tuple,
+    snapped: tuple,
+    n: int,
+    closed_sample_floor: int,
+) -> SimilarityDiagnostics:
+    return _similarity_diagnostics_between_routes(
+        list(reference),
+        list(snapped),
+        n=n,
+        closed_sample_floor=closed_sample_floor,
+    )
+
+
 def similarity_diagnostics_between_routes(
     reference: list[LatLon],
     snapped: list[LatLon],
@@ -557,7 +609,41 @@ def similarity_diagnostics_between_routes(
     Both polylines stay in the reference route's shared metre frame.  This is
     intentional: translating, shrinking, stretching, or detouring the routed
     result must lower its score instead of being normalised away.
+
+    Identical route pairs recur across refinement iterations and candidate
+    merges, so results for identical inputs are memoised. The returned frozen
+    dataclass is safe to share between callers.
     """
+    if len(reference) < 2 or len(snapped) < 2:
+        return _ZERO_DIAGNOSTICS
+    try:
+        reference_key = tuple(reference)
+        snapped_key = tuple(snapped)
+        hash(reference_key)
+        hash(snapped_key)
+    except TypeError:
+        # Unhashable point containers still get a full computation.
+        return _similarity_diagnostics_between_routes(
+            reference,
+            snapped,
+            n=n,
+            closed_sample_floor=closed_sample_floor,
+        )
+    return _similarity_diagnostics_cached(
+        reference_key,
+        snapped_key,
+        int(n),
+        int(closed_sample_floor),
+    )
+
+
+def _similarity_diagnostics_between_routes(
+    reference: list[LatLon],
+    snapped: list[LatLon],
+    *,
+    n: int = 128,
+    closed_sample_floor: int = 256,
+) -> SimilarityDiagnostics:
     if len(reference) < 2 or len(snapped) < 2:
         return _ZERO_DIAGNOSTICS
     ref = np.asarray(reference, dtype=float)
@@ -591,10 +677,9 @@ def similarity_diagnostics_between_routes(
     sample_count = max(n, max(2, int(closed_sample_floor))) if closed else n
     Rr = resample(Rn, sample_count)
     Sr = resample(Sn, sample_count)
-    return max(
-        (_diagnostics(Rr, variant) for variant in _candidate_orientations(Rr, Sr)),
-        key=lambda result: result.fidelity,
-    )
+    # ``_diagnostics`` evaluates every start/direction variant internally and
+    # keeps orientation-invariant components single-computed.
+    return _diagnostics(Rr, Sr)
 
 
 def salient_route_landmarks(

@@ -6,9 +6,10 @@ export default defineConfig({
   testDir: "./tests",
   testIgnore: "prod-gallery.spec.js",
   fullyParallel: false,
-  retries: 0,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: "line",
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "line",
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "on-first-retry",

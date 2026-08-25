@@ -250,19 +250,88 @@ test("bug is submitted as a shape without exposing a letter B interpretation", a
   expect(interpretationRequests).toBe(0);
 });
 
-test("broken start point, direction, and route preference controls are not shown", async ({ page }) => {
+test("optional start point, direction, and route preferences reach generation", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
   await page.getByLabel("Drawing and location").fill("a heart run in Tatabánya, about 8 km");
 
-  await expect(page.getByText("Start point, direction, and route preferences", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Start address or place")).toHaveCount(0);
-  await expect(page.getByLabel("Preferred first direction")).toHaveCount(0);
-  await expect(page.getByRole("checkbox", { name: "Avoid steps" })).toHaveCount(0);
+  await page.getByText("Start point, direction, and route preferences", { exact: true }).click();
+  await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
+  await page.getByLabel("Preferred first direction").selectOption("90");
+  await page.getByRole("checkbox", { name: "Avoid steps" }).check();
+  await page.getByRole("checkbox", { name: "Prefer greener streets (running)" }).check();
   await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a heart run in Tatabánya, about 8 km",
+    start_address: "Hősök tere, Budapest",
+    start_direction_deg: 90,
+    route_preferences: {
+      avoid_steps: true,
+      avoid_ferries: false,
+      avoid_fords: false,
+      prefer_quiet: false,
+      prefer_green: true,
+    },
+  });
+});
+
+test("request check confirms interpretation without starting route generation", async ({ page }) => {
+  const capture = await mockGeneration(page);
+  await page.route("**/interpret", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        prompt: "a heart run in Budapest, about 8 km",
+        intent: { shape: "heart", city: "Budapest", sport: "run", distance_km: 8 },
+        drawing_label: "heart",
+        drawing_kind: "template",
+        defaults_applied: [],
+        confidence: { drawing: 1, city: 1, sport: 1, distance: 1 },
+        needs_clarification: false,
+        clarifications: [],
+      }),
+    }),
+  );
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Preview request" }).click();
+
+  const check = page.locator(".request-check-result");
+  await expect(check).toContainText("We’ll plan heart");
+  await expect(check).toContainText("Budapest");
+  await expect(check).toContainText("8 km");
+  expect(capture.requests).toHaveLength(0);
+});
+
+test("current location replaces an entered address and reaches generation", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success) {
+          success({ coords: { latitude: 47.497913, longitude: 19.040236 } });
+        },
+      },
+    });
+  });
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+  await page.getByText("Start point, direction, and route preferences", { exact: true }).click();
+  await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
+
+  await page.getByRole("button", { name: "Use current location" }).click();
+
+  await expect(page.getByLabel("Start address or place")).toHaveValue("");
+  await expect(page.getByText("Current location selected for this request only.")).toBeVisible();
+  await page.getByRole("button", { name: "Find routes" }).click();
+  await expect.poll(() => capture.lastPayload()).toEqual({
+    prompt: "a heart run in Budapest, about 8 km",
+    start_point: {
+      latitude: 47.497913,
+      longitude: 19.040236,
+      label: "Current location",
+    },
   });
 });
 

@@ -64,6 +64,18 @@ Do not increase `ORS_SNAP_RADIUS_M` merely to make a failing route succeed. A la
 
 `GEOCODE_OFFLINE` is a test/development switch, not a production substitute for resolving arbitrary addresses and cities.
 
+## OpenStreetMap context (night readiness and landmarks)
+
+| Variable | Effective default | Description |
+| --- | --- | --- |
+| `OVERPASS_BASE_URL` | `https://overpass-api.de/api/interpreter` | Public Overpass mirror used by `/night-readiness` and `/route-landmarks` |
+| `OVERPASS_USER_AGENT` | `GPSArtWizard/1.0` | User agent for Overpass; the mirror rejects default library user agents with HTTP 406 |
+
+Both layers are optional and best effort: an Overpass outage degrades the
+response to `available: false` and never blocks generation. `GEOCODE_OFFLINE`
+also short-circuits these lookups so offline tests stay deterministic.
+Responses are cached in-process per rounded bounding box for ten minutes.
+
 ## Workflow and quality
 
 | Variable | Effective default | Description |

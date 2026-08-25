@@ -143,6 +143,7 @@ const RouteMap = forwardRef(function RouteMap({
   points = [],
   idealPoints = [],
   landmarkPoints = [],
+  poiMarkers = [],
   readinessConcerns = [],
   activeConcernCode = null,
   analysisSegments = [],
@@ -219,13 +220,19 @@ const RouteMap = forwardRef(function RouteMap({
       .map((segment) => ({
         id: String(segment?.id || "analysis"),
         label: String(segment?.label || "GPS art analysis"),
-        kind: segment?.kind === "missing" ? "missing" : "inkproof",
+        kind: ["missing", "dark"].includes(segment?.kind) ? segment.kind : "inkproof",
         coordinates: (Array.isArray(segment?.points_preview) ? segment.points_preview : [])
           .filter(isCoordinate)
           .map(([latitude, longitude]) => [latitude, longitude]),
       }))
       .filter((segment) => segment.coordinates.length > 1),
     [analysisSegments],
+  );
+  const sightMarkers = useMemo(
+    () => (Array.isArray(poiMarkers) ? poiMarkers : [])
+      .filter((marker) => isCoordinate([marker?.latitude, marker?.longitude]))
+      .slice(0, 14),
+    [poiMarkers],
   );
   const canvasCoordinates = useMemo(
     () => (Array.isArray(streetCanvasCandidates) ? streetCanvasCandidates : [])
@@ -328,20 +335,26 @@ const RouteMap = forwardRef(function RouteMap({
       concernLines.push({ ...segment, line: concernLine, isActive });
     });
 
-    const labLines = labSegments.map((segment) => ({
-      ...segment,
-      line: L.polyline(segment.coordinates, {
-        color: segment.kind === "missing" ? "#c026d3" : "#6d28d9",
-        weight: 10,
-        opacity: 0.9,
-        dashArray: segment.kind === "missing" ? "3 7" : "10 6",
-        lineCap: "round",
-        lineJoin: "round",
-        className: `route-analysis-segment route-analysis-segment--${segment.kind}`,
-      })
-        .bindTooltip(segment.label)
-        .addTo(routeLayer),
-    }));
+    const labLines = labSegments.map((segment) => {
+      const style = segment.kind === "missing"
+        ? { color: "#c026d3", dashArray: "3 7" }
+        : segment.kind === "dark"
+          ? { color: "#312e81", dashArray: "2 8" }
+          : { color: "#6d28d9", dashArray: "10 6" };
+      return {
+        ...segment,
+        line: L.polyline(segment.coordinates, {
+          ...style,
+          weight: 10,
+          opacity: 0.9,
+          lineCap: "round",
+          lineJoin: "round",
+          className: `route-analysis-segment route-analysis-segment--${segment.kind}`,
+        })
+          .bindTooltip(segment.label)
+          .addTo(routeLayer),
+      };
+    });
 
     canvasCoordinates.forEach((candidate) => {
       L.circleMarker([candidate.latitude, candidate.longitude], {
@@ -366,6 +379,22 @@ const RouteMap = forwardRef(function RouteMap({
         className: "route-landmark-marker",
       })
         .bindTooltip(`Key point ${index + 1}`)
+        .addTo(routeLayer);
+    });
+
+    sightMarkers.forEach((marker) => {
+      L.circleMarker([marker.latitude, marker.longitude], {
+        radius: 6,
+        color: "#ffffff",
+        weight: 2,
+        fillColor: "#7c3aed",
+        fillOpacity: 1,
+        className: "route-sight-marker",
+      })
+        .bindTooltip(
+          `${marker.name}${Number.isFinite(marker.offset_km) ? ` · ${marker.offset_km.toFixed(1)} km` : ""}`,
+          { direction: "top" },
+        )
         .addTo(routeLayer);
     });
 
@@ -489,6 +518,7 @@ const RouteMap = forwardRef(function RouteMap({
     landmarkCoordinates,
     onEditPoint,
     roadRouted,
+    sightMarkers,
   ]);
 
   useImperativeHandle(
@@ -559,11 +589,15 @@ const RouteMap = forwardRef(function RouteMap({
           });
         });
         labSegments.forEach((segment) => {
+          const style = segment.kind === "missing"
+            ? { color: "#c026d3", dash: [3, 7] }
+            : segment.kind === "dark"
+              ? { color: "#312e81", dash: [2, 8] }
+              : { color: "#6d28d9", dash: [10, 6] };
           drawCoordinatePath(context, map, segment.coordinates, {
-            color: segment.kind === "missing" ? "#c026d3" : "#6d28d9",
+            ...style,
             width: 9,
             opacity: 0.9,
-            dash: segment.kind === "missing" ? [3, 7] : [10, 6],
           });
         });
         drawEndpoint(context, map, coordinates[0], "#0b6b57");
@@ -593,6 +627,91 @@ const RouteMap = forwardRef(function RouteMap({
             { cause: error },
           );
         }
+      },
+
+      async startReelCapture() {
+        const container = containerRef.current;
+        const map = mapRef.current;
+        if (!container || !map || coordinates.length < 2) {
+          throw new Error("The map isn’t ready to record yet.");
+        }
+        await waitForVisibleTiles(container);
+        if (document.fonts?.ready) await document.fonts.ready;
+
+        const containerRect = container.getBoundingClientRect();
+        const cssWidth = Math.round(containerRect.width);
+        const cssHeight = Math.round(containerRect.height);
+        if (cssWidth < 240 || cssHeight < 180) {
+          throw new Error("The map is too small to record.");
+        }
+        const pixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+        const base = document.createElement("canvas");
+        base.width = Math.round(cssWidth * pixelRatio);
+        base.height = Math.round(cssHeight * pixelRatio);
+        const baseContext = base.getContext("2d");
+        if (!baseContext) throw new Error("This browser can’t record the map.");
+        baseContext.scale(pixelRatio, pixelRatio);
+        baseContext.fillStyle = "#e7e3dc";
+        baseContext.fillRect(0, 0, cssWidth, cssHeight);
+        try {
+          const drawnTiles = drawMapTiles(baseContext, map, tileLayerRef.current, container, containerRect);
+          if (drawnTiles === 0) {
+            throw new Error("The street map is still loading. Try again in a moment.");
+          }
+        } catch (error) {
+          if (error?.message?.includes("still loading")) throw error;
+          throw new Error("This browser couldn’t capture the street map.", { cause: error });
+        }
+
+        // The reel draws the finished guide and reveals the street route
+        // progressively; the base canvas keeps every frame cheap.
+        drawCoordinatePath(baseContext, map, idealCoordinates, {
+          color: "#e4542f",
+          width: 3,
+          opacity: 0.65,
+          dash: [9, 9],
+        });
+        const attribution = "© OpenStreetMap contributors";
+        baseContext.save();
+        baseContext.font = "12px system-ui, -apple-system, sans-serif";
+        baseContext.textBaseline = "middle";
+        const attributionWidth = Math.ceil(baseContext.measureText(attribution).width) + 16;
+        baseContext.fillStyle = "rgba(255, 255, 255, 0.88)";
+        baseContext.fillRect(cssWidth - attributionWidth, cssHeight - 24, attributionWidth, 24);
+        baseContext.fillStyle = "#24332e";
+        baseContext.fillText(attribution, cssWidth - attributionWidth + 8, cssHeight - 12);
+        baseContext.restore();
+
+        const frameCanvas = document.createElement("canvas");
+        frameCanvas.width = base.width;
+        frameCanvas.height = base.height;
+        const frameContext = frameCanvas.getContext("2d");
+        if (!frameContext) throw new Error("This browser can’t record the map.");
+
+        return {
+          canvas: frameCanvas,
+          width: cssWidth,
+          height: cssHeight,
+          frame(progress) {
+            const clamped = Math.min(Math.max(progress, 0), 1);
+            frameContext.setTransform(1, 0, 0, 1, 0, 0);
+            frameContext.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+            frameContext.drawImage(base, 0, 0);
+            frameContext.scale(pixelRatio, pixelRatio);
+            const revealed = Math.max(2, Math.round(coordinates.length * clamped));
+            drawCoordinatePath(frameContext, map, coordinates.slice(0, revealed), {
+              color: roadRouted ? (accepted ? "#0b6b57" : "#b45309") : "#b45309",
+              width: 5,
+              opacity: 0.95,
+              dash: roadRouted ? [] : [10, 10],
+            });
+            if (clamped >= 1) {
+              drawEndpoint(frameContext, map, coordinates[0], "#0b6b57");
+              drawEndpoint(frameContext, map, coordinates.at(-1), "#e4542f");
+            }
+            return frameCanvas;
+          },
+        };
       },
     }),
     [accepted, concernSegments, coordinates, idealCoordinates, labSegments, roadRouted],

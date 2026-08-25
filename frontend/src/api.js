@@ -99,6 +99,17 @@ export function health(options = {}) {
   return request("/health", { ...options, timeoutMs: 7_000 });
 }
 
+export function interpretRoute(prompt, options = {}) {
+  const { payload = {}, ...requestOptions } = options;
+  return request("/interpret", {
+    ...requestOptions,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, ...payload }),
+  });
+}
+
 export function generate(prompt, options = {}) {
   const { payload = {}, ...requestOptions } = options;
   const usesImage = Boolean(payload.reference_image_url);
@@ -128,22 +139,6 @@ export function recordRouteAcceptance(payload, options = {}) {
   return request("/route-acceptance", {
     ...options,
     timeoutMs: 7_000,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function listGallery({ cursor = null, limit = 24, ...options } = {}) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor) params.set("cursor", cursor);
-  return request(`/gallery?${params}`, { ...options, timeoutMs: 15_000 });
-}
-
-export function publishGalleryImage(payload, options = {}) {
-  return request("/gallery", {
-    ...options,
-    timeoutMs: 45_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -194,6 +189,88 @@ export function analyseInkproof(payload, options = {}) {
   return request("/inkproof-analysis", {
     ...options,
     timeoutMs: 30_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function requestNightReadiness(payload, options = {}) {
+  return request("/night-readiness", {
+    ...options,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function requestRouteLandmarks(payload, options = {}) {
+  return request("/route-landmarks", {
+    ...options,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchOccasions(options = {}) {
+  const { daysAhead = 60, ...requestOptions } = options;
+  return request(`/occasions?days_ahead=${daysAhead}`, {
+    ...requestOptions,
+    timeoutMs: 8_000,
+  });
+}
+
+export function rescueArtwork(payload, options = {}) {
+  return request("/art-rescue", {
+    ...options,
+    timeoutMs: 45_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function requestAccessibilityReadiness(payload, options = {}) {
+  return request("/accessibility-readiness", {
+    ...options,
+    timeoutMs: 20_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function buildLessonPack(payload, options = {}) {
+  return request("/lesson-pack", {
+    ...options,
+    timeoutMs: 15_000,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchDestinations(options = {}) {
+  return request("/destinations", {
+    ...options,
+    timeoutMs: 8_000,
+  });
+}
+
+export function listGallery({ cursor = null, limit = 24, campaign = null, ...options } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  if (campaign) params.set("campaign", campaign);
+  return request(`/gallery?${params}`, { ...options, timeoutMs: 15_000 });
+}
+
+export function publishGalleryImage(payload, options = {}) {
+  return request("/gallery", {
+    ...options,
+    timeoutMs: 45_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

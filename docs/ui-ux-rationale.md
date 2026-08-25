@@ -17,13 +17,14 @@ Everything else—candidate diagnostics, placement parameters, earlier attempts,
 and gallery publishing—is supporting information. The visual hierarchy should
 reflect that difference.
 
-The prompt goes directly to the generation pipeline; internal interpretation is
-not exposed as another form for the user to review. The result page shows route
-alternatives side by side with likeness, distance, climb, and readiness instead
-of hiding those trade-offs in a select. Readiness findings are buttons: choosing
-one highlights and fits its mapped segment, while a visible reset returns to the
-full route. Start-point, first-direction, and routing preferences stay together
-in one optional disclosure before the primary action.
+The prompt can go directly to generation, while an optional “Preview request”
+action exposes the inexpensive interpretation step for users who want to confirm
+the drawing, place, activity, and distance before waiting for routing. The result
+page shows route alternatives side by side with likeness, distance, climb, and
+readiness instead of hiding those trade-offs in a select. Readiness findings are
+buttons: choosing one highlights and fits its mapped segment, while a visible
+reset returns to the full route. Start-point, first-direction, and routing
+preferences stay together in one optional disclosure before the primary action.
 
 The optional result lab keeps pre-route tools focused on improving the route.
 Inkproof asks for expected GPS accuracy, returns a small score summary, and uses
