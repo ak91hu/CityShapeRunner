@@ -236,6 +236,9 @@ test("a selected shape can be positioned on the map before street fitting", asyn
 test("primary planner controls keep a 44 pixel activation floor", async ({ page }) => {
   await page.goto("/");
 
+  const activationFloor = 44;
+  const subpixelRenderingTolerance = 0.01;
+
   const controls = page.locator([
     ".brand",
     ".site-header nav a",
@@ -251,8 +254,8 @@ test("primary planner controls keep a 44 pixel activation floor", async ({ page 
   expect(visibleBoxes.length).toBeGreaterThan(8);
   for (const box of visibleBoxes) {
     expect(box).not.toBeNull();
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.width).toBeGreaterThanOrEqual(activationFloor - subpixelRenderingTolerance);
+    expect(box.height).toBeGreaterThanOrEqual(activationFloor - subpixelRenderingTolerance);
   }
 });
 
