@@ -347,6 +347,18 @@ export async function installCommonMocks(page) {
       body: JSON.stringify({ recorded: true }),
     }),
   );
+  await page.route("**/interpret", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        drawing_label: "Star",
+        needs_clarification: false,
+        clarifications: [],
+        intent: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
+      }),
+    }),
+  );
 }
 
 export async function replaceGalleryRoute(page, handler) {
@@ -370,10 +382,16 @@ export async function mockGeneration(page, result = buildRouteResult()) {
   };
 }
 
+export async function reviewAndFindRoutes(page) {
+  await page.getByRole("button", { name: "Review request" }).click();
+  await expect(page.getByRole("heading", { name: "Check your request" })).toBeVisible();
+  await page.getByRole("button", { name: "Find routes" }).click();
+}
+
 export async function openGeneratedRoute(page, result = buildRouteResult()) {
   const capture = await mockGeneration(page, result);
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await reviewAndFindRoutes(page);
   await expect(page.locator(".result")).toBeVisible();
   return capture;
 }

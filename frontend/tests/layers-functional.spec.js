@@ -242,6 +242,7 @@ test("combined recordings produce scores, merged GPX, and missing ink", async ({
 test("a road-routed route offers a printable gift poster", async ({ page }) => {
   await openGeneratedRoute(page);
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
+  await page.getByText("More ways to use this route", { exact: true }).click();
   await page.getByRole("button", { name: "Gift poster" }).click();
 
   const overlay = page.getByRole("dialog", { name: "Gift poster preview" });

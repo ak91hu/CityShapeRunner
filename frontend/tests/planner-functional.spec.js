@@ -1,6 +1,23 @@
 import { expect, test } from "playwright/test";
 
-import { installCommonMocks, mockGeneration } from "./support/functional-fixtures.js";
+import {
+  installCommonMocks,
+  mockGeneration,
+  reviewAndFindRoutes,
+} from "./support/functional-fixtures.js";
+
+async function openOtherWays(page) {
+  const panel = page.locator(".alternate-starts-panel");
+  if (!(await panel.evaluate((element) => element.open))) {
+    await panel.getByText("Other ways to start", { exact: true }).click();
+  }
+  return panel;
+}
+
+async function expectPreservedPrompt(page, value) {
+  await page.getByRole("button", { name: "Change request" }).click();
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(value);
+}
 
 test.beforeEach(async ({ page }) => {
   await installCommonMocks(page);
@@ -13,9 +30,9 @@ test("primary navigation links reach each planner section", async ({ page }) => 
     page.getByRole("heading", { level: 1, name: "Create GPS art on real streets" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Create route" })).toBeVisible();
-  await expect(page.locator(".journey-list, .eyebrow, .step-label, .keyboard-hint")).toHaveCount(0);
+  await expect(page.getByText("Step 1 of 3")).toBeVisible();
   await expect(page.getByText(/surprise me|need inspiration/i)).toHaveCount(0);
-  await expect(page.getByText("Map data © OpenStreetMap contributors")).toHaveCount(1);
+  await expect(page.getByText("Map data © OpenStreetMap contributors")).toHaveCount(0);
   expect(await page.locator("body").evaluate((element) => getComputedStyle(element).backgroundImage))
     .toBe("none");
   await expect(page.getByRole("link", { name: "Skip to route planner" })).toHaveAttribute(
@@ -27,13 +44,15 @@ test("primary navigation links reach each planner section", async ({ page }) => 
   await expect(plannerLink).toHaveAttribute("href", "#route-designer");
   await expect(galleryLink).toHaveAttribute("href", "#gallery");
   await expect(page.locator("#route-designer")).toBeAttached();
-  await expect(page.locator("#gallery")).toBeAttached();
+  await expect(page.locator("#gallery")).toHaveCount(0);
 
   if (await plannerLink.isVisible()) {
     await plannerLink.click();
     await expect.poll(() => new URL(page.url()).hash).toBe("#route-designer");
     await galleryLink.click();
     await expect.poll(() => new URL(page.url()).hash).toBe("#gallery");
+    await expect(page.locator("#gallery")).toBeAttached();
+    await expect(page.locator("#route-designer")).toHaveCount(0);
   }
 });
 
@@ -46,6 +65,7 @@ test("the planner uses a compact responsive layout with optional panels collapse
   await expect(page.locator(".suggest-panel")).not.toHaveAttribute("open", "");
   await expect(page.locator(".map-placement-panel")).not.toHaveAttribute("open", "");
   await expect(page.locator(".route-setup-panel")).not.toHaveAttribute("open", "");
+  await expect(page.locator(".alternate-starts-panel")).not.toHaveAttribute("open", "");
   await expect(page.getByText("Other ways to start")).toBeVisible();
   const spacing = await page.locator(".generator-stage").evaluate((element) => {
     const style = getComputedStyle(element);
@@ -89,6 +109,7 @@ test("the header mark and favicon share one scalable route identity", async ({ p
 
 test("alternative starts keep visual, DOM, and keyboard order aligned", async ({ page }) => {
   await page.goto("/");
+  await openOtherWays(page);
 
   const prompt = page.getByLabel("Drawing and location");
   const initialPrompt = await prompt.inputValue();
@@ -182,6 +203,7 @@ test("a selected shape can be positioned on the map before street fitting", asyn
   const capture = await mockGeneration(page);
   await page.goto("/");
 
+  await openOtherWays(page);
   await page.getByText("Place a shape on the map").click();
   const mapPanel = page.locator(".map-placement-panel");
   await mapPanel.getByLabel("Shape").selectOption("star");
@@ -304,7 +326,7 @@ test("a custom free-text drawing is submitted without catalog selection", async 
   await page.getByLabel("Drawing and location").fill(
     "an octopus wearing a crown in Budapest, running, 12 km",
   );
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await reviewAndFindRoutes(page);
 
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "an octopus wearing a crown in Budapest, running, 12 km",
@@ -329,11 +351,11 @@ test("bug is submitted as a shape without exposing a letter B interpretation", a
   await expect(page.getByText("Letter B", { exact: true })).toHaveCount(0);
   expect(capture.requests).toHaveLength(0);
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await reviewAndFindRoutes(page);
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a bug run in Tatabánya, about 8 km",
   });
-  expect(interpretationRequests).toBe(0);
+  expect(interpretationRequests).toBe(1);
 });
 
 test("route setup sends an address, first heading, and street priorities", async ({ page }) => {
@@ -341,6 +363,7 @@ test("route setup sends an address, first heading, and street priorities", async
   await page.goto("/");
   await page.getByLabel("Drawing and location").fill("a heart run in Tatabánya, about 8 km");
 
+  await page.getByRole("button", { name: "Review request" }).click();
   await page.getByText("Route setup", { exact: true }).click();
   await page.getByRole("radio", { name: "Address or place" }).check();
   await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
@@ -365,6 +388,7 @@ test("route setup sends an address, first heading, and street priorities", async
 
 test("route setup is organized into clear steps and can be reset", async ({ page }) => {
   await page.goto("/");
+  await openOtherWays(page);
 
   const panel = page.locator(".route-setup-panel");
   await panel.getByText("Route setup", { exact: true }).click();
@@ -394,6 +418,7 @@ test("route setup is organized into clear steps and can be reset", async ({ page
 test("route setup also reaches structured route suggestions", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
 
   const setup = page.locator(".route-setup-panel");
   await setup.getByText("Route setup", { exact: true }).click();
@@ -420,7 +445,7 @@ test("route setup also reaches structured route suggestions", async ({ page }) =
   });
 });
 
-test("request check confirms interpretation without starting route generation", async ({ page }) => {
+test("request review confirms interpretation without starting route generation", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.route("**/interpret", (route) =>
     route.fulfill({
@@ -439,9 +464,9 @@ test("request check confirms interpretation without starting route generation", 
   );
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Preview request" }).click();
+  await page.getByRole("button", { name: "Review request" }).click();
 
-  const check = page.locator(".request-check-result");
+  const check = page.locator(".request-review-card");
   await expect(check).toContainText("We’ll plan heart");
   await expect(check).toContainText("Budapest");
   await expect(check).toContainText("8 km");
@@ -461,6 +486,7 @@ test("current location replaces an entered address and reaches generation", asyn
   });
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await page.getByRole("button", { name: "Review request" }).click();
   await page.getByText("Route setup", { exact: true }).click();
   await page.getByRole("radio", { name: "Address or place" }).check();
   await page.getByLabel("Start address or place").fill("Hősök tere, Budapest");
@@ -485,6 +511,7 @@ test("a supported image link can generate an AI route in a selected city", async
   const capture = await mockGeneration(page);
   await page.goto("/");
 
+  await openOtherWays(page);
   const imagePanel = page.locator(".image-reference-panel");
   await imagePanel.getByText("Use an image link").click();
   await imagePanel.getByLabel("Direct image URL").fill(
@@ -499,7 +526,8 @@ test("a supported image link can generate an AI route in a selected city", async
     prompt: "a custom image in Pécs, cycling, about 24 km",
     reference_image_url: "https://www.premiumsvg.com/wimg1/mug-icon.webp",
   });
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+  await expectPreservedPrompt(
+    page,
     "a custom image in Pécs, cycling, about 24 km",
   );
 });
@@ -508,7 +536,7 @@ test("mouse submission of an empty idea shows a persistent focused error", async
   await page.goto("/");
   const prompt = page.getByLabel("Drawing and location");
   await prompt.fill("   ");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await page.getByRole("button", { name: "Review request" }).click();
 
   await expect(prompt).toBeFocused();
   await expect(prompt).toHaveAttribute("aria-invalid", "true");
@@ -543,6 +571,7 @@ test("correcting a malformed route idea clears its error before submission", asy
 
 test("running suggestions enforce both ends of the supported distance range", async ({ page }) => {
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
   const distance = page.getByLabel("Distance", { exact: true });
 
@@ -559,6 +588,7 @@ test("running suggestions enforce both ends of the supported distance range", as
 test("suggestion distance distinguishes missing and fractional values", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
   const distance = page.getByLabel("Distance", { exact: true });
 
@@ -581,6 +611,7 @@ test("a valid structured suggestion submits the selected city, activity, and dis
 }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
   await page.getByLabel("City", { exact: true }).selectOption("Győr");
   await page.getByRole("radio", { name: "Running" }).check();
@@ -590,7 +621,8 @@ test("a valid structured suggestion submits the selected city, activity, and dis
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "suggest a run route in Győr, about 12 km",
   });
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+  await expectPreservedPrompt(
+    page,
     "suggest a run route in Győr, about 12 km",
   );
 });
@@ -600,6 +632,7 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
 }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City", { exact: true });
@@ -612,7 +645,8 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "suggest a bike route in Szolnok, about 24 km",
   });
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+  await expectPreservedPrompt(
+    page,
     "suggest a bike route in Szolnok, about 24 km",
   );
 });
@@ -620,6 +654,7 @@ test("the major-city list submits a new Hungarian city without manual prompt edi
 test("the expanded Europe group submits a newly catalogued accented destination", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City", { exact: true });
@@ -633,7 +668,8 @@ test("the expanded Europe group submits a newly catalogued accented destination"
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "suggest a run route in Timișoara, about 14 km",
   });
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+  await expectPreservedPrompt(
+    page,
     "suggest a run route in Timișoara, about 14 km",
   );
 });
@@ -641,6 +677,7 @@ test("the expanded Europe group submits a newly catalogued accented destination"
 test("the Balaton shore group submits a local accented settlement", async ({ page }) => {
   const capture = await mockGeneration(page);
   await page.goto("/");
+  await openOtherWays(page);
   await page.getByText("Choose city, activity, and distance").click();
 
   const city = page.getByLabel("City", { exact: true });
@@ -654,7 +691,8 @@ test("the Balaton shore group submits a local accented settlement", async ({ pag
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "suggest a bike route in Kővágóörs, about 22 km",
   });
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+  await expectPreservedPrompt(
+    page,
     "suggest a bike route in Kővágóörs, about 22 km",
   );
 });

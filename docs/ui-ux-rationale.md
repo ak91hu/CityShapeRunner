@@ -17,14 +17,16 @@ Everything else—candidate diagnostics, placement parameters, earlier attempts,
 and gallery publishing—is supporting information. The visual hierarchy should
 reflect that difference.
 
-The prompt can go directly to generation, while an optional “Preview request”
-action exposes the inexpensive interpretation step for users who want to confirm
-the drawing, place, activity, and distance before waiting for routing. The result
-page shows route alternatives side by side with likeness, distance, climb, and
-readiness instead of hiding those trade-offs in a select. Readiness findings are
-buttons: choosing one highlights and fits its mapped segment, while a visible
-reset returns to the full route. Start-point, first-direction, and routing
-preferences stay together in one optional disclosure before the primary action.
+The main journey is now an explicit three-step flow: describe the idea, review
+the interpreted request, then choose and download a route. The review step
+confirms the drawing, place, activity, and distance before the more expensive
+routing request starts, while retaining a clear path back to the original text.
+The result page leads with readiness, shows the strongest three alternatives
+with likeness, distance, and climb, and places any further alternatives in a
+labelled disclosure. Readiness findings remain buttons: choosing one highlights
+and fits its mapped segment, while a visible reset returns to the full route.
+Start-point, first-direction, and routing preferences stay together in one
+optional disclosure during review.
 
 The optional result lab keeps pre-route tools focused on improving the route.
 Inkproof asks for expected GPS accuracy, returns a small score summary, and uses
@@ -87,6 +89,7 @@ The audit mapped each visible touchpoint to the user's next decision:
 |---|---|---|
 | Arrival | “Planner” and “lab” describe the product's machinery rather than the user's outcome. | The navigation now says “Create route”, the heading promises GPS art on real streets, and the decorative “Live route lab” label was removed. |
 | Route request | Three valid starting methods were present without a clear relationship. | Free text remains the single primary path. Separate fields and image input are grouped under “Other ways to start”; the simpler structured path appears before the specialist image path. |
+| Request confirmation | Immediate generation gave users no calm checkpoint for correcting an interpretation. | A required, inexpensive review step now shows the understood drawing, place, activity, and distance before the user starts route search. |
 | Form completion | Optional shape choices could be mistaken for a required step. | The common-shape legend now marks the choices as optional, while labels remain visible above every input. |
 | Waiting | Users need reassurance without fabricated server progress. | The real elapsed time, cancel action, plain-language messages, reduced-motion handling, and illustrative-stage disclosure remain; internal “lab” terminology does not. |
 | Review and export | A plausible picture can still be an unusable route. | The existing route checks, explicit review state, editing path, and fail-closed export remain the visible decision sequence. |
@@ -109,13 +112,15 @@ Sources: [GOV.UK — Make the service simple to use](https://www.gov.uk/service-
 
 ### Keep the primary task obvious
 
-Apple's iOS guidance recommends limiting onscreen controls so people can focus
+Apple’s iOS guidance recommends limiting onscreen controls so people can focus
 on the primary task, while keeping secondary actions discoverable. The planner
 now opens with an outcome-specific heading and one short explanation beside a
 clearly bounded input area. One free-text request and one primary action stay
-visible; separate-field and image starts are labelled, collapsed alternatives.
-The generic three-step story, ornamental labels, and competing card treatments
-remain excluded in favour of a neutral canvas and consistent borders.
+visible; separate-field, map-placement, and image starts are labelled, collapsed
+alternatives. A short three-step progress list communicates actual application
+state rather than marketing narration, and each screen exposes one dominant
+next action. Ornamental labels and competing card treatments remain excluded in
+favour of a neutral canvas and consistent borders.
 
 Source: [Apple Human Interface Guidelines — Designing for iOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-ios/).
 
@@ -123,8 +128,9 @@ Source: [Apple Human Interface Guidelines — Designing for iOS](https://develop
 
 The GOV.UK Design System recommends a details disclosure for information that
 only some users need, and warns against hiding information most users require.
-The route map, headline quality, distance, shape match, route choices, and
-download state remain visible. Individual quality gates, route parameters,
+The route map, readiness, distance, drawing likeness, climb, strongest route
+choices, and download state remain visible. Exact scoring, individual quality
+gates, route parameters, extra alternatives, sharing, gift/reel actions,
 history, and audit tables stay in labelled disclosures.
 
 Source: [GOV.UK Design System — Details](https://design-system.service.gov.uk/components/details/).
@@ -301,8 +307,9 @@ Source: [WCAG 2.2, criterion 2.5.7](https://www.w3.org/TR/WCAG22/#dragging-movem
 
 - Desktop uses a two-column planning view: a short explanation first and the
   route form second.
-- Tablet and mobile stack the explanation above the form without inserting an
-  extra step list between the user and the first field.
+- Tablet and mobile stack the explanation, compact progress list, and form in
+  reading order; the first input and the current primary action remain easy to
+  reach.
 - Mobile uses two-column idea buttons, stacks all suggestion fields, and keeps
   the planner and gallery links visible. The structured suggestion action sits
   in a separate row below every field: right-aligned on wider screens and full
