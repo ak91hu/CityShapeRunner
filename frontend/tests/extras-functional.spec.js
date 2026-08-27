@@ -23,10 +23,10 @@ test("route-lab groups its tools under four labelled headings", async ({ page })
 
   const titles = page.locator(".route-lab-group-title");
   await expect(titles).toHaveCount(4);
-  await expect(titles.first()).toHaveText("On the day");
-  await expect(titles.nth(1)).toHaveText("Sharpen the drawing");
-  await expect(titles.nth(2)).toHaveText("Create together");
-  await expect(titles.nth(3)).toHaveText("Teach & share");
+  await expect(titles.first()).toHaveText("Plan the day");
+  await expect(titles.nth(1)).toHaveText("Improve the drawing");
+  await expect(titles.nth(2)).toHaveText("Plan with a group");
+  await expect(titles.nth(3)).toHaveText("Classroom resources");
 });
 
 test("accessibility check reports shares and maps barrier sections", async ({ page }) => {
@@ -106,6 +106,7 @@ test("lesson pack builds a printable worksheet with bearings", async ({ page }) 
 test("reel recorder opens with a length choice and closes cleanly", async ({ page }) => {
   await openGeneratedRoute(page);
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
+  await page.getByText("More ways to use this route", { exact: true }).click();
   const opener = page.getByRole("button", { name: "Record reel" });
   await opener.click();
 
@@ -135,7 +136,7 @@ test("a campaign link prefills the prompt and shows the banner", async ({ page }
 });
 
 test("the campaign builder produces a shareable link", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#gallery");
   const opener = page.getByRole("button", { name: "Organise a campaign" });
   await opener.click();
 
@@ -178,6 +179,7 @@ test("city picks appear for curated destinations and fill the prompt", async ({ 
   );
   await page.goto("/");
   // The suggestion form's city select contains the accented lakeshore name.
+  await page.getByText("Other ways to start", { exact: true }).click();
   await page.locator(".suggest-panel summary").click();
   const citySelect = page.locator("#suggest-city");
   await citySelect.selectOption({ label: "Balatonfüred" });

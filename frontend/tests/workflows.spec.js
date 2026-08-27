@@ -211,6 +211,18 @@ async function installSuccessfulGeneration(page, result = buildResult()) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/interpret", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        drawing_label: "Star",
+        needs_clarification: false,
+        clarifications: [],
+        intent: { shape: "star", city: "Debrecen", sport: "run", distance_km: 8 },
+      }),
+    }),
+  );
   await page.route("https://tile.openstreetmap.org/**", (route) =>
     route.fulfill({
       status: 200,
@@ -228,6 +240,11 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+async function findRoutes(page) {
+  await page.getByRole("button", { name: "Review request" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
+}
+
 test("the prompt counter and keyboard shortcut submit a normalised idea", async ({ page }) => {
   await installEmptyGallery(page);
   const submittedPayload = await installSuccessfulGeneration(page);
@@ -238,10 +255,14 @@ test("the prompt counter and keyboard shortcut submit a normalised idea", async 
   await expect(page.locator("#prompt-count")).toHaveText("320/320");
   await prompt.fill("   ａ moon   run in Eger, about 8 km   ");
   await prompt.press("Control+Enter");
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   expect(submittedPayload()).toEqual({ prompt: "a moon run in Eger, about 8 km" });
-  await expect(prompt).toHaveValue("a moon run in Eger, about 8 km");
+  await page.getByRole("button", { name: "Change request" }).click();
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(
+    "a moon run in Eger, about 8 km",
+  );
 });
 
 test("cancelling an in-flight generation restores the designer without an error", async ({
@@ -260,7 +281,7 @@ test("cancelling an in-flight generation restores the designer without an error"
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
   await expect(page.locator(".loading-card--journey")).toBeFocused();
@@ -324,11 +345,12 @@ test("an aborted older response cannot overwrite a newer route", async ({ page }
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await expect.poll(() => requestCount).toBe(1);
   await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
   await page.getByLabel("Drawing and location").fill(newerResult.prompt);
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Star in Szeged" })).toBeVisible();
   releaseFirstRequest();
@@ -354,7 +376,7 @@ test("reduced motion keeps route generation informative without moving graphics"
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
@@ -387,14 +409,14 @@ test("switching route options updates quality, distance, and export state", asyn
     }),
   );
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   const readyOption = page.locator('.candidate-card[data-candidate-id="candidate-ready"]');
   const reviewOption = page.locator('.candidate-card[data-candidate-id="candidate-review"]');
   await reviewOption.click();
   await expect(page.locator(".route-state")).toContainText("Check before downloading");
   await expect(
-    page.locator(".metric").filter({ hasText: "Overall match" }).locator("dd").first(),
+    page.locator(".metric").filter({ hasText: "Drawing likeness" }).locator("dd").first(),
   ).toHaveText("61%");
   await expect(
     page
@@ -449,7 +471,7 @@ test("an edit API failure keeps the editor open and allows another attempt", asy
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const firstEditPoint = page.locator(".route-edit-marker").first();
   await firstEditPoint.focus();
@@ -486,7 +508,7 @@ test("prompt validation explains malformed input and recovers without losing the
 
   const prompt = page.getByLabel("Drawing and location");
   await prompt.fill("     ");
-  await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Review request" })).toBeEnabled();
   await prompt.press("Control+Enter");
 
   expect(generateRequests).toBe(0);
@@ -502,6 +524,7 @@ test("prompt validation explains malformed input and recovers without losing the
   await prompt.fill("a circle run in Eger, about 8 km");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await prompt.press("Control+Enter");
+  await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect.poll(() => generateRequests).toBe(1);
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
@@ -512,6 +535,7 @@ test("choosing cycling raises the suggested distance to its valid minimum", asyn
   const submittedPayload = await installSuccessfulGeneration(page);
   await page.goto("/");
 
+  await page.getByText("Other ways to start", { exact: true }).click();
   await page.getByText("Choose city, activity, and distance").click();
   const distance = page.getByLabel("Distance", { exact: true });
   await distance.fill("3");
@@ -550,7 +574,7 @@ test("unfinished point edits block every export and can be discarded", async ({ 
   await installEmptyGallery(page);
   await installSuccessfulGeneration(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
 
   const firstEditPoint = page.locator(".route-edit-marker").first();
@@ -582,7 +606,7 @@ test("acceptance telemetry failure does not block a reviewed route download", as
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
 
   const downloadPromise = page.waitForEvent("download");
@@ -609,7 +633,7 @@ test("TCX export downloads the selected route with a safe filename", async ({ pa
   await installEmptyGallery(page);
   await installSuccessfulGeneration(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download TCX", exact: true }).click();
@@ -625,7 +649,7 @@ test("switching route options clears an unfinished editor session", async ({ pag
   await installEmptyGallery(page);
   await installSuccessfulGeneration(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
 
   const firstEditPoint = page.locator(".route-edit-marker").first();
@@ -650,18 +674,17 @@ test("a gallery outage stays isolated from route generation", async ({ page }) =
     }),
   );
   await installSuccessfulGeneration(page);
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   await expect(page.locator(".gallery").getByRole("alert")).toContainText(
     "The gallery is temporarily unavailable.",
   );
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await page.getByRole("link", { name: "Create route" }).click();
+  await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   await expect(page.locator(".route-state")).toContainText("Ready to download");
-  await expect(page.locator(".gallery").getByRole("alert")).toContainText(
-    "The gallery is temporarily unavailable.",
-  );
+  await expect(page.locator(".gallery")).toHaveCount(0);
 });
 
 test("gallery pagination merges assets and a saved removal token deletes its map", async ({
@@ -710,7 +733,7 @@ test("gallery pagination merges assets and a saved removal token deletes its map
     });
   });
   page.on("dialog", (dialog) => dialog.accept());
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   await expect(page.getByRole("img", { name: "Anonymous GPS art route on an OpenStreetMap street map" })).toHaveCount(1);
   await page.getByRole("button", { name: "Show more routes" }).click();

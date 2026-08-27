@@ -69,6 +69,7 @@ test("the result leads with the interpreted request and offers a correction path
 
   await summary.getByRole("button", { name: "Change request" }).click();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
+  await expect(page.locator(".result")).toHaveCount(0);
 });
 
 test("optional route tools are grouped after the decision and download cards", async ({ page }) => {
@@ -84,7 +85,7 @@ test("optional route tools are grouped after the decision and download cards", a
   expect(primaryBox).not.toBeNull();
   expect(labBox).not.toBeNull();
   expect(primaryBox.y + primaryBox.height).toBeLessThanOrEqual(labBox.y + 1);
-  await expect(lab).toContainText("Safety, quality, group & classroom tools");
+  await expect(lab).toContainText("More tools for this route");
   if (!(await lab.locator(".street-canvas-card").isVisible())) {
     await lab.locator("summary").click();
   }
@@ -113,7 +114,7 @@ test("the map is the first result panel and does not overlap later panels", asyn
   const sideBySide = metricsBox.y < mapBox.y + mapBox.height - 1;
   if (sideBySide) {
     expect(mapBox.x + mapBox.width).toBeLessThanOrEqual(metricsBox.x + 1);
-    expect(metricsBox.y + metricsBox.height).toBeLessThanOrEqual(exportBox.y + 1);
+    expect(exportBox.y + exportBox.height).toBeLessThanOrEqual(metricsBox.y + 1);
     expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(factsBox.y + 1);
   } else {
     expect(mapBox.y + mapBox.height).toBeLessThanOrEqual(metricsBox.y + 1);
@@ -143,13 +144,13 @@ test("route option cards compare ready and review candidates", async ({ page }) 
   const cards = options.locator(".candidate-card");
 
   await expect(cards).toHaveCount(2);
-  await expect(cards.nth(0)).toContainText("Best overall match");
+  await expect(cards.nth(0)).toContainText("Best overall route");
   await expect(cards.nth(0)).toContainText("91%");
   await expect(cards.nth(0)).toContainText("19.82");
   await expect(cards.nth(0)).toContainText("Ready");
   await expect(cards.nth(1)).toContainText("61%");
   await expect(cards.nth(1)).toContainText("21.40");
-  await expect(cards.nth(1)).toContainText("Review");
+  await expect(cards.nth(1)).toContainText("Check first");
   await expect(options).toContainText("1 ready · 1 to review");
   await expect(options).toContainText("164 placements screened");
   await expect(options).toContainText("2 street routes measured");
@@ -161,6 +162,7 @@ test("GPX export explains the account-free Garmin, Strava, and Komoot workflow",
 }) => {
   await openGeneratedRoute(page);
 
+  await page.getByText("More ways to use this route", { exact: true }).click();
   const help = page.locator(".gpx-help");
   await help.getByText("Use this GPX with Garmin, Strava, or Komoot").click();
   await expect(help).toContainText("Download the GPX file");
@@ -173,11 +175,10 @@ test("selecting a review candidate updates all headline metrics", async ({ page 
   await page.locator(".candidate-card").nth(1).click();
 
   await expect(page.locator(".route-state")).toContainText("Check before downloading");
-  await expect(page.locator(".metric").filter({ hasText: "Overall match" })).toContainText("61%");
   await expect(
     page.locator(".metric").filter({ has: page.locator("dt", { hasText: /^Distance$/ }) }),
   ).toContainText("21.40 km");
-  await expect(page.locator(".metric").filter({ hasText: "Shape match" })).toContainText("61%");
+  await expect(page.locator(".metric").filter({ hasText: "Drawing likeness" })).toContainText("61%");
 });
 
 test("route-check details reveal every automatic gate and explanation", async ({ page }) => {
@@ -501,7 +502,7 @@ test("an independently reviewed AI drawing shows its semantic result", async ({ 
   await expect(notice).toContainText("scored it 86%");
   await expect(notice).toContainText("found 2 of 3 defining features");
 
-  await page.getByText("Recognition audit", { exact: true }).click();
+  await page.getByText("Drawing recognition details", { exact: true }).click();
   const audit = page.locator(".ai-recognition-card");
   await expect(audit.locator("li")).toHaveCount(3);
   await expect(audit).toContainText("Head");

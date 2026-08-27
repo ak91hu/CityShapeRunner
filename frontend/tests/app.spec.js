@@ -6,6 +6,18 @@ const transparentTile = Buffer.from(
 );
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/interpret", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        drawing_label: "Star",
+        needs_clarification: false,
+        clarifications: [],
+        intent: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
+      }),
+    }),
+  );
   await page.route("https://tile.openstreetmap.org/**", (route) =>
     route.fulfill({
       status: 200,
@@ -59,6 +71,11 @@ test.beforeEach(async ({ page }) => {
     }),
   );
 });
+
+async function findRoutes(page) {
+  await page.getByRole("button", { name: "Review request" }).click();
+  await page.getByRole("button", { name: "Find routes" }).click();
+}
 
 function buildVerification(validation, shapeName = "star") {
   const numericGate = (key, label, value, minimum, group = "shape") => ({
@@ -318,7 +335,8 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByLabel("Drawing and location")).toBeVisible();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
   await expect(page.getByText("Planner online")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Review request" })).toBeEnabled();
+  await page.getByText("Other ways to start", { exact: true }).click();
   await page.getByText("Choose city, activity, and distance").click();
   await expect(page.getByLabel("City", { exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Activity" })).toBeVisible();
@@ -419,14 +437,14 @@ test("quick idea generation sends the prompt and renders a usable routed result"
 
   await page.getByRole("button", { name: "Star" }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(successfulRoute.prompt);
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   expect(requestPayload).toEqual({ prompt: successfulRoute.prompt });
   await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(
-    page.locator(".metric").filter({ hasText: "Overall match" }).locator("dd:not(.metric-detail)"),
-  ).toHaveText("91%");
+    page.locator(".metric").filter({ hasText: "Drawing likeness" }).locator("dd:not(.metric-detail)"),
+  ).toHaveText("87%");
   await expect(
     page
       .locator(".metric")
@@ -434,9 +452,6 @@ test("quick idea generation sends the prompt and renders a usable routed result"
       .first()
       .locator("dd:not(.metric-detail)"),
   ).toHaveText("19.82 km");
-  await expect(
-    page.locator(".metric").filter({ hasText: "Route options" }).locator(".metric-detail"),
-  ).toHaveText("2 ready · 0 review · 164 locations");
   await expect(page.getByRole("region", { name: /Star street-route map/ })).toBeVisible();
   await expect(page.locator(".route-landmark-marker")).toHaveCount(3);
   await expect(page.locator('.candidate-card[data-candidate-id="candidate-1"]')).toHaveAttribute(
@@ -458,6 +473,9 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   await page.getByText("Route details", { exact: true }).click();
   await expect(page.locator(".route-facts")).toContainText("842 / 401");
   await expect(page.locator(".route-facts")).toContainText("19.82 km / 20.00 km");
+  await expect(
+    page.locator(".route-facts div").filter({ hasText: "Route options shown" }),
+  ).toContainText("2");
   await expect(page.getByText("Routes tested")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
 
@@ -494,6 +512,7 @@ test("smart suggestion validates inputs and submits the selected city, activity,
   });
   await page.goto("/");
 
+  await page.getByText("Other ways to start", { exact: true }).click();
   await page.getByText("Choose city, activity, and distance").click();
   await page.getByLabel("City", { exact: true }).selectOption("Pécs");
   await page.getByRole("radio", { name: "Cycling" }).check();
@@ -501,8 +520,9 @@ test("smart suggestion validates inputs and submits the selected city, activity,
   await page.getByRole("button", { name: "Find a route" }).click();
 
   await expect.poll(() => submittedPrompt).toBe("suggest a bike route in Pécs, about 25 km");
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(submittedPrompt);
   await expect(page.getByText("Suggested shape")).toBeVisible();
+  await page.getByRole("button", { name: "Change request" }).click();
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(submittedPrompt);
 });
 
 test("API failures show a focused actionable error and allow retry", async ({ page }) => {
@@ -530,7 +550,7 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   const alert = page.getByRole("alert");
   await expect(alert).toBeVisible();
@@ -548,6 +568,7 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   await expect.poll(() => attempts).toBe(2);
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Change request" }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
     "a heart run in Budapest, about 8 km",
   );
@@ -616,7 +637,7 @@ test("a straight-line preview cannot be accepted or exported", async ({
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await expect(page.getByText("Map preview only")).toBeVisible();
   await expect(
@@ -673,7 +694,7 @@ test("switching to a malformed unrouted option removes every export action", asy
     }),
   );
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeEnabled();
   await page.locator('.candidate-card[data-candidate-id="candidate-unsafe"]').click();
@@ -722,7 +743,7 @@ test("a measured fallback explains why it replaced the requested drawing", async
   );
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Diamond in Debrecen" })).toBeVisible();
   await expect(page.getByText("Cat did not fit these streets. Here is a Diamond")).toBeVisible();
@@ -764,7 +785,7 @@ test("the online editor reroutes control points and downloads the edited GPX", a
     });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
 
   await page.getByRole("button", { name: "Edit this route" }).click();
   await expect(page.locator(".route-edit-marker")).toHaveCount(4);
@@ -846,7 +867,7 @@ test("a verified route map can be published anonymously with streets and attribu
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Find routes" }).click();
+  await findRoutes(page);
   await page.getByText("Share map publicly", { exact: true }).click();
   await expect(page.getByRole("button", { name: "Publish map" })).toBeVisible();
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();
@@ -864,6 +885,7 @@ test("a verified route map can be published anonymously with streets and attribu
   expect(publishedPayload.image_data_url).toMatch(/^data:image\/png;base64,/);
   expect(publishedPayload).not.toHaveProperty("prompt");
   expect(publishedPayload).not.toHaveProperty("city");
+  await page.getByRole("link", { name: "View in gallery" }).click();
   await expect(
     page.getByRole("img", {
       name: "Anonymous GPS art route on an OpenStreetMap street map",
