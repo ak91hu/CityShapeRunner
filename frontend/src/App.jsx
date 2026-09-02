@@ -3535,12 +3535,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             {shapeName} in {city}
           </h2>
         </div>
-        <span
-          className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
-        >
-          <span aria-hidden="true">{automaticChecksPassed || userAccepted ? "✓" : "!"}</span>
-          {stateLabel}
-        </span>
+        <div className="result-heading-actions">
+          <span
+            className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
+          >
+            <span aria-hidden="true">{automaticChecksPassed || userAccepted ? "✓" : "!"}</span>
+            {stateLabel}
+          </span>
+          <a className="button button--quiet result-jump-link" href="#route-download">
+            Download options
+            <span aria-hidden="true">↓</span>
+          </a>
+        </div>
       </div>
 
       <section className="request-summary-card" aria-labelledby="request-summary-title">

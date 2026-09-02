@@ -776,3 +776,25 @@ def test_health_reports_gallery_configuration(monkeypatch, configured: bool) -> 
         "version": "0.1.0",
         "gallery": {"configured": configured},
     }
+
+
+def test_responses_include_browser_security_headers() -> None:
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["strict-transport-security"] == (
+        "max-age=31536000; includeSubDomains"
+    )
+    assert response.headers["permissions-policy"] == (
+        "camera=(), geolocation=(self), microphone=(), payment=(), usb=()"
+    )
+    content_security_policy = response.headers["content-security-policy"]
+    assert "default-src 'self'" in content_security_policy
+    assert "frame-ancestors 'none'" in content_security_policy
+    assert "object-src 'none'" in content_security_policy
+    assert "https://tile.openstreetmap.org" in content_security_policy
+    assert "https://res.cloudinary.com" in content_security_policy

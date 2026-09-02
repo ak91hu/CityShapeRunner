@@ -72,6 +72,41 @@ test("the result leads with the interpreted request and offers a correction path
   await expect(page.locator(".result")).toHaveCount(0);
 });
 
+test("compact results keep decision text readable and provide a download shortcut", async ({
+  page,
+}) => {
+  await openGeneratedRoute(page);
+
+  const shortcut = page.getByRole("link", { name: "Download options" });
+  if ((page.viewportSize()?.width ?? 0) > 768) {
+    await expect(shortcut).toBeHidden();
+    return;
+  }
+
+  await expect(shortcut).toBeVisible();
+  const criticalTextSizes = await page
+    .locator([
+      ".candidate-card-topline",
+      ".candidate-card-metrics > span",
+      ".candidate-card-metrics b",
+      ".candidate-search-proof",
+      ".readiness-metrics dt",
+      ".readiness-concerns li small",
+      ".route-facts dt",
+      ".gpx-help summary",
+    ].join(", "))
+    .evaluateAll((elements) => elements.map((element) =>
+      Number.parseFloat(window.getComputedStyle(element).fontSize)));
+
+  expect(criticalTextSizes.length).toBeGreaterThan(0);
+  expect(Math.min(...criticalTextSizes)).toBeGreaterThanOrEqual(12);
+
+  await shortcut.click();
+  await expect(page).toHaveURL(/#route-download$/);
+  await expect.poll(() => page.locator("#route-download").evaluate((element) =>
+    element.getBoundingClientRect().top)).toBeLessThan(page.viewportSize().height);
+});
+
 test("optional route tools are grouped after the decision and download cards", async ({ page }) => {
   await openGeneratedRoute(page);
 
