@@ -31,8 +31,11 @@ opencode = ["openai==2.49.0"]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "httpx2==2.12.0",
     "ruff==0.16.0",
     "mypy==2.3.0",
+    "types-PyYAML==6.0.12.20260815",
+    "types-Shapely==2.1.0.20260728",
 ]
 docs = [
     "mkdocs==1.6.1",
@@ -62,3 +65,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = ["--strict-config", "--strict-markers", "--basetemp=.pytest-tmp"]
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["svgelements", "svgelements.*"]
+ignore_missing_imports = true

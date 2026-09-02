@@ -8566,3 +8566,82 @@ textarea {
     width: 100%;
   }
 }
+
+/* Keep the result decision readable and reachable on compact screens. */
+.result-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.result-jump-link {
+  display: none;
+}
+
+@media (max-width: 48rem) {
+  .result-heading-actions {
+    display: grid;
+    justify-items: end;
+    gap: 0.35rem;
+  }
+
+  .result-jump-link {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .result p {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .result small,
+  .result dt,
+  .result label,
+  .result li,
+  .result .eyebrow,
+  .result .candidate-compare-heading > span,
+  .result .candidate-card-topline,
+  .result .candidate-card-topline b,
+  .result .candidate-card-metrics > span,
+  .result .candidate-search-proof,
+  .result .map-caption,
+  .result .map-rotation-card span,
+  .result .map-rotation-card output,
+  .result .map-rotation-card button,
+  .result .readiness-status,
+  .result .readiness-subheading > span,
+  .result .readiness-concerns li small,
+  .result .surface-legend,
+  .result .concern-distance,
+  .result .gate-value,
+  .result .verification-count,
+  .result .route-lab-group-title,
+  .result .gpx-help summary,
+  .result .gpx-help ol {
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .result .candidate-card-metrics b {
+    font-size: 0.8125rem;
+  }
+}
+
+@media (max-width: 23rem) {
+  .result-heading-actions {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .result-heading-actions .route-state,
+  .result-jump-link {
+    justify-content: center;
+  }
+}
