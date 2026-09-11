@@ -253,6 +253,7 @@ function ideaGlyph(idea) {
   };
   if (outlines[idea.label]) return (
     <svg className="shape-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <title>{idea.glyph}</title>
       <path d={outlines[idea.label]} />
     </svg>
   );
