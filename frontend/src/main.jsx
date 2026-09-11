@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "leaflet-rotate-map/leaflet.css";
 import App from "./App.jsx";
 import "./styles.css";
+import "./studio.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

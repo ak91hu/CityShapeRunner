@@ -243,6 +243,20 @@ const DISTINCT_IDEA_GLYPHS = Object.freeze({
 });
 
 function ideaGlyph(idea) {
+  const outlines = {
+    Heart: "M12 20L4 12C-1 5 7 1 12 7C17 1 25 5 20 12Z",
+    Star: "M12 2L15 9L22 10L17 15L18 22L12 18L6 22L7 15L2 10L9 9Z",
+    Circle: "M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3",
+    Diamond: "M12 2L22 12L12 22L2 12Z",
+    Triangle: "M12 3L22 21H2Z",
+    Square: "M4 4H20V20H4Z",
+  };
+  if (outlines[idea.label]) return (
+    <svg className="shape-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <title>{idea.glyph}</title>
+      <path d={outlines[idea.label]} />
+    </svg>
+  );
   return DISTINCT_IDEA_GLYPHS[idea.label] ?? idea.glyph;
 }
 
@@ -3056,7 +3070,8 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
         </p>
       )}
       {!loading && configured && assets.length === 0 && !error && (
-        <div className="gallery-state">
+        <div className="gallery-state gallery-state--empty">
+          <img className="gallery-empty-mark" src="/favicon.svg" alt="" width="56" height="56" />
           <strong>No maps have been shared.</strong>
           <span>Publish a route map to add the first.</span>
         </div>
@@ -4923,9 +4938,9 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">
             <svg className="brand-mark-svg" viewBox="0 0 48 48">
               <rect x="2" y="2" width="44" height="44" rx="13" />
-              <path d="M9 31 C14 17 20 16 24 28 C28 16 34 17 39 31 C35 36 30 39 24 42 C18 39 13 36 9 31 Z" />
-              <circle cx="9" cy="31" r="3.5" />
-              <circle cx="39" cy="31" r="3.5" />
+              <path d="M24 41C19 35 10 28 10 19A14 14 0 0 1 38 19C38 28 29 35 24 41ZM16 18L20 28L24 22L28 28L32 18" />
+              <circle cx="16" cy="18" r="2.5" />
+              <circle cx="32" cy="18" r="2.5" />
             </svg>
           </span>
           <span>
@@ -4982,6 +4997,7 @@ export default function App() {
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
+            <span className="studio-eyebrow">A little imagination. A real adventure.</span>
             <h1 id="designer-title">Create GPS art on real streets</h1>
             <p className="planner-intro-copy">
               Describe a drawing and a place. We’ll fit it to connected streets, compare the
@@ -4999,6 +5015,28 @@ export default function App() {
             <p className="planner-safety-note">
               You can compare the street route with the original drawing before downloading anything.
             </p>
+            <div className="studio-art" aria-hidden="true">
+              <svg viewBox="0 0 400 240" fill="none">
+                <defs>
+                  <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                    <path d="M24 0H0V24" stroke="currentColor" strokeOpacity=".09" />
+                  </pattern>
+                </defs>
+                <rect width="400" height="240" fill="url(#studio-grid)" />
+                <path className="studio-river" d="M285 -20C230 30 340 60 268 112S250 187 198 265" />
+                <g className="studio-streets">
+                  <path d="M-10 54L410 169M-10 175L380 34M58 -10L129 250M174 -10L226 250M330 -10L384 250" />
+                  <path d="M0 112L400 220M0 215L400 70M112 0L165 240M0 15L400 123" />
+                </g>
+                <path className="studio-route-shadow" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
+                <path className="studio-route" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
+                <circle cx="198" cy="182" r="8" fill="var(--surface)" stroke="var(--brand)" strokeWidth="3" />
+                <circle cx="198" cy="182" r="3" fill="var(--brand)" />
+                <path d="M357 46V20M351 27L357 20L363 27" stroke="currentColor" strokeWidth="1.5" />
+                <text x="353" y="63" fill="currentColor" fontSize="10">N</text>
+              </svg>
+              <div className="studio-art-caption"><span>Your city. Your canvas.</span><span>Illustrated route</span></div>
+            </div>
           </div>
 
           <div className="designer-card">
