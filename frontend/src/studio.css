@@ -38,6 +38,7 @@ body {
 .brand strong { color: var(--ink); }
 .brand-mark { width: 2.7rem; height: 2.7rem; }
 .brand-mark-svg { filter: none; }
+.skip-link:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; padding: 0; overflow: hidden; white-space: nowrap; }
 .brand-mark-svg rect { fill: var(--brand); stroke: var(--brand); }
 .brand-mark-svg path { stroke: #f1f2ba; stroke-width: 2.5; }
 .brand-mark-svg circle:last-of-type { fill: #f1f2ba; }
@@ -123,21 +124,31 @@ body {
 }
 .planner-safety-note { max-width: 40ch; line-height: 1.6; font-size: 0.75rem; }
 
-.studio-art { margin-top: 1.5rem; color: var(--brand); }
-.studio-art svg { display: block; width: 100%; height: auto; border-radius: 1rem; }
-.studio-river { stroke: #c8dad8; stroke-width: 25; }
-.studio-streets { stroke: var(--surface); stroke-width: 9; }
-.studio-route-shadow { stroke: var(--surface); stroke-width: 12; stroke-linejoin: round; }
-.studio-route { stroke: var(--accent); stroke-width: 5; stroke-linejoin: round; }
+.studio-art { margin: 1.5rem 0 0; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; }
+.studio-art-heading { padding: 1rem 1.1rem; }
+.studio-art-heading .studio-eyebrow { margin-bottom: 0.4rem; }
+.studio-art-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 1.4rem; font-weight: 400; letter-spacing: -0.03em; }
+.studio-map-link { position: relative; display: block; }
+.studio-map-link img { display: block; width: 100%; height: auto; }
+.studio-map-expand { position: absolute; left: 0.7rem; top: 0.7rem; padding: 0.45rem 0.65rem; border: 1px solid var(--line); border-radius: 2rem; background: var(--surface); color: var(--brand-dark); font-size: 0.7rem; font-weight: 700; }
+.studio-map-link:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.studio-art figcaption { padding: 1rem 1.1rem; }
+.studio-map-legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; font-size: 0.75rem; }
+.studio-map-legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.studio-map-legend i { width: 1.4rem; border-top: 3px solid #16715d; }
+.studio-map-legend .legend-sketch { border-color: #de8062; border-top-style: dashed; }
+.studio-map-legend .legend-review { border-color: #9a6700; border-top-style: dotted; }
+.studio-art figcaption p { margin: 0.7rem 0; font-size: 0.75rem; line-height: 1.6; color: var(--ink-soft); }
 .studio-art-caption {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 1rem;
   padding-top: 0.7rem;
   border-top: 1px solid var(--line);
   font-size: 0.6875rem;
 }
-.studio-art-caption span:last-child { color: var(--muted); }
+.studio-art-caption a { color: var(--muted); text-underline-offset: 3px; }
 
 .designer-card {
   padding: clamp(1.15rem, 2.6vw, 2rem);
@@ -212,7 +223,7 @@ textarea:focus, input:focus, select:focus {
   .planner-intro h1 { max-width: 22ch; font-size: clamp(2.4rem, 6vw, 3.6rem); }
   .planner-intro-copy { max-width: 65ch; }
   .studio-eyebrow { margin-bottom: 0.85rem; }
-  .studio-art { display: none; }
+  .studio-art { max-width: 34rem; }
   .planner-proof { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; margin-top: 1rem; }
   .planner-safety-note { max-width: none; }
 }
