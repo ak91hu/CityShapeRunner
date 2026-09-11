@@ -24,6 +24,32 @@ from .logging_config import (
 configure_logging()
 log = logging.getLogger(__name__)
 
+_CONTENT_SECURITY_POLICY = "; ".join(
+    (
+        "default-src 'self'",
+        "base-uri 'self'",
+        "connect-src 'self'",
+        "font-src 'self' data:",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "img-src 'self' data: blob: https://tile.openstreetmap.org https://res.cloudinary.com",
+        "media-src 'self' data: blob:",
+        "object-src 'none'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "worker-src 'self' blob:",
+    )
+)
+
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CONTENT_SECURITY_POLICY,
+    "Permissions-Policy": "camera=(), geolocation=(self), microphone=(), payment=(), usb=()",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
+
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -41,6 +67,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "Retry-After"],
     )
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        return response
 
     @app.middleware("http")
     async def request_logging(request: Request, call_next):

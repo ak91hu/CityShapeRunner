@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:unit": "node --test unit/*.test.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -19,7 +20,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.0.4",
-    "playwright": "1.61.1",
+    "playwright": "1.62.1",
     "vite": "8.1.5"
   }
 }

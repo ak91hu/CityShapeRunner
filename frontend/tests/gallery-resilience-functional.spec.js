@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("an empty configured gallery invites the first shared route", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   await expect(page.getByText("No maps have been shared.")).toBeVisible();
   await expect(page.getByText("Publish a route map to add the first.")).toBeVisible();
@@ -29,11 +29,11 @@ test("an unconfigured gallery explains that route creation still works", async (
       body: JSON.stringify({ configured: false, assets: [], next_cursor: null }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   await expect(page.getByText("Gallery unavailable")).toBeVisible();
   await expect(page.getByText("Route planning and downloads still work.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
+  await expect(page.getByRole("link", { name: "Create route" })).toBeVisible();
 });
 
 test("a gallery loading error is shown inside the gallery region", async ({ page }) => {
@@ -44,10 +44,11 @@ test("a gallery loading error is shown inside the gallery region", async ({ page
       body: JSON.stringify({ detail: "Gallery maintenance is in progress." }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   const gallery = page.getByRole("region", { name: "Public gallery" });
   await expect(gallery.getByRole("alert")).toHaveText("Gallery maintenance is in progress.");
+  await page.getByRole("link", { name: "Create route" }).click();
   await expect(page.getByLabel("Drawing and location")).toBeEditable();
 });
 
@@ -72,7 +73,7 @@ test("gallery cards open a viewer with dimensions and an original-image link", a
       body: JSON.stringify({ configured: true, assets: [asset], next_cursor: null }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   const image = page.getByRole("img", {
     name: "Anonymous GPS art route on an OpenStreetMap street map",
@@ -133,7 +134,7 @@ test("gallery defers thumbnails beyond the first visible row", async ({ page }) 
       body: JSON.stringify({ configured: true, assets, next_cursor: null }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   const thumbnails = page.locator(".gallery-thumbnail img");
   await expect(thumbnails).toHaveCount(5);
@@ -157,7 +158,7 @@ test("gallery viewer navigates with controls and keyboard while preserving the l
       body: JSON.stringify({ configured: true, assets, next_cursor: null }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   const cards = page.locator(".gallery-card");
   const opener = page.getByRole("button", { name: "Open gallery image 1 of 3" });
@@ -208,7 +209,7 @@ test("gallery pagination shows a busy state and appends the next page", async ({
       }),
     });
   });
-  await page.goto("/");
+  await page.goto("/#gallery");
   await expect(page.locator(".gallery-card")).toHaveCount(1);
   await page.getByRole("button", { name: "Show more routes" }).click();
 
@@ -232,7 +233,7 @@ test("only an asset with a saved removal token gets an owner control", async ({ 
       body: JSON.stringify({ configured: true, assets: [owned, anonymous], next_cursor: null }),
     }),
   );
-  await page.goto("/");
+  await page.goto("/#gallery");
 
   await expect(page.locator(".gallery-card")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Remove my post" })).toHaveCount(1);
@@ -258,7 +259,7 @@ test("cancelling gallery removal keeps the card and sends no delete request", as
     }),
   );
   page.on("dialog", (dialog) => dialog.dismiss());
-  await page.goto("/");
+  await page.goto("/#gallery");
   await page.getByRole("button", { name: "Remove my post" }).click();
 
   expect(deleteRequests).toBe(0);
@@ -288,7 +289,7 @@ test("a failed gallery removal preserves the card and shows an actionable error"
     }),
   );
   page.on("dialog", (dialog) => dialog.accept());
-  await page.goto("/");
+  await page.goto("/#gallery");
   await page.getByRole("button", { name: "Remove my post" }).click();
 
   await expect(page.getByRole("region", { name: "Public gallery" }).getByRole("alert"))
@@ -353,5 +354,6 @@ test("publishing sends only the approved map payload and refreshes the mocked ga
   expect(publishedPayload.image_data_url).toMatch(/^data:image\/png;base64,/);
   expect(publishedPayload).not.toHaveProperty("prompt");
   expect(publishedPayload).not.toHaveProperty("city");
+  await page.getByRole("link", { name: "View in gallery" }).click();
   await expect(page.locator(".gallery-card")).toHaveCount(1);
 });

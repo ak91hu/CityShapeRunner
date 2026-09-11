@@ -53,11 +53,13 @@ function bestPublishableCandidate(result, expectedShape) {
 
 async function generateThroughProductionUi(page, routeCase) {
   await page.goto("/");
+  await page.getByLabel("Drawing and location").fill(routeCase.prompt);
+  await page.getByRole("button", { name: "Review request" }).click();
+  await expect(page.getByRole("heading", { name: "Check your request" })).toBeVisible();
   const responsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/generate") && response.request().method() === "POST",
     { timeout: 240_000 },
   );
-  await page.getByLabel("Drawing and location").fill(routeCase.prompt);
   await page.getByRole("button", { name: "Find routes" }).click();
   const response = await responsePromise;
   expect(response.ok(), `${routeCase.name}: production /generate failed`).toBe(true);
@@ -113,6 +115,8 @@ test.describe("production GPS-art curation and gallery publication", () => {
 
   test("production gallery viewer contains the complete image", async ({ page }) => {
     await page.goto("/");
+    await page.getByRole("link", { name: "Gallery", exact: true }).click();
+    await expect(page).toHaveURL(/#gallery$/);
     const galleryCards = page.locator(".gallery-card");
     await expect(galleryCards.first()).toBeVisible();
     const cardCount = await galleryCards.count();

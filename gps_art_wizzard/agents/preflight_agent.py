@@ -195,7 +195,29 @@ class PreflightAgent(BaseAgent):
             (step, -step),
             (step, step),
         )
-        offsets = self._city_grid_offsets(base, state.plan.city_bbox if state.plan else None)
+        manual = state.map_placement
+        offsets: tuple[tuple[float, float], ...]
+        if manual is not None:
+            manual_step = min(
+                manual.search_radius_m / math.sqrt(2.0),
+                max(150.0, base.scale_m * 0.22),
+            )
+            offsets = (
+                (0.0, 0.0),
+                (0.0, -manual_step),
+                (0.0, manual_step),
+                (-manual_step, 0.0),
+                (manual_step, 0.0),
+                (-manual_step, -manual_step),
+                (-manual_step, manual_step),
+                (manual_step, -manual_step),
+                (manual_step, manual_step),
+            )
+        else:
+            offsets = self._city_grid_offsets(
+                base,
+                state.plan.city_bbox if state.plan else None,
+            )
         if base.anchored_start is not None:
             offsets = ((0.0, 0.0),)
         elif len(offsets) < 5:
@@ -203,10 +225,18 @@ class PreflightAgent(BaseAgent):
         rotation_deltas = (
             (0.0,)
             if base.preferred_start_direction_deg is not None
-            else (0.0, 30.0, 60.0, 90.0, 120.0, 150.0)
+            else (
+                (0.0, -12.0, 12.0, -25.0, 25.0)
+                if manual is not None
+                else (0.0, 30.0, 60.0, 90.0, 120.0, 150.0)
+            )
         )
-        scale_factors = (1.0, 0.85, 1.15)
-        city_bbox = state.plan.city_bbox if state.plan else None
+        scale_factors = (1.0, 0.90, 1.10) if manual is not None else (1.0, 0.85, 1.15)
+        city_bbox = (
+            None
+            if manual is not None
+            else state.plan.city_bbox if state.plan else None
+        )
 
         candidates: list[RouteDraft] = []
         signatures: set[tuple[float, ...]] = set()

@@ -40,6 +40,88 @@ def test_generate_request_rejects_a_non_http_image_reference() -> None:
         )
 
 
+def test_generate_request_accepts_a_bounded_map_placement() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest, about 8 km",
+        map_placement={
+            "center_lat": 47.505,
+            "center_lon": 19.065,
+            "scale_m": 2_400,
+            "rotation_deg": -25,
+            "search_radius_m": 700,
+        },
+    )
+
+    assert request.map_placement is not None
+    assert request.map_placement.scale_m == 2_400
+    assert request.map_placement.rotation_deg == -25
+
+
+def test_map_placement_rejects_a_separate_start_constraint() -> None:
+    with pytest.raises(ValidationError, match="positioned drawing"):
+        GenerateRequest(
+            prompt="a heart run in Budapest, about 8 km",
+            map_placement={
+                "center_lat": 47.505,
+                "center_lon": 19.065,
+                "scale_m": 2_400,
+            },
+            start_point={"latitude": 47.5, "longitude": 19.0},
+        )
+
+
+def test_generate_request_normalises_a_start_address() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        start_address="  Hősök   tere,   Budapest  ",
+    )
+
+    assert request.start_address == "Hősök tere, Budapest"
+
+
+def test_generate_request_rejects_two_start_sources() -> None:
+    with pytest.raises(ValidationError, match="choose either"):
+        GenerateRequest(
+            prompt="a heart run in Budapest",
+            start_address="Hősök tere, Budapest",
+            start_point={"latitude": 47.5, "longitude": 19.0},
+        )
+
+
+@pytest.mark.parametrize("direction", [0, 45, 90, 135, 180, 225, 270, 315, 359.999])
+def test_generate_request_accepts_supported_start_headings(direction: float) -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        start_direction_deg=direction,
+    )
+
+    assert request.start_direction_deg == direction
+
+
+@pytest.mark.parametrize("direction", [-0.001, 360, float("inf"), float("nan")])
+def test_generate_request_rejects_invalid_start_headings(direction: float) -> None:
+    with pytest.raises(ValidationError):
+        GenerateRequest(
+            prompt="a heart run in Budapest",
+            start_direction_deg=direction,
+        )
+
+
+def test_generate_request_expands_partial_route_preferences() -> None:
+    request = GenerateRequest(
+        prompt="a heart run in Budapest",
+        route_preferences={"avoid_steps": True},
+    )
+
+    assert request.route_preferences.model_dump() == {
+        "avoid_steps": True,
+        "avoid_ferries": False,
+        "avoid_fords": False,
+        "prefer_quiet": False,
+        "prefer_green": False,
+    }
+
+
 @pytest.mark.parametrize(
     ("prompt", "message"),
     [
@@ -207,6 +289,129 @@ def test_generate_endpoint_forwards_confirmed_intent_start_and_preferences(
     assert captured["start_direction_deg"] == 90
     assert captured["route_preferences"].avoid_steps is True
     assert captured["route_preferences"].prefer_quiet is True
+
+
+def test_generate_endpoint_rejects_an_unresolved_start_before_routing(
+    monkeypatch,
+) -> None:
+    generate_called = False
+
+    def record_generate(*_args, **_kwargs):
+        nonlocal generate_called
+        generate_called = True
+
+    monkeypatch.setattr(routes.geocoder, "geocode_point", lambda _query: None)
+    monkeypatch.setattr(routes, "generate", record_generate)
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "start_address": "not a real start",
+            },
+        )
+
+    assert response.status_code == 422
+    assert "couldn’t find that start address" in response.json()["detail"]
+    assert generate_called is False
+
+
+def test_generate_endpoint_forwards_a_resolved_address_and_label(monkeypatch) -> None:
+    captured = {}
+
+    monkeypatch.setattr(
+        routes.geocoder,
+        "geocode_point",
+        lambda _query: SimpleNamespace(
+            lat=47.5149,
+            lon=19.0777,
+            name="Heroes' Square, Budapest",
+        ),
+    )
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured resolved start")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "start_address": "Hősök tere, Budapest",
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["start_point"] == (47.5149, 19.0777)
+    assert captured["start_label"] == "Heroes' Square, Budapest"
+
+
+def test_generate_endpoint_forwards_a_user_positioned_shape(monkeypatch) -> None:
+    captured = {}
+
+    def reject_after_recording(prompt: str, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        raise ValueError("captured map placement")
+
+    monkeypatch.setattr(routes, "generate", reject_after_recording)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a heart run in Budapest, about 8 km",
+                "map_placement": {
+                    "center_lat": 47.505,
+                    "center_lon": 19.065,
+                    "scale_m": 2_400,
+                    "rotation_deg": 35,
+                    "search_radius_m": 650,
+                },
+            },
+        )
+
+    assert response.status_code == 422
+    assert captured["map_placement"].center_lat == 47.505
+    assert captured["map_placement"].scale_m == 2_400
+    assert captured["map_placement"].rotation_deg == 35
+
+
+def test_shape_placement_endpoints_expose_normalised_map_geometry() -> None:
+    with TestClient(create_app()) as client:
+        catalogue = client.get("/shape-templates")
+        preview = client.get(
+            "/shape-placement-preview",
+            params={
+                "shape": "heart",
+                "city": "Budapest",
+                "sport": "run",
+                "distance_km": 8,
+            },
+        )
+
+    assert catalogue.status_code == 200
+    assert catalogue.json()["count"] == 145
+    assert {item["id"] for item in catalogue.json()["shapes"]} >= {
+        "heart",
+        "star",
+        "thermal_bath",
+    }
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["shape"] == "heart"
+    assert payload["city"] == "Budapest"
+    assert payload["scale_m"] > 100
+    assert len(payload["paths"]) == 1
+    assert 2 < len(payload["paths"][0]) <= 280
+    assert all(
+        -0.6 <= coordinate <= 0.6
+        for point in payload["paths"][0]
+        for coordinate in point
+    )
 
 
 def test_generate_endpoint_imports_and_forwards_svg_geometry(monkeypatch) -> None:
@@ -571,3 +776,25 @@ def test_health_reports_gallery_configuration(monkeypatch, configured: bool) -> 
         "version": "0.1.0",
         "gallery": {"configured": configured},
     }
+
+
+def test_responses_include_browser_security_headers() -> None:
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["strict-transport-security"] == (
+        "max-age=31536000; includeSubDomains"
+    )
+    assert response.headers["permissions-policy"] == (
+        "camera=(), geolocation=(self), microphone=(), payment=(), usb=()"
+    )
+    content_security_policy = response.headers["content-security-policy"]
+    assert "default-src 'self'" in content_security_policy
+    assert "frame-ancestors 'none'" in content_security_policy
+    assert "object-src 'none'" in content_security_policy
+    assert "https://tile.openstreetmap.org" in content_security_policy
+    assert "https://res.cloudinary.com" in content_security_policy

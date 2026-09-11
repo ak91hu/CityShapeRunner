@@ -125,8 +125,13 @@ test("a successful edit replaces distance and export state with the edited route
 }) => {
   await mockSuccessfulEdit(page, buildEditedRoute({ distanceKm: 20.05 }));
   await openGeneratedRoute(page);
-  await page.getByRole("button", { name: "Edit this route" }).click();
-  await page.getByRole("button", { name: "Apply changes" }).click();
+  const editButton = page.getByRole("button", { name: "Edit this route" });
+  await editButton.focus();
+  await editButton.press("Enter");
+  const applyButton = page.getByRole("button", { name: "Apply changes" });
+  await expect(applyButton).toBeVisible();
+  await applyButton.focus();
+  await applyButton.press("Enter");
 
   await expect(page.getByText(/Changes saved: 20.05 km/)).toBeVisible();
   await expect(

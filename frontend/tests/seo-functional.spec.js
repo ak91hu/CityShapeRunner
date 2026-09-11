@@ -28,7 +28,7 @@ test("robots and sitemap expose the public landing page", async ({ request }) =>
   );
 });
 
-test("the hydrated planner leads with the multi-route product promise", async ({ page }) => {
+test("the hydrated planner leads with a short, explicit creation path", async ({ page }) => {
   await page.route("**/gallery*", (route) =>
     route.fulfill({
       status: 200,
@@ -39,8 +39,8 @@ test("the hydrated planner leads with the multi-route product promise", async ({
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Create GPS art on real streets" })).toBeVisible();
-  const proof = page.getByRole("list", { name: "How GPS Art Wizard finds a route" });
-  await expect(proof).toContainText("Screen many placements");
-  await expect(proof).toContainText("Measure real street routes");
-  await expect(proof).toContainText("Explain why the best one won");
+  const progress = page.getByRole("list", { name: "Route creation progress" });
+  await expect(progress).toContainText("Describe your idea");
+  await expect(progress).toContainText("Review the request");
+  await expect(progress).toContainText("Choose and download");
 });

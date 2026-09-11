@@ -9,10 +9,11 @@ import unicodedata
 from dataclasses import asdict, replace
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..agents.intent_agent import IntentAgent
+from ..agents.placement_agent import estimated_scale_m
 from ..agents.validation_agent import ValidationAgent
 from ..config import get_settings
 from ..logging_config import current_request_id
@@ -21,6 +22,7 @@ from ..quality import quality_bottleneck, quality_gate_report
 from ..state import (
     EvaluatedCandidate,
     Intent,
+    MapPlacement,
     RouteDraft,
     RoutePreferences,
     Shape,
@@ -78,6 +80,14 @@ class RoutePreferencesRequest(BaseModel):
     prefer_green: bool = False
 
 
+class MapPlacementRequest(BaseModel):
+    center_lat: float = Field(..., ge=-85, le=85)
+    center_lon: float = Field(..., ge=-180, le=180)
+    scale_m: float = Field(..., ge=100, le=50_000)
+    rotation_deg: float = Field(default=0.0, ge=-360, le=360)
+    search_radius_m: float = Field(default=900.0, ge=100, le=4_000)
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(
         ...,
@@ -95,6 +105,7 @@ class GenerateRequest(BaseModel):
         default_factory=RoutePreferencesRequest
     )
     reference_image_url: str | None = Field(default=None, max_length=2_048)
+    map_placement: MapPlacementRequest | None = None
 
     @field_validator("prompt", mode="before")
     @classmethod
@@ -144,6 +155,14 @@ class GenerateRequest(BaseModel):
     def one_start_source(self) -> GenerateRequest:
         if self.start_point is not None and self.start_address is not None:
             raise ValueError("choose either a current/map point or a start address")
+        if self.map_placement is not None and (
+            self.start_point is not None
+            or self.start_address is not None
+            or self.start_direction_deg is not None
+        ):
+            raise ValueError(
+                "a positioned drawing cannot also use a separate start point or direction"
+            )
         return self
 
 
@@ -864,6 +883,9 @@ def _state_to_response(state) -> dict:
                 if state.reference_kind
                 else None
             ),
+            "map_placement": (
+                asdict(state.map_placement) if state.map_placement else None
+            ),
         },
         gallery_publish_token=(
             cloudinary_gallery.maybe_issue_publish_token()
@@ -932,6 +954,63 @@ def _interpretation_guidance(
             }
         )
     return confidence, clarifications
+
+
+@router.get("/shape-templates")
+def shape_templates() -> dict:
+    """List deterministic templates available to the map-placement tool."""
+
+    shapes = [
+        {
+            "id": name,
+            "label": name.replace("_", " ").title(),
+        }
+        for name in sorted(shape_library.SHAPES)
+    ]
+    return {"count": len(shapes), "shapes": shapes}
+
+
+@router.get("/shape-placement-preview")
+def shape_placement_preview(
+    shape: str = Query(min_length=1, max_length=80),
+    city: str = Query(min_length=1, max_length=100),
+    sport: Literal["run", "bike"] = "run",
+    distance_km: float = Query(default=10.0, ge=2.0, le=300.0),
+) -> dict:
+    """Return a normalised outline and a map-ready initial footprint."""
+
+    generated = shape_library.get_shape(shape)
+    if generated is None:
+        raise HTTPException(status_code=404, detail="Choose a supported shape template.")
+    name, paths, closed = generated
+    normalised_paths = geo.normalize_shape(paths)
+    resolved = geocoder.geocode(city)
+    target_scale_m = estimated_scale_m(
+        normalised_paths,
+        sport,
+        name,
+        distance_km,
+    )
+    points_per_path = max(16, 280 // max(1, len(normalised_paths)))
+    preview_paths = [
+        [[float(x), float(y)] for x, y in _even_sample(path, points_per_path)]
+        for path in normalised_paths
+        if len(path) >= 2
+    ]
+    return {
+        "shape": name,
+        "label": name.replace("_", " ").title(),
+        "closed": closed,
+        "paths": preview_paths,
+        "city": resolved.name,
+        "city_substituted": resolved.substituted,
+        "center": [resolved.lat, resolved.lon],
+        "city_bbox": list(resolved.bbox),
+        "scale_m": round(target_scale_m, 2),
+        "rotation_deg": round(geo.bbox_long_axis_heading(resolved.bbox), 1),
+        "distance_km": distance_km,
+        "sport": sport,
+    }
 
 
 @router.get("/health")
@@ -1098,6 +1177,11 @@ def generate_route(req: GenerateRequest) -> dict:
         else None
     )
     preferences = RoutePreferences(**req.route_preferences.model_dump())
+    map_placement = (
+        MapPlacement(**req.map_placement.model_dump())
+        if req.map_placement is not None
+        else None
+    )
     imported_reference = None
     if req.reference_image_url:
         try:
@@ -1128,6 +1212,7 @@ def generate_route(req: GenerateRequest) -> dict:
             and req.start_direction_deg is None
             and not has_preferences
             and imported_reference is None
+            and map_placement is None
         ):
             # Preserve the original domain call for ordinary prompts and for
             # lightweight integrations that wrap the one-argument function.
@@ -1148,6 +1233,7 @@ def generate_route(req: GenerateRequest) -> dict:
                 ),
                 reference_name=(imported_reference.name if imported_reference else None),
                 reference_kind=(imported_reference.kind if imported_reference else None),
+                map_placement=map_placement,
             )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

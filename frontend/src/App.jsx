@@ -7,6 +7,8 @@ import {
   createMuralPlan,
   fetchDestinations,
   fetchOccasions,
+  fetchShapePlacementPreview,
+  fetchShapeTemplates,
   interpretRoute,
   listGallery,
   publishGalleryImage,
@@ -19,8 +21,14 @@ import {
   removeGalleryImage,
   rescueArtwork,
 } from "./api.js";
+import RouteSetupPanel from "./RouteSetupPanel.jsx";
+import {
+  EMPTY_ROUTE_PREFERENCES,
+  buildRouteSetupPayload,
+} from "./routeSetup.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
+const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
 const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
 
 const CORE_IDEAS = [
@@ -205,6 +213,20 @@ const IDEA_CATEGORIES = [
   "Letters, numbers & text",
 ];
 const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
+const MAP_PLACEMENT_FALLBACK_SHAPES = [
+  { id: "heart", label: "Heart" },
+  { id: "star", label: "Star" },
+  { id: "circle", label: "Circle" },
+  { id: "diamond", label: "Diamond" },
+  { id: "triangle", label: "Triangle" },
+  { id: "square", label: "Square" },
+  { id: "arrow", label: "Arrow" },
+  { id: "flower", label: "Flower" },
+  { id: "cat", label: "Cat" },
+  { id: "sailboat", label: "Sailboat" },
+  { id: "crown", label: "Crown" },
+  { id: "dragon", label: "Dragon" },
+];
 const DISTINCT_IDEA_GLYPHS = Object.freeze({
   Bat: "🦇",
   Bear: "🐻",
@@ -221,6 +243,19 @@ const DISTINCT_IDEA_GLYPHS = Object.freeze({
 });
 
 function ideaGlyph(idea) {
+  const outlines = {
+    Heart: "M12 20L4 12C-1 5 7 1 12 7C17 1 25 5 20 12Z",
+    Star: "M12 2L15 9L22 10L17 15L18 22L12 18L6 22L7 15L2 10L9 9Z",
+    Circle: "M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3",
+    Diamond: "M12 2L22 12L12 22L2 12Z",
+    Triangle: "M12 3L22 21H2Z",
+    Square: "M4 4H20V20H4Z",
+  };
+  if (outlines[idea.label]) return (
+    <svg className="shape-symbol" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d={outlines[idea.label]} />
+    </svg>
+  );
   return DISTINCT_IDEA_GLYPHS[idea.label] ?? idea.glyph;
 }
 
@@ -570,11 +605,11 @@ const GATE_COPY = {
     description: "The route uses connected roads or paths instead of straight guide lines.",
   },
   overall_score: {
-    label: "Overall match",
+    label: "Route quality",
     description: "A combined look at the drawing, distance, and start-to-finish gap.",
   },
   shape_fidelity: {
-    label: "Shape match",
+    label: "Drawing likeness",
     description: "How closely the route still looks like your drawing.",
   },
   spatial_similarity: {
@@ -946,7 +981,7 @@ function StreetCanvasCard({ candidates = [] }) {
     <section className="street-canvas-card" aria-labelledby="street-canvas-title">
       <div className="readiness-heading">
         <div>
-          <span className="eyebrow">Street Canvas</span>
+          <span className="eyebrow">Street fit search</span>
           <h3 id="street-canvas-title">Best nearby areas</h3>
         </div>
         <span className="readiness-status readiness-status--ready">
@@ -1234,6 +1269,180 @@ function OccasionStrip({ disabled, onPick, city }) {
         )}
       </div>
     </details>
+  );
+}
+
+function normalisePlacementRotation(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return ((numeric + 180) % 360 + 360) % 360 - 180;
+}
+
+function ShapePlacementOverlay({ open, preview, onClose, onConfirm, busy }) {
+  const dialogRef = useModalDialog(open, onClose);
+  const [center, setCenter] = useState(preview?.center ?? [47.4979, 19.0402]);
+  const [scaleM, setScaleM] = useState(preview?.scale_m ?? 2_000);
+  const [rotationDeg, setRotationDeg] = useState(
+    normalisePlacementRotation(preview?.rotation_deg ?? 0),
+  );
+  const [searchRadiusM, setSearchRadiusM] = useState(900);
+
+  useEffect(() => {
+    if (!open || !preview) return;
+    setCenter(preview.center);
+    setScaleM(preview.scale_m);
+    setRotationDeg(normalisePlacementRotation(preview.rotation_deg));
+    setSearchRadiusM(900);
+  }, [open, preview]);
+
+  if (!open || !preview) return null;
+  const scaleStep = 50;
+  const minimumScale = Math.max(
+    100,
+    Math.floor((preview.scale_m * 0.45) / scaleStep) * scaleStep,
+  );
+  const maximumScale = Math.min(
+    50_000,
+    Math.ceil((preview.scale_m * 1.8) / scaleStep) * scaleStep,
+  );
+
+  return (
+    <div
+      className="shape-placement-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shape-placement-title"
+      ref={dialogRef}
+      tabIndex={-1}
+    >
+      <section className="shape-placement-sheet">
+        <header className="shape-placement-heading">
+          <div>
+            <span className="eyebrow">Manual map placement</span>
+            <h2 id="shape-placement-title">Position the {preview.label.toLowerCase()}</h2>
+            <p>Click the map or drag the centre handle. The planner will test nearby streets.</p>
+          </div>
+          <button
+            type="button"
+            className="button button--quiet shape-placement-close"
+            onClick={onClose}
+            aria-label="Close shape placement map"
+            data-dialog-initial-focus
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="shape-placement-workspace">
+          <div className="shape-placement-map-shell">
+            <Suspense fallback={<div className="shape-placement-map-fallback">Loading map…</div>}>
+              <ShapePlacementMap
+                paths={preview.paths}
+                center={center}
+                cityBbox={preview.city_bbox}
+                scaleM={scaleM}
+                rotationDeg={rotationDeg}
+                shapeLabel={preview.label.toLowerCase()}
+                onCenterChange={setCenter}
+              />
+            </Suspense>
+            <p className="shape-placement-map-hint">
+              Approximate centre: {center[0].toFixed(4)}, {center[1].toFixed(4)}
+            </p>
+          </div>
+
+          <aside className="shape-placement-controls" aria-label="Shape placement controls">
+            <div className="shape-placement-selection">
+              <strong>{preview.label}</strong>
+              <span>{preview.city} · {preview.sport === "bike" ? "Cycling" : "Running"} · {preview.distance_km} km</span>
+            </div>
+            <label htmlFor="placement-size">
+              Footprint size
+              <output htmlFor="placement-size">{(scaleM / 1_000).toFixed(1)} km</output>
+            </label>
+            <input
+              id="placement-size"
+              type="range"
+              min={minimumScale}
+              max={maximumScale}
+              step={scaleStep}
+              value={scaleM}
+              onChange={(event) => setScaleM(Number(event.target.value))}
+            />
+            <small>Larger footprints usually produce longer, simpler street segments.</small>
+
+            <label htmlFor="placement-rotation">
+              Rotation
+              <output htmlFor="placement-rotation">{Math.round(rotationDeg)}°</output>
+            </label>
+            <input
+              id="placement-rotation"
+              type="range"
+              min="-180"
+              max="180"
+              step="1"
+              value={rotationDeg}
+              onChange={(event) => setRotationDeg(Number(event.target.value))}
+            />
+            <small>Turn the drawing to follow the dominant street direction.</small>
+
+            <label htmlFor="placement-search-radius">
+              Nearby fine-tuning
+              <output htmlFor="placement-search-radius">±{Math.round(searchRadiusM)} m</output>
+            </label>
+            <input
+              id="placement-search-radius"
+              type="range"
+              min="200"
+              max="2000"
+              step="100"
+              value={searchRadiusM}
+              onChange={(event) => setSearchRadiusM(Number(event.target.value))}
+            />
+            <small>The route search stays close to your chosen position.</small>
+
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={() => {
+                setCenter(preview.center);
+                setScaleM(preview.scale_m);
+                setRotationDeg(normalisePlacementRotation(preview.rotation_deg));
+                setSearchRadiusM(900);
+              }}
+              disabled={busy}
+            >
+              Reset placement
+            </button>
+          </aside>
+        </div>
+
+        <div className="shape-placement-actions">
+          <p>The orange line is a guide. The generated GPX will follow connected streets.</p>
+          <div>
+            <button type="button" className="button button--quiet" onClick={onClose} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() =>
+                onConfirm({
+                  center_lat: Number(center[0].toFixed(6)),
+                  center_lon: Number(center[1].toFixed(6)),
+                  scale_m: Number(scaleM),
+                  rotation_deg: Number(rotationDeg),
+                  search_radius_m: Number(searchRadiusM),
+                })
+              }
+              disabled={busy}
+            >
+              {busy ? "Starting route search…" : "Fit to streets and create GPX"}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -2357,7 +2566,7 @@ function InkproofCard({ points, overlayType, onOverlayChange }) {
     <section className="inkproof-card" aria-labelledby="inkproof-title">
       <div>
         <span className="eyebrow">Free · before you go</span>
-        <h3 id="inkproof-title">Inkproof GPS forecast</h3>
+        <h3 id="inkproof-title">GPS detail check</h3>
         <p>Simulate GPS drift and find details that may disappear from the recorded artwork.</p>
       </div>
       <div className="niche-controls">
@@ -2860,7 +3069,8 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
         </p>
       )}
       {!loading && configured && assets.length === 0 && !error && (
-        <div className="gallery-state">
+        <div className="gallery-state gallery-state--empty">
+          <img className="gallery-empty-mark" src="/favicon.svg" alt="" width="56" height="56" />
           <strong>No maps have been shared.</strong>
           <span>Publish a route map to add the first.</span>
         </div>
@@ -2930,12 +3140,10 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
 
 function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null }) {
   const candidates = result.candidates ?? [];
-  const expandSecondaryContent = () =>
-    typeof window === "undefined" || !window.matchMedia("(max-width: 48rem)").matches;
   const [selectedCandidateId, setSelectedCandidateId] = useState(
     candidates[0]?.id ?? "best",
   );
-  const [requestDetailsOpen, setRequestDetailsOpen] = useState(expandSecondaryContent);
+  const [requestDetailsOpen, setRequestDetailsOpen] = useState(false);
   const [routeToolsOpen, setRouteToolsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [controlPoints, setControlPoints] = useState([]);
@@ -2994,7 +3202,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setActiveConcernCode(null);
     setLabOverlay(null);
     setSightMarkers([]);
-    setRequestDetailsOpen(expandSecondaryContent());
+    setRequestDetailsOpen(false);
     setRouteToolsOpen(false);
   }, [result.request_id, result.prompt]);
 
@@ -3060,7 +3268,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   const roadRouted = Boolean(activeRoute.snapped);
   const exportReady = roadRouted && (automaticChecksPassed || userAccepted);
   const exportBlockedByPendingEdits = editing && editDirty;
-  const qualityTone = score == null ? "neutral" : automaticChecksPassed ? "good" : "warn";
   const shapeName = normaliseLabel(activeRoute.shape_name ?? result.shape?.name);
   const shapeSource = activeRoute.shape_source ?? result.shape?.source;
   const aiDrawingReview = result.shape?.semantic_verification;
@@ -3289,6 +3496,46 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     shapeName,
   ]);
 
+  const visibleCandidates = candidates.slice(0, 3);
+  const additionalCandidates = candidates.slice(3);
+  const renderCandidateCard = (candidate, index) => {
+    const candidateReadiness = candidate.details?.readiness ?? {};
+    const selected = selectedCandidate?.id === candidate.id;
+    return (
+      <button
+        type="button"
+        role="listitem"
+        key={candidate.id}
+        data-candidate-id={candidate.id}
+        className={`candidate-card${selected ? " candidate-card--selected" : ""}`}
+        aria-pressed={selected}
+        onClick={() => chooseCandidate(candidate.id)}
+      >
+        <span className="candidate-card-topline">
+          <span>{index === 0 ? "Recommended" : `Alternative ${index}`}</span>
+          <b className={candidate.verification?.passed ? "status-good" : "status-warn"}>
+            {candidate.verification?.passed ? "Ready to download" : "Check first"}
+          </b>
+        </span>
+        <strong>
+          {index === 0 ? "Best overall route" : normaliseLabel(candidate.shape_name)}
+        </strong>
+        <span className="candidate-card-metrics">
+          <span><b>{formatPercent(candidate.validation?.shape_fidelity)}</b> likeness</span>
+          <span><b>{formatMetric(candidate.distance_km)}</b> km</span>
+          <span>
+            <b>
+              {Number.isFinite(candidateReadiness.elevation_gain_m)
+                ? `${Math.round(candidateReadiness.elevation_gain_m)} m`
+                : "n/a"}
+            </b>{" "}
+            climb
+          </span>
+        </span>
+      </button>
+    );
+  };
+
   return (
     <section
       ref={focusRef}
@@ -3302,12 +3549,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             {shapeName} in {city}
           </h2>
         </div>
-        <span
-          className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
-        >
-          <span aria-hidden="true">{automaticChecksPassed || userAccepted ? "✓" : "!"}</span>
-          {stateLabel}
-        </span>
+        <div className="result-heading-actions">
+          <span
+            className={`route-state route-state--${automaticChecksPassed ? "good" : "warn"}`}
+          >
+            <span aria-hidden="true">{automaticChecksPassed || userAccepted ? "✓" : "!"}</span>
+            {stateLabel}
+          </span>
+          <a className="button button--quiet result-jump-link" href="#route-download">
+            Download options
+            <span aria-hidden="true">↓</span>
+          </a>
+        </div>
       </div>
 
       <section className="request-summary-card" aria-labelledby="request-summary-title">
@@ -3386,7 +3639,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           <section className="candidate-compare" aria-labelledby="route-options-title">
             <div className="candidate-compare-heading">
               <div>
-                <span className="eyebrow">Best-route search</span>
+                <span className="eyebrow">Recommended first</span>
                 <h3 id="route-options-title">Route options</h3>
               </div>
               <span>
@@ -3396,46 +3649,22 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </span>
             </div>
             {candidates.length > 0 ? (
-              <div className="candidate-card-list" role="list">
-                {candidates.map((candidate, index) => {
-                  const candidateReadiness = candidate.details?.readiness ?? {};
-                  const selected = selectedCandidate?.id === candidate.id;
-                  return (
-                    <button
-                      type="button"
-                      role="listitem"
-                      key={candidate.id}
-                      data-candidate-id={candidate.id}
-                      className={`candidate-card${selected ? " candidate-card--selected" : ""}`}
-                      aria-pressed={selected}
-                      onClick={() => chooseCandidate(candidate.id)}
-                    >
-                      <span className="candidate-card-topline">
-                        <span>Option {index + 1}</span>
-                        <b className={candidate.verification?.passed ? "status-good" : "status-warn"}>
-                          {candidate.verification?.passed ? "Ready" : "Review"}
-                        </b>
-                      </span>
-                      <strong>
-                        {index === 0 ? "Best overall match" : normaliseLabel(candidate.shape_name)}
-                      </strong>
-                      <span className="candidate-card-metrics">
-                        <span><b>{formatPercent(candidate.validation?.score)}</b> overall</span>
-                        <span><b>{formatPercent(candidate.validation?.shape_fidelity)}</b> likeness</span>
-                        <span><b>{formatMetric(candidate.distance_km)}</b> km</span>
-                        <span>
-                          <b>
-                            {Number.isFinite(candidateReadiness.elevation_gain_m)
-                              ? `${Math.round(candidateReadiness.elevation_gain_m)} m`
-                              : "n/a"}
-                          </b>{" "}
-                          climb
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                <div className="candidate-card-list" role="list">
+                  {visibleCandidates.map(renderCandidateCard)}
+                </div>
+                {additionalCandidates.length > 0 && (
+                  <details className="candidate-more">
+                    <summary>
+                      Show {additionalCandidates.length} more route{additionalCandidates.length === 1 ? "" : "s"}
+                    </summary>
+                    <div className="candidate-card-list candidate-card-list--more" role="list">
+                      {additionalCandidates.map((candidate, index) =>
+                        renderCandidateCard(candidate, index + visibleCandidates.length))}
+                    </div>
+                  </details>
+                )}
+              </>
             ) : (
               <p className="candidate-empty">Showing the closest route the planner found.</p>
             )}
@@ -3587,12 +3816,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         <div className="result-sidebar">
           <dl className="metrics">
             <MetricCard
-              label="Overall match"
-              value={formatPercent(score)}
-              detail="Combined score"
-              tone={qualityTone}
-            />
-            <MetricCard
               label="Distance"
               value={
                 activeRoute.distance_km != null
@@ -3602,26 +3825,19 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               detail={normaliseLabel(result.intent?.sport)}
             />
             <MetricCard
-              label="Shape match"
+              label="Drawing likeness"
               value={formatPercent(validation?.shape_fidelity)}
               detail="Route against drawing"
               tone={validation?.shape_fidelity >= 0.7 ? "good" : "warn"}
             />
             <MetricCard
-              label="Route options"
+              label="Climb"
               value={
-                Number.isFinite(candidateSummary.shown_count)
-                  ? candidateSummary.shown_count
-                  : candidates.length
+                Number.isFinite(routeReadiness.elevation_gain_m)
+                  ? `${Math.round(routeReadiness.elevation_gain_m)} m`
+                  : "n/a"
               }
-              detail={
-                `${candidateSummary.verified_count ?? candidateSummary.accepted_count ?? 0} ready · ${reviewCount} review${
-                  Number.isFinite(result.preflight_count) && result.preflight_count > 0
-                    ? ` · ${result.preflight_count} locations`
-                    : ""
-                }`
-              }
-              tone={(candidateSummary.verified_count ?? 0) > 0 ? "good" : "warn"}
+              detail="Estimated elevation gain"
             />
           </dl>
 
@@ -3690,7 +3906,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
 
           {shapeSource === "llm" && aiDrawingReview?.cue_results?.length > 0 && (
             <details className="route-facts ai-recognition-card">
-              <summary>Recognition audit</summary>
+              <summary>Drawing recognition details</summary>
               <p className="route-facts-intro">
                 A separate visual check looks for the defining features in the finished
                 outline, not just in the AI description.
@@ -3789,6 +4005,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </p>
               <dl>
                 <div>
+                  <dt>Route quality score</dt>
+                  <dd>{formatPercent(score)}</dd>
+                </div>
+                <div>
+                  <dt>Drawing likeness</dt>
+                  <dd>{formatPercent(validation?.shape_fidelity)}</dd>
+                </div>
+                <div>
+                  <dt>Route options shown</dt>
+                  <dd>{Number.isFinite(candidateSummary.shown_count) ? candidateSummary.shown_count : candidates.length}</dd>
+                </div>
+                <div>
                   <dt>Drawing</dt>
                   <dd>{shapeName}</dd>
                 </div>
@@ -3868,19 +4096,29 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </dl>
           </details>
 
-          <div className="export-card">
+          <div className={`export-card export-card--${automaticChecksPassed || userAccepted ? "ready" : "review"}`} id="route-download">
             <div>
               <h3>
                 {!roadRouted
                   ? "Street route unavailable"
                   : exportReady
-                    ? "Download route"
-                    : "Review before download"}
+                    ? "Ready to download"
+                    : `${verification?.failed_gates?.length ?? 1} item${verification?.failed_gates?.length === 1 ? "" : "s"} to check before download`}
               </h3>
             </div>
+            {automaticChecksPassed && roadRouted && (
+              <p className="export-decision-copy">
+                This route follows connected streets and passed the drawing, distance, and closure checks.
+              </p>
+            )}
+            {userAccepted && !automaticChecksPassed && roadRouted && (
+              <p className="export-decision-copy">
+                You reviewed this street route and approved it for download.
+              </p>
+            )}
             {!automaticChecksPassed && !userAccepted && roadRouted && (
               <p className="acceptance-copy">
-                This route missed one or more checks. Inspect the map before choosing to download it.
+                Review the highlighted difference on the map, or choose another route above.
               </p>
             )}
             <div className="download-actions">
@@ -3930,45 +4168,48 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   Download TCX
                 </button>
               )}
-              {roadRouted && (
-                <button
-                  type="button"
-                  className="button button--secondary gift-poster-button"
-                  onClick={openGiftPoster}
-                >
-                  Gift poster
-                </button>
-              )}
-              {roadRouted && (
-                <button
-                  type="button"
-                  className="button button--secondary"
-                  onClick={(event) => {
-                    event.currentTarget.focus({ preventScroll: true });
-                    setReelOpen(true);
-                  }}
-                >
-                  Record reel
-                </button>
-              )}
             </div>
-            {posterError && (
-              <p className="editor-error" role="alert">
-                {posterError}
-              </p>
-            )}
-            {roadRouted && activeRoute.gpx && (
-              <details className="gpx-help">
-                <summary>Use this GPX with Garmin, Strava, or Komoot</summary>
-                <ol>
-                  <li>Download the GPX file above.</li>
-                  <li>Open your platform’s route or course import tool and select the file.</li>
-                  <li>Check the imported map, direction, access, and surface before saving it.</li>
-                </ol>
-                <p>
-                  Import wording differs by platform. GPS Art Wizard keeps the standard GPX route
-                  portable and does not connect to your account.
-                </p>
+            {roadRouted && (
+              <details className="after-route-actions">
+                <summary>More ways to use this route</summary>
+                <div className="after-route-actions-body">
+                  <div className="after-route-action-buttons">
+                    <button
+                      type="button"
+                      className="button button--secondary gift-poster-button"
+                      onClick={openGiftPoster}
+                    >
+                      Gift poster
+                    </button>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={(event) => {
+                        event.currentTarget.focus({ preventScroll: true });
+                        setReelOpen(true);
+                      }}
+                    >
+                      Record reel
+                    </button>
+                  </div>
+                  {posterError && (
+                    <p className="editor-error" role="alert">{posterError}</p>
+                  )}
+                  {activeRoute.gpx && (
+                    <details className="gpx-help">
+                      <summary>Use this GPX with Garmin, Strava, or Komoot</summary>
+                      <ol>
+                        <li>Download the GPX file above.</li>
+                        <li>Open your platform’s route or course import tool and select the file.</li>
+                        <li>Check the imported map, direction, access, and surface before saving it.</li>
+                      </ol>
+                      <p>
+                        Import wording differs by platform. GPS Art Wizard keeps the standard GPX
+                        route portable and does not connect to your account.
+                      </p>
+                    </details>
+                  )}
+                </div>
               </details>
             )}
             {exportBlockedByPendingEdits && (
@@ -4038,10 +4279,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 one, then try again.
               </p>
             )}
-            <p className="safety-note">
-              Check access, crossings, traffic, surfaces, and current conditions before using this
-              route.
-            </p>
+            <p className="safety-note">Before heading out, check current access, traffic, crossings, and surfaces.</p>
           </div>
       </div>
       </div>
@@ -4054,13 +4292,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         <summary className="route-lab-heading">
           <div>
             <span className="eyebrow">Optional tools</span>
-            <h3 id="route-lab-title">Safety, quality, group &amp; classroom tools</h3>
+            <h3 id="route-lab-title">More tools for this route</h3>
           </div>
-          <p>Check lighting, access and sights, sharpen the drawing, or prepare a group activity.</p>
+          <p>Plan the day, improve the drawing, or prepare a group or classroom activity.</p>
           <span className="route-lab-marker" aria-hidden="true">+</span>
         </summary>
         <div className="route-lab-grid">
-          <h4 className="route-lab-group-title">On the day</h4>
+          <h4 className="route-lab-group-title">Plan the day</h4>
           <TimedReadinessCard points={activeRoute.points_preview ?? []} />
           <NightReadinessCard
             key={`night-${activeRouteId}`}
@@ -4080,7 +4318,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             onMarkersChange={setSightMarkers}
           />
 
-          <h4 className="route-lab-group-title">Sharpen the drawing</h4>
+          <h4 className="route-lab-group-title">Improve the drawing</h4>
           <StreetCanvasCard candidates={result.street_canvas ?? []} />
           <InkproofCard
             key={`inkproof-${activeRouteId}`}
@@ -4090,7 +4328,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           />
           <section className="recognition-repair-card" aria-labelledby="repair-title">
             <div>
-              <span className="eyebrow">Recognition repair</span>
+              <span className="eyebrow">Drawing improvement</span>
               <h3 id="repair-title">Make the outline read more clearly</h3>
               <p>Re-route from the shape's strongest visual anchors and compare the result.</p>
             </div>
@@ -4105,7 +4343,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
           </section>
 
-          <h4 className="route-lab-group-title">Create together</h4>
+          <h4 className="route-lab-group-title">Plan with a group</h4>
           <CommunityMuralCard
             activeRoute={activeRoute}
             shapeName={shapeName}
@@ -4122,7 +4360,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             onOverlayChange={updateLabOverlay}
           />
 
-          <h4 className="route-lab-group-title">Teach &amp; share</h4>
+          <h4 className="route-lab-group-title">Classroom resources</h4>
           <LessonPackCard
             key={`lesson-${activeRouteId}`}
             activeRoute={activeRoute}
@@ -4185,6 +4423,10 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
 
 export default function App() {
   const [prompt, setPrompt] = useState(QUICK_IDEAS[0].prompt);
+  const [plannerStep, setPlannerStep] = useState("idea");
+  const [appView, setAppView] = useState(() =>
+    typeof window !== "undefined" && window.location.hash === "#gallery" ? "gallery" : "planner",
+  );
   const [promptError, setPromptError] = useState("");
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
@@ -4195,6 +4437,15 @@ export default function App() {
   const [imageSport, setImageSport] = useState("run");
   const [imageDistance, setImageDistance] = useState("10");
   const [imageErrors, setImageErrors] = useState({});
+  const [mapTemplates, setMapTemplates] = useState(MAP_PLACEMENT_FALLBACK_SHAPES);
+  const [mapShape, setMapShape] = useState("heart");
+  const [mapCity, setMapCity] = useState(SUGGEST_CITIES[0]);
+  const [mapSport, setMapSport] = useState("run");
+  const [mapDistance, setMapDistance] = useState("10");
+  const [mapPlacementPreview, setMapPlacementPreview] = useState(null);
+  const [mapPlacementOpen, setMapPlacementOpen] = useState(false);
+  const [mapPlacementBusy, setMapPlacementBusy] = useState(false);
+  const [mapPlacementError, setMapPlacementError] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [suggestCity, setSuggestCity] = useState(SUGGEST_CITIES[0]);
@@ -4202,16 +4453,13 @@ export default function App() {
   const [suggestDistance, setSuggestDistance] = useState("10");
   const [suggestErrors, setSuggestErrors] = useState({});
   const [suggestNotice, setSuggestNotice] = useState("");
+  const [startMode, setStartMode] = useState("any");
   const [startAddress, setStartAddress] = useState("");
   const [startPoint, setStartPoint] = useState(null);
   const [startDirection, setStartDirection] = useState("");
-  const [routePreferences, setRoutePreferences] = useState({
-    avoid_steps: false,
-    avoid_ferries: false,
-    avoid_fords: false,
-    prefer_quiet: false,
-    prefer_green: false,
-  });
+  const [routePreferences, setRoutePreferences] = useState(() => ({
+    ...EMPTY_ROUTE_PREFERENCES,
+  }));
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [interpretation, setInterpretation] = useState(null);
@@ -4222,6 +4470,9 @@ export default function App() {
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
   const requestRef = useRef(null);
   const interpretationRef = useRef(null);
+  const interpretationPromptSyncRef = useRef(null);
+  const mapPreviewRef = useRef(null);
+  const mapTemplatesRequestedRef = useRef(false);
   const lastGenerationRef = useRef(null);
   const loadingRef = useRef(null);
   const resultRef = useRef(null);
@@ -4238,6 +4489,14 @@ export default function App() {
   const [campaign, setCampaign] = useState(() => parseCampaignFromUrl());
   const [campaignBuilderOpen, setCampaignBuilderOpen] = useState(false);
   const campaignApplied = useRef(false);
+
+  useEffect(() => {
+    const syncViewFromHash = () => {
+      setAppView(window.location.hash === "#gallery" ? "gallery" : "planner");
+    };
+    window.addEventListener("hashchange", syncViewFromHash);
+    return () => window.removeEventListener("hashchange", syncViewFromHash);
+  }, []);
 
   useEffect(() => {
     if (!campaign || campaignApplied.current) return;
@@ -4293,17 +4552,23 @@ export default function App() {
     () => () => {
       requestRef.current?.abort();
       interpretationRef.current?.abort();
+      mapPreviewRef.current?.abort();
     },
     [],
   );
 
   useEffect(() => {
+    if (interpretationPromptSyncRef.current === prompt) {
+      interpretationPromptSyncRef.current = null;
+      return;
+    }
+    interpretationPromptSyncRef.current = null;
     interpretationRef.current?.abort();
     interpretationRef.current = null;
     setInterpretation(null);
     setInterpretationError("");
     setInterpretationBusy(false);
-  }, [prompt, routePreferences, startAddress, startDirection, startPoint]);
+  }, [prompt]);
 
   const activeIdea = useMemo(
     () => QUICK_IDEAS.find((idea) => idea.prompt === prompt)?.label,
@@ -4317,19 +4582,103 @@ export default function App() {
     );
   }, [ideaQuery]);
 
-  function buildPlanningPayload(extraPayload = {}) {
-    const payload = { ...extraPayload };
-    const cleanAddress = startAddress.trim();
-    if (cleanAddress) {
-      payload.start_address = cleanAddress;
-    } else if (startPoint) {
-      payload.start_point = startPoint;
+  async function loadMapPlacementTemplates() {
+    if (mapTemplatesRequestedRef.current) return;
+    mapTemplatesRequestedRef.current = true;
+    try {
+      const response = await fetchShapeTemplates();
+      const templates = (response?.shapes ?? []).filter(
+        (item) => typeof item?.id === "string" && typeof item?.label === "string",
+      );
+      if (templates.length > 0) setMapTemplates(templates);
+    } catch {
+      // The popular fallback list keeps this optional flow usable.
     }
-    if (startDirection !== "") payload.start_direction_deg = Number(startDirection);
-    if (Object.values(routePreferences).some(Boolean)) {
-      payload.route_preferences = routePreferences;
+  }
+
+  async function openMapPlacement(event) {
+    event.preventDefault();
+    if (loading || mapPlacementBusy) return;
+    const { errors, numericDistance } = validateSuggestion({
+      city: mapCity,
+      sport: mapSport,
+      distance: mapDistance,
+    });
+    if (!mapTemplates.some((item) => item.id === mapShape)) {
+      errors.shape = "Choose a shape from the list.";
     }
-    return payload;
+    if (Object.keys(errors).length > 0) {
+      setMapPlacementError(Object.values(errors)[0]);
+      return;
+    }
+
+    const controller = new AbortController();
+    mapPreviewRef.current?.abort();
+    mapPreviewRef.current = controller;
+    setMapPlacementBusy(true);
+    setMapPlacementError("");
+    try {
+      const preview = await fetchShapePlacementPreview(
+        {
+          shape: mapShape,
+          city: mapCity,
+          sport: mapSport,
+          distanceKm: numericDistance,
+        },
+        { signal: controller.signal },
+      );
+      setMapPlacementPreview(preview);
+      setMapPlacementOpen(true);
+    } catch (requestError) {
+      if (requestError.name !== "AbortError") {
+        setMapPlacementError(
+          requestError.message || "We couldn’t prepare the placement map. Try again.",
+        );
+      }
+    } finally {
+      if (mapPreviewRef.current === controller) {
+        mapPreviewRef.current = null;
+        setMapPlacementBusy(false);
+      }
+    }
+  }
+
+  async function confirmMapPlacement(placement) {
+    if (!mapPlacementPreview || loading || mapPlacementBusy) return;
+    const activityWord = mapSport === "bike" ? "cycling" : "running";
+    const routePrompt = `${mapShape} in ${mapCity}, ${activityWord}, about ${mapDistance} km`;
+    setPrompt(routePrompt);
+    setPromptError("");
+    setMapPlacementBusy(true);
+    setMapPlacementOpen(false);
+    try {
+      await generate(
+        routePrompt,
+        buildPlanningPayload(
+          { map_placement: placement },
+          { includeStartConstraints: false },
+        ),
+      );
+    } finally {
+      setMapPlacementBusy(false);
+    }
+  }
+
+  function buildPlanningPayload(
+    extraPayload = {},
+    { includeStartConstraints = true } = {},
+  ) {
+    return buildRouteSetupPayload(
+      {
+        startMode,
+        startAddress,
+        startPoint,
+        startDirection,
+        routePreferences,
+      },
+      extraPayload,
+      { includeStartConstraints },
+    );
   }
 
   const generate = useCallback(async (nextPrompt, extraPayload = {}) => {
@@ -4351,6 +4700,7 @@ export default function App() {
         payload: extraPayload,
       });
       setResult(response);
+      setPlannerStep("result");
     } catch (generationError) {
       if (generationError.name !== "AbortError") {
         setError({
@@ -4373,21 +4723,29 @@ export default function App() {
   }, []);
 
   const focusPrompt = useCallback(() => {
-    document.querySelector("#route-designer")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
+    setAppView("planner");
+    setPlannerStep("idea");
+    window.requestAnimationFrame(() => {
+      document.querySelector("#route-designer")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      promptRef.current?.focus();
     });
-    window.requestAnimationFrame(() => promptRef.current?.focus());
   }, []);
 
-  async function checkInterpretation() {
+  async function checkInterpretation({ advance = false, promptValue = prompt } = {}) {
     if (loading || interpretationBusy) return;
-    const validation = validateRoutePrompt(prompt);
+    const validation = validateRoutePrompt(promptValue);
     setPromptError(validation.error);
     if (validation.error) {
       setPromptValidationAttempt((current) => current + 1);
       window.setTimeout(() => promptRef.current?.focus({ preventScroll: true }), 0);
       return;
+    }
+    if (validation.value !== prompt) {
+      interpretationPromptSyncRef.current = validation.value;
+      setPrompt(validation.value);
     }
 
     const controller = new AbortController();
@@ -4402,11 +4760,13 @@ export default function App() {
         payload: buildPlanningPayload(),
       });
       setInterpretation(response);
+      if (advance) setPlannerStep("review");
     } catch (requestError) {
       if (requestError.name !== "AbortError") {
         setInterpretationError(
           requestError.message || "We couldn’t check the request. You can still find routes.",
         );
+        if (advance) setPlannerStep("review");
       }
     } finally {
       if (interpretationRef.current === controller) {
@@ -4414,6 +4774,39 @@ export default function App() {
         setInterpretationBusy(false);
       }
     }
+  }
+
+  function changeStartMode(nextMode) {
+    setStartMode(nextMode);
+    setLocationError("");
+    if (nextMode === "any") {
+      setStartAddress("");
+      setStartPoint(null);
+    } else if (nextMode === "address") {
+      setStartPoint(null);
+    } else if (nextMode === "location") {
+      setStartAddress("");
+    }
+  }
+
+  function changeStartAddress(value) {
+    setStartMode("address");
+    setStartAddress(value);
+    setStartPoint(null);
+    setLocationError("");
+  }
+
+  function changeRoutePreference(key, checked) {
+    setRoutePreferences((current) => ({ ...current, [key]: checked }));
+  }
+
+  function resetRouteSetup() {
+    setStartMode("any");
+    setStartAddress("");
+    setStartPoint(null);
+    setStartDirection("");
+    setRoutePreferences({ ...EMPTY_ROUTE_PREFERENCES });
+    setLocationError("");
   }
 
   function selectCurrentLocation() {
@@ -4425,6 +4818,7 @@ export default function App() {
     setLocationError("");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        setStartMode("location");
         setStartPoint({
           latitude: Number(position.coords.latitude.toFixed(6)),
           longitude: Number(position.coords.longitude.toFixed(6)),
@@ -4459,7 +4853,11 @@ export default function App() {
     }
 
     setPrompt(validation.value);
-    generate(validation.value, buildPlanningPayload());
+    if (plannerStep === "review") {
+      generate(validation.value, buildPlanningPayload());
+      return;
+    }
+    checkInterpretation({ advance: true });
   }
 
   function handleSuggest(event) {
@@ -4528,15 +4926,10 @@ export default function App() {
 
   const { minimum: minimumDistance, maximum: maximumDistance, activity: activityLabel } =
     distanceLimits(suggestSport);
-  const activePlanningOptionCount =
-    (startAddress.trim() || startPoint ? 1 : 0) +
-    (startDirection !== "" ? 1 : 0) +
-    Object.values(routePreferences).filter(Boolean).length;
-
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#route-designer">
-        Skip to route planner
+      <a className="skip-link" href={appView === "gallery" ? "#gallery" : "#route-designer"}>
+        {appView === "gallery" ? "Skip to gallery" : "Skip to route planner"}
       </a>
 
       <header className="site-header">
@@ -4544,9 +4937,9 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">
             <svg className="brand-mark-svg" viewBox="0 0 48 48">
               <rect x="2" y="2" width="44" height="44" rx="13" />
-              <path d="M9 31 C14 17 20 16 24 28 C28 16 34 17 39 31 C35 36 30 39 24 42 C18 39 13 36 9 31 Z" />
-              <circle cx="9" cy="31" r="3.5" />
-              <circle cx="39" cy="31" r="3.5" />
+              <path d="M24 41C19 35 10 28 10 19A14 14 0 0 1 38 19C38 28 29 35 24 41ZM16 18L20 28L24 22L28 28L32 18" />
+              <circle cx="16" cy="18" r="2.5" />
+              <circle cx="32" cy="18" r="2.5" />
             </svg>
           </span>
           <span>
@@ -4554,8 +4947,23 @@ export default function App() {
           </span>
         </a>
         <nav aria-label="Primary navigation">
-          <a href="#route-designer">Create route</a>
-          <a href="#gallery">Gallery</a>
+          <a
+            href="#route-designer"
+            aria-current={appView === "planner" && plannerStep !== "result" ? "page" : undefined}
+            onClick={() => {
+              setAppView("planner");
+              setPlannerStep("idea");
+            }}
+          >
+            Create route
+          </a>
+          <a
+            href="#gallery"
+            aria-current={appView === "gallery" ? "page" : undefined}
+            onClick={() => setAppView("gallery")}
+          >
+            Gallery
+          </a>
         </nav>
       </header>
 
@@ -4581,37 +4989,70 @@ export default function App() {
       )}
 
       <main>
+        {appView === "planner" && !loading && plannerStep !== "result" && (
         <section
           className="workspace generator-stage"
           id="route-designer"
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
+            <span className="studio-eyebrow">A little imagination. A real adventure.</span>
             <h1 id="designer-title">Create GPS art on real streets</h1>
             <p className="planner-intro-copy">
               Describe a drawing and a place. We’ll fit it to connected streets, compare the
               strongest routes, and prepare the one you can actually follow.
             </p>
-            <ol className="planner-proof" aria-label="How GPS Art Wizard finds a route">
-              <li><strong>1</strong><span>Screen many placements</span></li>
-              <li><strong>2</strong><span>Measure real street routes</span></li>
-              <li><strong>3</strong><span>Explain why the best one won</span></li>
+            <ol className="planner-proof planner-progress" aria-label="Route creation progress">
+              <li aria-current={plannerStep === "idea" ? "step" : undefined}>
+                <strong>1</strong><span>Describe your idea</span>
+              </li>
+              <li aria-current={plannerStep === "review" ? "step" : undefined}>
+                <strong>2</strong><span>Review the request</span>
+              </li>
+              <li><strong>3</strong><span>Choose and download</span></li>
             </ol>
             <p className="planner-safety-note">
-              Check access, crossings, traffic, surfaces, and current conditions before using a
-              route.
+              You can compare the street route with the original drawing before downloading anything.
             </p>
+            <div className="studio-art" aria-hidden="true">
+              <svg viewBox="0 0 400 240" fill="none">
+                <defs>
+                  <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                    <path d="M24 0H0V24" stroke="currentColor" strokeOpacity=".09" />
+                  </pattern>
+                </defs>
+                <rect width="400" height="240" fill="url(#studio-grid)" />
+                <path className="studio-river" d="M285 -20C230 30 340 60 268 112S250 187 198 265" />
+                <g className="studio-streets">
+                  <path d="M-10 54L410 169M-10 175L380 34M58 -10L129 250M174 -10L226 250M330 -10L384 250" />
+                  <path d="M0 112L400 220M0 215L400 70M112 0L165 240M0 15L400 123" />
+                </g>
+                <path className="studio-route-shadow" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
+                <path className="studio-route" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
+                <circle cx="198" cy="182" r="8" fill="var(--surface)" stroke="var(--brand)" strokeWidth="3" />
+                <circle cx="198" cy="182" r="3" fill="var(--brand)" />
+                <path d="M357 46V20M351 27L357 20L363 27" stroke="currentColor" strokeWidth="1.5" />
+                <text x="353" y="63" fill="currentColor" fontSize="10">N</text>
+              </svg>
+              <div className="studio-art-caption"><span>Your city. Your canvas.</span><span>Illustrated route</span></div>
+            </div>
           </div>
 
           <div className="designer-card">
             <div className="card-heading">
               <div>
-                <h2>Describe your route</h2>
-                <p>Include the drawing, city, activity, and approximate distance in one sentence.</p>
+                <span className="step-label">Step {plannerStep === "review" ? "2" : "1"} of 3</span>
+                <h2>{plannerStep === "review" ? "Check your request" : "Describe your route"}</h2>
+                <p>
+                  {plannerStep === "review"
+                    ? "Confirm the essentials, then add any optional route preferences."
+                    : "Include the drawing, city, activity, and approximate distance in one sentence."}
+                </p>
               </div>
             </div>
 
             <form onSubmit={handleSubmit} noValidate>
+              <div className="planner-idea-step" hidden={plannerStep !== "idea"}>
               <label className="field-label" htmlFor="route-prompt">
                 Drawing and location
               </label>
@@ -4639,7 +5080,10 @@ export default function App() {
                   onKeyDown={(event) => {
                     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                       event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
+                      checkInterpretation({
+                        advance: true,
+                        promptValue: event.currentTarget.value,
+                      });
                     }
                   }}
                   rows={3}
@@ -4767,135 +5211,88 @@ export default function App() {
                   )}
                 </div>
               </details>
+              </div>
 
-              <details className="planning-options-panel">
-                <summary>
-                  <span>
-                    <strong>Start point, direction, and route preferences</strong>
-                    <small>
-                      Optional{activePlanningOptionCount ? ` · ${activePlanningOptionCount} selected` : ""}
-                    </small>
-                  </span>
-                  <b aria-hidden="true">+</b>
-                </summary>
-                <div className="planning-options-body">
-                  <p>Apply these settings to free text, a suggested route, or an image route.</p>
-                  <div className="planning-options-grid">
-                    <div className="field planning-start-field">
-                      <label htmlFor="start-address">
-                        Start address or place <span>(optional)</span>
-                      </label>
-                      <input
-                        id="start-address"
-                        type="text"
-                        value={startAddress}
-                        maxLength={180}
-                        placeholder="Heroes’ Square, Budapest"
-                        autoComplete="street-address"
-                        aria-describedby="start-address-help"
-                        onChange={(event) => {
-                          setStartAddress(event.target.value);
-                          setStartPoint(null);
-                          setLocationError("");
-                        }}
-                        disabled={loading || locationBusy}
-                      />
-                      <small id="start-address-help" className="field-hint">
-                        Enter an address, or use your device location. Only one is sent.
-                      </small>
-                      <div className="location-actions">
-                        <button
-                          type="button"
-                          className="button button--secondary"
-                          onClick={selectCurrentLocation}
-                          disabled={loading || locationBusy}
-                        >
-                          {locationBusy
-                            ? "Finding location…"
-                            : startPoint
-                              ? "Location selected"
-                              : "Use current location"}
-                        </button>
-                        {startPoint && (
-                          <button
-                            type="button"
-                            className="button button--quiet"
-                            onClick={() => setStartPoint(null)}
-                            disabled={loading}
-                          >
-                            Clear location
-                          </button>
-                        )}
-                      </div>
-                      {startPoint && (
-                        <p className="planning-status" role="status">
-                          Current location selected for this request only.
-                        </p>
-                      )}
-                      {locationError && (
-                        <p className="field-error" role="alert">
-                          <span aria-hidden="true">!</span>
-                          {locationError}
-                        </p>
-                      )}
+              {plannerStep === "review" && (
+                <section className="request-review-card" aria-labelledby="request-review-title">
+                  <div className="request-review-heading">
+                    <div>
+                      <span className="eyebrow">Your request</span>
+                      <h3 id="request-review-title">
+                        {interpretation?.drawing_label
+                          ? `We’ll plan ${interpretation.drawing_label}`
+                          : "Your route idea is ready"}
+                      </h3>
                     </div>
-
-                    <div className="field">
-                      <label htmlFor="start-direction">
-                        Preferred first direction <span>(optional)</span>
-                      </label>
-                      <select
-                        id="start-direction"
-                        value={startDirection}
-                        onChange={(event) => setStartDirection(event.target.value)}
-                        disabled={loading}
-                      >
-                        <option value="">Any direction</option>
-                        <option value="0">North</option>
-                        <option value="45">North-east</option>
-                        <option value="90">East</option>
-                        <option value="135">South-east</option>
-                        <option value="180">South</option>
-                        <option value="225">South-west</option>
-                        <option value="270">West</option>
-                        <option value="315">North-west</option>
-                      </select>
-                      <small className="field-hint">
-                        Useful when you want the drawing to begin in a familiar direction.
-                      </small>
-                    </div>
+                    <button
+                      type="button"
+                      className="button button--quiet"
+                      onClick={() => {
+                        setPlannerStep("idea");
+                        window.requestAnimationFrame(() => promptRef.current?.focus());
+                      }}
+                    >
+                      Change idea
+                    </button>
                   </div>
-
-                  <fieldset className="route-preferences-fieldset">
-                    <legend>Street preferences <span>(optional)</span></legend>
-                    <p>Select every option that matters for this route.</p>
-                    <div className="route-preference-grid">
-                      {[
-                        ["avoid_steps", "Avoid steps"],
-                        ["avoid_ferries", "Avoid ferries"],
-                        ["avoid_fords", "Avoid fords"],
-                        ["prefer_quiet", "Prefer quieter streets (running)"],
-                        ["prefer_green", "Prefer greener streets (running)"],
-                      ].map(([key, label]) => (
-                        <label key={key}>
-                          <input
-                            type="checkbox"
-                            checked={routePreferences[key]}
-                            onChange={(event) =>
-                              setRoutePreferences((current) => ({
-                                ...current,
-                                [key]: event.target.checked,
-                              }))
-                            }
-                            disabled={loading}
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
+                  <p className="request-review-prompt">{prompt}</p>
+                  <dl className="request-review-facts">
+                    <div>
+                      <dt>Place</dt>
+                      <dd>
+                        {interpretation?.intent?.city
+                          ? normaliseLabel(interpretation.intent.city)
+                          : "Planner default"}
+                      </dd>
                     </div>
-                  </fieldset>
-                </div>
-              </details>
+                    <div>
+                      <dt>Activity</dt>
+                      <dd>{interpretation?.intent?.sport === "bike" ? "Cycling" : "Running"}</dd>
+                    </div>
+                    <div>
+                      <dt>Distance</dt>
+                      <dd>
+                        {Number.isFinite(interpretation?.intent?.distance_km)
+                          ? `${interpretation.intent.distance_km} km`
+                          : "Planner default"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {(interpretation?.clarifications ?? []).length > 0 && (
+                    <div className="request-review-note" role="status">
+                      <strong>Worth checking</strong>
+                      <ul>
+                        {interpretation.clarifications.map((item) => (
+                          <li key={`${item.field}-${item.question}`}>{item.question}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {interpretationError && (
+                    <p className="request-review-note" role="status">
+                      We could not preview every field, but your complete sentence is saved and can
+                      still be sent to the route planner.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {plannerStep === "review" && <RouteSetupPanel
+                loading={loading}
+                locationBusy={locationBusy}
+                locationError={locationError}
+                routePreferences={routePreferences}
+                startAddress={startAddress}
+                startDirection={startDirection}
+                startMode={startMode}
+                startPoint={startPoint}
+                onCurrentLocation={selectCurrentLocation}
+                onPreferenceChange={changeRoutePreference}
+                onReset={resetRouteSetup}
+                onStartAddressChange={changeStartAddress}
+                onStartDirectionChange={setStartDirection}
+                onStartModeChange={changeStartMode}
+              />}
 
               <div className="prompt-actions">
                 <button
@@ -4912,80 +5309,160 @@ export default function App() {
                   }}
                   disabled={loading}
                 >
-                  <span>{loading ? "Finding routes…" : "Find routes"}</span>
+                  <span>
+                    {interpretationBusy
+                      ? "Checking request…"
+                      : plannerStep === "review"
+                        ? "Find routes"
+                        : "Review request"}
+                  </span>
                   <span className="button-arrow" aria-hidden="true">→</span>
                 </button>
-                <button
-                  type="button"
-                  className="button button--secondary request-check-button"
-                  onClick={checkInterpretation}
-                  disabled={loading || interpretationBusy}
-                >
-                  {interpretationBusy ? "Checking request…" : "Preview request"}
-                </button>
+                {plannerStep === "review" && (
+                  <button
+                    type="button"
+                    className="button button--secondary request-check-button"
+                    onClick={() => {
+                      setPlannerStep("idea");
+                      window.requestAnimationFrame(() => promptRef.current?.focus());
+                    }}
+                    disabled={loading}
+                  >
+                    Back
+                  </button>
+                )}
               </div>
-              <p className="request-check-hint">
-                Optional: confirm the drawing, place, activity, and distance without waiting for
-                routing.
-              </p>
-              {interpretation && (
-                <section
-                  className="request-check-result"
-                  aria-labelledby="request-check-title"
-                  role="status"
-                >
-                  <div>
-                    <strong id="request-check-title">We’ll plan {interpretation.drawing_label}</strong>
-                    <span>
-                      {interpretation.needs_clarification
-                        ? "Check the details below"
-                        : "Ready to find street routes"}
-                    </span>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Place</dt>
-                      <dd>
-                        {interpretation.intent?.city
-                          ? normaliseLabel(interpretation.intent.city)
-                          : "Planner default"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Activity</dt>
-                      <dd>{interpretation.intent?.sport === "bike" ? "Cycling" : "Running"}</dd>
-                    </div>
-                    <div>
-                      <dt>Distance</dt>
-                      <dd>
-                        {Number.isFinite(interpretation.intent?.distance_km)
-                          ? `${interpretation.intent.distance_km} km`
-                          : "Planner default"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {(interpretation.clarifications ?? []).length > 0 && (
-                    <ul>
-                      {interpretation.clarifications.map((item) => (
-                        <li key={`${item.field}-${item.question}`}>{item.question}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <p>Edit the sentence or optional settings if anything looks wrong.</p>
-                </section>
-              )}
-              {interpretationError && (
-                <p className="field-error request-check-error" role="alert">
-                  <span aria-hidden="true">!</span>
-                  {interpretationError}
-                </p>
-              )}
             </form>
 
-            <div className="alternate-starts-heading">
-              <strong>Other ways to start</strong>
-              <span>Use separate fields or begin with an image.</span>
-            </div>
+            {plannerStep === "idea" && (
+            <details className="alternate-starts-panel">
+              <summary className="alternate-starts-heading">
+                <span>
+                  <strong>Other ways to start</strong>
+                  <small>Place a shape yourself, use separate fields, or begin with an image.</small>
+                </span>
+                <b aria-hidden="true">+</b>
+              </summary>
+              <div className="alternate-start-options">
+
+            <details
+              className="map-placement-panel"
+              onToggle={(event) => {
+                if (event.currentTarget.open) loadMapPlacementTemplates();
+              }}
+            >
+              <summary>
+                <span>
+                  <strong>Place a shape on the map</strong>
+                  <small>Choose an outline, then move, size, and rotate it before routing.</small>
+                </span>
+                <b aria-hidden="true">+</b>
+              </summary>
+              <form className="map-placement-form" onSubmit={openMapPlacement} noValidate>
+                <div className="map-placement-fields">
+                  <div className="field">
+                    <label htmlFor="map-placement-shape">Shape</label>
+                    <select
+                      id="map-placement-shape"
+                      value={mapShape}
+                      onChange={(event) => {
+                        setMapShape(event.target.value);
+                        setMapPlacementError("");
+                      }}
+                      disabled={loading || mapPlacementBusy}
+                    >
+                      {mapTemplates.map((shape) => (
+                        <option key={shape.id} value={shape.id}>{shape.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="map-placement-city">Map city</label>
+                    <select
+                      id="map-placement-city"
+                      value={mapCity}
+                      onChange={(event) => {
+                        setMapCity(event.target.value);
+                        setMapPlacementError("");
+                      }}
+                      disabled={loading || mapPlacementBusy}
+                    >
+                      {SUGGEST_CITY_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.cities.map((cityName) => (
+                            <option key={cityName} value={cityName}>{cityName}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <fieldset className="field field--activity">
+                    <legend>Activity</legend>
+                    <div className="activity-options">
+                      {[
+                        ["run", "Running"],
+                        ["bike", "Cycling"],
+                      ].map(([value, label]) => (
+                        <label className="activity-option" key={value}>
+                          <input
+                            type="radio"
+                            name="map-placement-activity"
+                            value={value}
+                            checked={mapSport === value}
+                            onChange={() => {
+                              setMapSport(value);
+                              setMapPlacementError("");
+                              if (value === "bike" && Number(mapDistance) < 10) {
+                                setMapDistance("10");
+                              }
+                            }}
+                            disabled={loading || mapPlacementBusy}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div className="field field--distance">
+                    <label htmlFor="map-placement-distance">Target distance</label>
+                    <div className="input-suffix">
+                      <input
+                        id="map-placement-distance"
+                        type="number"
+                        inputMode="decimal"
+                        min={distanceLimits(mapSport).minimum}
+                        max={distanceLimits(mapSport).maximum}
+                        step="1"
+                        value={mapDistance}
+                        onChange={(event) => {
+                          setMapDistance(event.target.value);
+                          setMapPlacementError("");
+                        }}
+                        disabled={loading || mapPlacementBusy}
+                      />
+                      <span>km</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="button button--secondary map-placement-open"
+                  disabled={loading || mapPlacementBusy}
+                >
+                  {mapPlacementBusy ? "Preparing map…" : "Open placement map"}
+                </button>
+                <p className="map-placement-note">
+                  Your position is a starting area, not a straight-line GPX. Nearby street fits are
+                  measured before any route is offered.
+                </p>
+                {mapPlacementError && (
+                  <p className="field-error" role="alert">
+                    <span aria-hidden="true">!</span>
+                    {mapPlacementError}
+                  </p>
+                )}
+              </form>
+            </details>
 
             <details className="suggest-panel">
               <summary>
@@ -5268,10 +5745,32 @@ export default function App() {
                 )}
               </form>
             </details>
+              <div className="alternate-route-setup">
+                <RouteSetupPanel
+                  loading={loading}
+                  locationBusy={locationBusy}
+                  locationError={locationError}
+                  routePreferences={routePreferences}
+                  startAddress={startAddress}
+                  startDirection={startDirection}
+                  startMode={startMode}
+                  startPoint={startPoint}
+                  onCurrentLocation={selectCurrentLocation}
+                  onPreferenceChange={changeRoutePreference}
+                  onReset={resetRouteSetup}
+                  onStartAddressChange={changeStartAddress}
+                  onStartDirectionChange={setStartDirection}
+                  onStartModeChange={changeStartMode}
+                />
+              </div>
+              </div>
+            </details>
+            )}
           </div>
         </section>
+        )}
 
-        {loading && (
+        {appView === "planner" && loading && (
           <LoadingState
             onCancel={cancelGeneration}
             kind={loadingKind}
@@ -5279,7 +5778,7 @@ export default function App() {
           />
         )}
 
-        {error && (
+        {appView === "planner" && error && (
           <section className="error-card" role="alert" tabIndex="-1" ref={errorRef}>
             <div className="error-symbol" aria-hidden="true">
               !
@@ -5318,7 +5817,7 @@ export default function App() {
           </section>
         )}
 
-        {result && (
+        {appView === "planner" && plannerStep === "result" && result && (
           <ResultPanel
             result={result}
             onDownload={handleDownload}
@@ -5331,12 +5830,12 @@ export default function App() {
             campaignSlug={campaign?.slug ?? null}
           />
         )}
-        <GallerySection
+        {appView === "gallery" && <GallerySection
           refreshKey={galleryRefreshKey}
           publishedAsset={lastPublishedGalleryAsset}
           campaignSlug={campaign?.slug ?? null}
           onOpenCampaignBuilder={() => setCampaignBuilderOpen(true)}
-        />
+        />}
       </main>
 
       <footer>
@@ -5345,6 +5844,14 @@ export default function App() {
       <div className="sr-only" aria-live="polite">
         {downloadNotice}
       </div>
+
+      <ShapePlacementOverlay
+        open={mapPlacementOpen}
+        preview={mapPlacementPreview}
+        busy={mapPlacementBusy}
+        onClose={() => setMapPlacementOpen(false)}
+        onConfirm={confirmMapPlacement}
+      />
 
       <CampaignBuilderOverlay
         open={campaignBuilderOpen}

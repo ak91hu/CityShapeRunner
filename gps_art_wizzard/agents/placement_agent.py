@@ -59,6 +59,23 @@ def _estimated_route_unit_length(
     return max(length * network_factor * shape_factor, 1e-9)
 
 
+def estimated_scale_m(
+    paths: list[geo.Path],
+    sport: str,
+    shape_name: str,
+    target_distance_km: float,
+) -> float:
+    """Estimate the map footprint needed for a requested routed distance."""
+
+    if not math.isfinite(target_distance_km) or target_distance_km <= 0:
+        raise ValueError("target distance must be positive")
+    return target_distance_km * 1000.0 / _estimated_route_unit_length(
+        paths,
+        sport,
+        shape_name,
+    )
+
+
 def _metres_to_dlat(m: float) -> float:
     return (m / geo.EARTH_R_M) * (180.0 / math.pi)
 
@@ -118,8 +135,7 @@ class PlacementAgent(BaseAgent):
             if intent.distance_km is not None
             else cfg.distance_defaults.get(intent.sport, 8.0)
         )
-        target_m = target_km * 1000.0
-        scale_m = target_m / estimated_unit_length
+        scale_m = target_km * 1000.0 / estimated_unit_length
 
         # PlanningAgent may supply a map-aware hint; otherwise use the city
         # extent as a deterministic coarse orientation.
@@ -128,7 +144,7 @@ class PlacementAgent(BaseAgent):
         rotation = plan.rotation_hint_deg if (plan and plan.rotation_hint_deg is not None) else (
             geo.bbox_long_axis_heading(city_bbox)
         )
-        if state.start_direction_deg is not None:
+        if state.start_direction_deg is not None and state.map_placement is None:
             stitched = geo.stitch_paths(state.shape.paths)
             if len(stitched) > 1:
                 first = stitched[0]
@@ -141,11 +157,18 @@ class PlacementAgent(BaseAgent):
                     dy = next_point[1] - first[1]
                     initial_bearing = math.degrees(math.atan2(dx, dy)) % 360.0
                     rotation = (initial_bearing - state.start_direction_deg) % 360.0
-        if plan and plan.scale_hint is not None:
+        if plan and plan.scale_hint is not None and state.map_placement is None:
             scale_m *= min(4.0, max(0.25, plan.scale_hint))
 
         lat_off = plan.lat_offset_m if plan else 0.0
         lon_off = plan.lon_offset_m if plan else 0.0
+        if state.map_placement is not None:
+            center_lat = state.map_placement.center_lat
+            center_lon = state.map_placement.center_lon
+            scale_m = state.map_placement.scale_m
+            rotation = state.map_placement.rotation_deg % 360.0
+            lat_off = 0.0
+            lon_off = 0.0
 
         return RouteDraft(
             center_lat=center_lat,
