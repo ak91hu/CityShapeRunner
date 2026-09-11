@@ -9,8 +9,9 @@ try {
     const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
     await installCommonMocks(page);
     await mockGeneration(page);
-    await page.goto("http://127.0.0.1:4173");
+    await page.goto(process.env.STUDIO_PREVIEW_URL || "http://127.0.0.1:4173");
     await page.getByRole("heading", { level: 1 }).waitFor();
+    await page.locator(".studio-map-link img").evaluate((image) => image.decode());
     await page.screenshot({ path: `../.tmp/studio-${label}.png`, fullPage: true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     if (overflow) throw new Error(`${label}: horizontal overflow`);

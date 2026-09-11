@@ -1,5 +1,27 @@
 # GPS Art Wizard: cartographic studio
 
+## September 11 correction: actual cartography and a mischievous identity
+
+This revision supersedes the invented street-grid illustration and W-pin logo
+described in the historical notes below. The homepage now bundles an unmodified
+Budapest heart preview from the project's public gallery. Its source is documented
+in `public/budapest-heart-route.source.md`. The entire map, including attribution,
+stays visible at its original aspect ratio and can be opened at full resolution.
+Labels distinguish the planned street route, reference drawing and review sections;
+no recorded activity, guaranteed access or field verification is claimed.
+
+The original SVG identity now traces an angular fox face with a route-start marker,
+one open eye and a wink. It brings playfulness through the mark and the “few detours”
+caption, without inventing geography. Header, favicon and empty-gallery mark share
+the geometry. Both compact and desktop layouts retain the actual map example.
+
+Verification for this revision: production build and 10 unit tests passed;
+56 planner checks passed across desktop/mobile Chromium; eight focused
+Firefox/WebKit checks passed. Screenshots were inspected at 1440, 390 and 320px.
+The screenshot harness waits for the bundled map to decode before capture.
+The source and bundled image SHA-256 both equal
+`554880271d6bb7a0ffd23dfa8e2b9b331b48d1c995c3d6784b4b5e14957f816e`.
+
 The interface uses warm paper surfaces, forest-green ink and terracotta route
 lines. A restrained serif headline and an original street-grid illustration
 give the planner a recognizable identity without adding another interaction.

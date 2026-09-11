@@ -85,6 +85,25 @@ test("the planner uses a compact responsive layout with optional panels collapse
   expect(horizontalOverflow).toBeLessThanOrEqual(1);
 });
 
+test("the homepage uses an attributed street-route preview, not an invented map", async ({ page }) => {
+  await page.goto("/");
+  const example = page.getByRole("figure", { name: "A heart, with a few detours." });
+  await expect(example).toBeVisible();
+  await expect(example).toContainText("Budapest · Planned route");
+  await expect(example).toContainText("Original drawing");
+  await expect(example).toContainText("Review sections");
+  await expect(example.locator("svg")).toHaveCount(0);
+  const map = example.getByRole("img");
+  await expect(map).toHaveAttribute("src", "/budapest-heart-route.png");
+  await expect.poll(() => map.evaluate((image) => image.complete && image.naturalWidth)).toBe(1084);
+  await expect(example.getByRole("link", { name: "© OpenStreetMap contributors" })).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
+  await expect(example.getByRole("link", { name: /Open the full Budapest/ })).toHaveAttribute("href", "/budapest-heart-route.png");
+  const skip = page.getByRole("link", { name: "Skip to route planner" });
+  await skip.focus();
+  await expect(skip).toBeFocused();
+  await expect(skip).toHaveCSS("clip-path", "none");
+});
+
 test("the header mark and favicon share one scalable route identity", async ({ page }) => {
   await page.goto("/");
 

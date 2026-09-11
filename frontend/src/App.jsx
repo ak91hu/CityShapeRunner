@@ -4938,9 +4938,9 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">
             <svg className="brand-mark-svg" viewBox="0 0 48 48">
               <rect x="2" y="2" width="44" height="44" rx="13" />
-              <path d="M24 41C19 35 10 28 10 19A14 14 0 0 1 38 19C38 28 29 35 24 41ZM16 18L20 28L24 22L28 28L32 18" />
-              <circle cx="16" cy="18" r="2.5" />
-              <circle cx="32" cy="18" r="2.5" />
+              <path d="M24 38L10 27L8 10L20 17L28 17L40 10L38 27L24 38ZM28 24L31 22L34 24M19 29L24 32L29 29" />
+              <circle cx="24" cy="38" r="2.5" />
+              <circle cx="17" cy="23" r="2" />
             </svg>
           </span>
           <span>
@@ -5015,28 +5015,29 @@ export default function App() {
             <p className="planner-safety-note">
               You can compare the street route with the original drawing before downloading anything.
             </p>
-            <div className="studio-art" aria-hidden="true">
-              <svg viewBox="0 0 400 240" fill="none">
-                <defs>
-                  <pattern id="studio-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-                    <path d="M24 0H0V24" stroke="currentColor" strokeOpacity=".09" />
-                  </pattern>
-                </defs>
-                <rect width="400" height="240" fill="url(#studio-grid)" />
-                <path className="studio-river" d="M285 -20C230 30 340 60 268 112S250 187 198 265" />
-                <g className="studio-streets">
-                  <path d="M-10 54L410 169M-10 175L380 34M58 -10L129 250M174 -10L226 250M330 -10L384 250" />
-                  <path d="M0 112L400 220M0 215L400 70M112 0L165 240M0 15L400 123" />
-                </g>
-                <path className="studio-route-shadow" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
-                <path className="studio-route" d="M198 182L116 121L105 86L128 62L158 66L184 94L205 72L235 77L255 108L243 138L198 182Z" />
-                <circle cx="198" cy="182" r="8" fill="var(--surface)" stroke="var(--brand)" strokeWidth="3" />
-                <circle cx="198" cy="182" r="3" fill="var(--brand)" />
-                <path d="M357 46V20M351 27L357 20L363 27" stroke="currentColor" strokeWidth="1.5" />
-                <text x="353" y="63" fill="currentColor" fontSize="10">N</text>
-              </svg>
-              <div className="studio-art-caption"><span>Your city. Your canvas.</span><span>Illustrated route</span></div>
-            </div>
+            <figure className="studio-art" aria-labelledby="studio-example-title">
+              <div className="studio-art-heading">
+                <span className="studio-eyebrow">Budapest · Planned route</span>
+                <h2 id="studio-example-title">A heart, with a few detours.</h2>
+              </div>
+              <a className="studio-map-link" href="/budapest-heart-route.png" target="_blank" rel="noreferrer" aria-label="Open the full Budapest heart route map in a new tab">
+                <img src="/budapest-heart-route.png" width="1084" height="760" alt="A planned heart-shaped route through Budapest streets. The angular green street route differs from the dashed coral heart outline." />
+                <span className="studio-map-expand">Explore the details ↗</span>
+              </a>
+              <figcaption>
+                <div className="studio-map-legend" aria-label="Map legend">
+                  <span><i className="legend-route" />Street route</span>
+                  <span><i className="legend-sketch" />Original drawing</span>
+                  <span><i className="legend-review" />Review sections</span>
+                </div>
+                <p>The drawing suggests the shape. The streets decide the turns.
+                  Always review crossings and access before heading out.</p>
+                <div className="studio-art-caption">
+                  <span>From the GPS Art Wizard gallery</span>
+                  <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+                </div>
+              </figcaption>
+            </figure>
           </div>
 
           <div className="designer-card">
