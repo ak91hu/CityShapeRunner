@@ -137,6 +137,10 @@ connectors are never accepted as export evidence. The remaining analyses need no
 paid map call or account. The privacy model and endpoint contracts are in
 [GPS Art Intelligence](docs/gps-art-intelligence.md).
 
+Every new generation workflow requests fresh ORS Directions evidence. Identical
+route attempts may reuse a response only inside that one workflow; a later user
+request never inherits an earlier workflow's road result.
+
 ## Research basis
 
 The [September generation improvements](docs/generation-development.md) add
@@ -351,12 +355,13 @@ always-on but resource-limited and has no production SLA; the deployment guide
 records the exact service, port, health-check, environment, and Loki-sink
 settings.
 
-The production image also embeds a pinned OpenCode CLI and defaults to a
-zero-cost, text-only model in `essential` mode. Known shapes, request parsing,
-planning, and visual/route verification are deterministic; an unknown custom
-drawing normally begins with two model calls. The free profile has no global
-AI-call quota, so bounded quality repairs can continue when needed. The model
-can be replaced through `OPENCODE_MODEL` without rebuilding the app.
+The production image embeds a pinned OpenCode CLI and configures a zero-cost,
+text-only model in `essential` mode. The 256 MB Northflank Sandbox profile keeps
+`OPENCODE_SERVER_AUTOSTART=false`: a resident OpenCode child does not fit beside
+the web process reliably, so production uses the deterministic shape pipeline
+and remains responsive. Larger deployments can opt in to the free model by
+enabling autostart. A failed opt-in child is terminated before the API starts,
+so it cannot leak CPU or memory into the web service.
 
 > Generated routes are planning candidates, not safety guarantees. Review every
 > route against current access rules, crossings, closures, terrain, and local

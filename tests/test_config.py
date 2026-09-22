@@ -55,12 +55,14 @@ def test_opencode_visual_model_defaults_to_fast_responses_model(monkeypatch) -> 
 def test_opencode_cli_transport_settings_are_environment_driven(monkeypatch) -> None:
     monkeypatch.setenv("OPENCODE_TRANSPORT", "cli")
     monkeypatch.setenv("OPENCODE_SERVER_URL", "http://127.0.0.1:4097")
+    monkeypatch.setenv("OPENCODE_SERVER_AUTOSTART", "false")
     monkeypatch.setenv("LLM_USAGE_MODE", "essential")
 
     settings = config.LLMConfig()
 
     assert settings.opencode_transport == "cli"
     assert settings.opencode_server_url == "http://127.0.0.1:4097"
+    assert settings.opencode_server_autostart is False
     assert settings.usage_mode == "essential"
 
 

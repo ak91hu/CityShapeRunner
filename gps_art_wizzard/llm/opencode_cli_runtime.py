@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 def _log_unavailable(config: LLMConfig, reason: str, *, exc_info: bool = False) -> None:
     """Record a degraded AI runtime without taking down the web service."""
 
-    log.error(
+    log.warning(
         "OpenCode free-model server unavailable; using deterministic fallback",
         extra={
             "event": "llm.opencode.server.unavailable",
@@ -31,6 +31,19 @@ def _log_unavailable(config: LLMConfig, reason: str, *, exc_info: bool = False) 
         },
         exc_info=exc_info,
     )
+
+
+def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    """Stop an OpenCode child without leaving it to consume app resources."""
+
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2.0)
 
 
 def _opencode_executable(*, platform_name: str | None = None) -> str | None:
@@ -68,6 +81,16 @@ def managed_opencode_server(config: LLMConfig) -> Iterator[None]:
     """Start one private server for the process when CLI transport is selected."""
 
     if config.opencode_transport != "cli" or not config.opencode_key:
+        yield
+        return
+    if not config.opencode_server_autostart:
+        log.info(
+            "OpenCode server autostart disabled; using deterministic fallback",
+            extra={
+                "event": "llm.opencode.server.autostart_disabled",
+                "model": config.opencode_model,
+            },
+        )
         yield
         return
 
@@ -138,12 +161,7 @@ def managed_opencode_server(config: LLMConfig) -> Iterator[None]:
             time.sleep(0.2)
         if startup_error:
             _log_unavailable(config, startup_error)
+            _stop_process(process)
         yield
     finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2.0)
+        _stop_process(process)

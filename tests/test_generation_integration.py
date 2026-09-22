@@ -440,6 +440,11 @@ def test_road_guide_budget_is_bounded_and_has_its_own_directions_cache(monkeypat
     config = SimpleNamespace(ors_api_key="", ors_base_url="http://ors.internal/ors",
                              snap_radius_m=120, preference="recommended", continue_straight=False)
     monkeypatch.setattr(ors_client, "get_settings", lambda: SimpleNamespace(routing=config))
+    monkeypatch.setattr(
+        ors_client,
+        "active_workflow_runtime",
+        lambda: SimpleNamespace(trace=SimpleNamespace(run_id="guide-budget-test")),
+    )
     calls = []
 
     def router(url, headers, coordinates, **kwargs):

@@ -37,6 +37,7 @@ ENV API_HOST=0.0.0.0 \
     LOG_FILE="" \
     OPENCODE_TRANSPORT=cli \
     OPENCODE_SERVER_URL=http://127.0.0.1:4097 \
+    OPENCODE_SERVER_AUTOSTART=false \
     OPENCODE_MODEL=muse-spark-1.3-contributor-free \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     LLM_USAGE_MODE=essential \

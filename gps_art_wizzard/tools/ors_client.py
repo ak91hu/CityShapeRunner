@@ -23,7 +23,11 @@ from shapely.geometry import LineString
 
 from ..config import get_settings
 from ..state import RouteConcern, RoutePreferences, RouteReadiness, RouteSurface
-from ..workflow_runtime import record_routing_failure, record_routing_request
+from ..workflow_runtime import (
+    active_workflow_runtime,
+    record_routing_failure,
+    record_routing_request,
+)
 from . import geo, shape_similarity
 
 log = logging.getLogger(__name__)
@@ -88,6 +92,7 @@ def _directions_cache_key(
     route_preferences: RoutePreferences | None,
     start_direction_deg: float | None = None,
     guide_budget: int = _MAX_GUIDE_COORDINATES,
+    workflow_scope: str | None = None,
 ) -> tuple:
     cfg = get_settings().routing
     return (
@@ -101,6 +106,7 @@ def _directions_cache_key(
         _route_preferences_key(route_preferences),
         None if start_direction_deg is None else round(start_direction_deg % 360.0, 3),
         guide_budget,
+        workflow_scope,
     )
 
 
@@ -1290,6 +1296,7 @@ def snap_route_detailed(
 
     profile = profile_for(sport)
     start = max(1, int(cfg.snap_radius_m))
+    runtime = active_workflow_runtime()
     cache_key = _directions_cache_key(
         prepared,
         profile=profile,
@@ -1298,8 +1305,12 @@ def snap_route_detailed(
         route_preferences=route_preferences,
         start_direction_deg=start_direction_deg,
         guide_budget=budget,
+        # Reuse identical ORS results only inside one generation. A later user
+        # request always asks ORS again, so stale road evidence cannot silently
+        # satisfy a new GPS-art workflow.
+        workflow_scope=runtime.trace.run_id if runtime is not None else None,
     )
-    cached = _directions_cache_get(cache_key)
+    cached = _directions_cache_get(cache_key) if runtime is not None else None
     if cached is not None:
         polyline, distance, snapped, readiness = cached
         log.info(
@@ -1364,9 +1375,10 @@ def snap_route_detailed(
                     fidelity,
                     "" if fidelity >= _ACCEPTABLE_FIDELITY else "; refinement required",
                 )
-                _directions_cache_put(
-                    cache_key, polyline, distance, True, readiness
-                )
+                if runtime is not None:
+                    _directions_cache_put(
+                        cache_key, polyline, distance, True, readiness
+                    )
                 return polyline, distance, True, readiness
 
             # Error 2009 means two snapped graph locations cannot be joined.

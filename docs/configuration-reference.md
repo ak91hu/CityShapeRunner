@@ -38,6 +38,7 @@ At least one LLM provider improves custom free-text drawing and semantic verific
 | `OPENCODE_API_KEY` | empty | Server-side OpenCode credential |
 | `OPENCODE_TRANSPORT` | `api` in code; production image uses `cli` | `cli` uses the embedded loopback OpenCode server and supports free-tier models; `api` uses the direct Zen endpoints |
 | `OPENCODE_SERVER_URL` | `http://127.0.0.1:4097` | Loopback-only OpenCode server URL used by the CLI transport |
+| `OPENCODE_SERVER_AUTOSTART` | `true` in code; production image uses `false` | Start the embedded CLI server with the web process. Keep disabled on the 256 MB Northflank Sandbox; deterministic generation remains available. |
 | `OPENAI_API_KEY` | empty | Server-side OpenAI credential |
 | `ANTHROPIC_API_KEY` | empty | Server-side Anthropic credential |
 | `OPENCODE_BASE_URL` | `https://opencode.ai/zen/v1` | OpenAI-compatible OpenCode base URL |
@@ -45,12 +46,11 @@ At least one LLM provider improves custom free-text drawing and semantic verific
 
 Provider-specific model IDs take precedence over `LLM_MODEL` for their provider. This prevents a fallback provider from receiving another provider's incompatible model name.
 
-The Northflank image's zero-cost profile uses `essential`, one generated custom
-shape candidate, and deterministic semantic/route checks. Known templates and
-text shapes require no model call. An unknown custom subject normally uses two
-model calls, but the free profile sets the call quota to unlimited so bounded
-repair/retry work is never rejected solely by a counter. The free model is
-text-only, so image inputs are not sent to it.
+The Northflank image's 256 MB profile uses `essential`, one custom shape
+candidate, and deterministic semantic/route checks. Its embedded OpenCode
+server is not autostarted because the resident CLI and web process exceed the
+reliable resource envelope. Larger deployments may enable the text-only free
+model; the call quota remains unlimited, while image inputs stay local.
 
 ## Street routing
 

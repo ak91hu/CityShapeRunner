@@ -154,21 +154,18 @@ semantic repair threshold are controlled by `AI_SHAPE_MAX_CANDIDATES` and
 
 ## Zero-cost hosted profile
 
-The production image and Northflank example use `LLM_USAGE_MODE=essential`, the
-embedded OpenCode CLI transport, and a named free text model. Built-in symbols,
-catalog shapes, lettering, intent parsing, planning, image verification, and
-final route review are deterministic and consume no model request. An unknown
-custom subject normally starts with two calls: one semantic `ShapeSpec`, then
-one geometry candidate. A locally generated semantic scaffold remains as a
-second candidate without another call, and topology/cue checks choose between
-them. `WORKFLOW_MAX_LLM_CALLS=-1` means bounded repair and retry stages are not
-stopped by a global request counter when this free model is selected.
+The production image configures `LLM_USAGE_MODE=essential`, the embedded
+OpenCode CLI transport, and a named free text model. Its 256 MB Northflank
+profile sets `OPENCODE_SERVER_AUTOSTART=false`, so the deployed web process uses
+the validated deterministic scaffold without a resident model process. Larger
+instances can enable autostart; unknown custom subjects may then use one
+semantic `ShapeSpec` call and one geometry call, and
+`WORKFLOW_MAX_LLM_CALLS=-1` leaves bounded repair/retry stages unrestricted.
 
 The free model does not receive rendered images. Set
 `AI_SHAPE_VERIFIER_ENABLED=false`, `AI_ROUTE_VERIFIER_ENABLED=false`, and
 `AI_SHAPE_MAX_CANDIDATES=1` for this profile. If the configured free catalogue
 entry disappears or times out, the validated deterministic scaffold keeps the
-request functional instead of falling through to a paid provider. The web
-service also starts when the embedded OpenCode process cannot start: it records
-`llm.opencode.server.unavailable`, exposes the normal health endpoint, and uses
-the same deterministic path until the next deployment can restore AI.
+request functional instead of falling through to a paid provider. A failed
+OpenCode child is terminated before the web service continues, preventing the
+optional AI runtime from consuming Northflank CPU or memory after degradation.

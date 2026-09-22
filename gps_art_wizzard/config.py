@@ -46,6 +46,9 @@ class LLMConfig:
             "http://127.0.0.1:4097",
         )
     )
+    opencode_server_autostart: bool = field(
+        default_factory=lambda: _bool("OPENCODE_SERVER_AUTOSTART", True)
+    )
     opencode_structured_model: str = field(
         default_factory=lambda: os.getenv(
             "OPENCODE_STRUCTURED_MODEL",

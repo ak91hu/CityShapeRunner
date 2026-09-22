@@ -123,6 +123,24 @@ def test_opencode_cli_runtime_does_not_start_without_a_key(monkeypatch):
         pass
 
 
+def test_opencode_cli_runtime_respects_disabled_autostart(monkeypatch):
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_healthy",
+        lambda *_args: pytest.fail("disabled server must not be probed"),
+    )
+    config = LLMConfig(
+        opencode_transport="cli",
+        opencode_key="configured",
+        opencode_server_autostart=False,
+    )
+
+    with opencode_cli_runtime.managed_opencode_server(config):
+        reached_web_service_startup = True
+
+    assert reached_web_service_startup is True
+
+
 def test_opencode_cli_runtime_rejects_non_loopback_server_without_stopping_app(
     monkeypatch,
     caplog,
@@ -195,6 +213,49 @@ def test_opencode_cli_runtime_degrades_when_process_cannot_start(
 
     assert reached_web_service_startup is True
     assert "using deterministic fallback" in caplog.text
+
+
+def test_opencode_cli_runtime_stops_unhealthy_child_before_starting_app(
+    monkeypatch,
+):
+    class _UnhealthyProcess:
+        def __init__(self):
+            self.running = True
+            self.terminated = False
+
+        def poll(self):
+            return None if self.running else 0
+
+        def terminate(self):
+            self.terminated = True
+            self.running = False
+
+        def wait(self, timeout):
+            del timeout
+            self.running = False
+            return 0
+
+        def kill(self):
+            self.running = False
+
+    process = _UnhealthyProcess()
+    clock = iter((0.0, 21.0))
+    monkeypatch.setattr(opencode_cli_runtime, "_healthy", lambda *_args: False)
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_opencode_executable",
+        lambda: "/usr/local/bin/opencode",
+    )
+    monkeypatch.setattr(
+        opencode_cli_runtime.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: process,
+    )
+    monkeypatch.setattr(opencode_cli_runtime.time, "monotonic", lambda: next(clock))
+    config = LLMConfig(opencode_transport="cli", opencode_key="configured")
+
+    with opencode_cli_runtime.managed_opencode_server(config):
+        assert process.terminated is True
 
 
 def test_opencode_cli_runtime_resolves_native_binary_behind_windows_shim(
@@ -627,6 +688,18 @@ def _install_providers(monkeypatch, *providers):
 
 def _fallback():
     return "deterministic"
+
+
+def test_factory_omits_cli_provider_when_server_autostart_is_disabled():
+    config = LLMConfig(
+        provider="opencode",
+        fallback_order=["opencode"],
+        opencode_key="configured",
+        opencode_transport="cli",
+        opencode_server_autostart=False,
+    )
+
+    assert llm_factory._build(config) == []  # noqa: SLF001
 
 
 def test_try_complete_rotates_to_the_next_provider_and_pins_it(isolated_factory, monkeypatch):
