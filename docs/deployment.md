@@ -116,8 +116,11 @@ subject normally uses one semantic shape-specification call and one geometry
 proposal, but `WORKFLOW_MAX_LLM_CALLS=-1` imposes no global call-count quota:
 bounded repair or retry stages may make as many calls as their quality logic
 requires. A deterministic semantic scaffold and geometry checks remain
-available when the model is unreachable. If OpenCode retires the named free
-model, change only `OPENCODE_MODEL`.
+available when the model is unreachable. Failure to start the loopback OpenCode
+process is deliberately fail-open for the web service: `/health`, deterministic
+generation, road validation, and export remain available while AI calls are
+skipped. The runtime logs `llm.opencode.server.unavailable` for diagnosis. If
+OpenCode retires the named free model, change only `OPENCODE_MODEL`.
 
 The free-model catalogue is a service policy and can change. Verify the model
 name before deployment rather than silently replacing it with a paid model.

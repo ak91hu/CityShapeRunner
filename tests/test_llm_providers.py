@@ -123,17 +123,78 @@ def test_opencode_cli_runtime_does_not_start_without_a_key(monkeypatch):
         pass
 
 
-def test_opencode_cli_runtime_rejects_non_loopback_server(monkeypatch):
-    monkeypatch.setattr(opencode_cli_runtime, "_healthy", lambda *_args: False)
+def test_opencode_cli_runtime_rejects_non_loopback_server_without_stopping_app(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_healthy",
+        lambda *_args: pytest.fail("a non-loopback server must not be probed"),
+    )
     config = LLMConfig(
         opencode_transport="cli",
         opencode_key="configured",
         opencode_server_url="http://0.0.0.0:4097",
     )
 
-    with pytest.raises(RuntimeError, match="loopback"):
-        with opencode_cli_runtime.managed_opencode_server(config):
-            pass
+    with opencode_cli_runtime.managed_opencode_server(config):
+        reached_web_service_startup = True
+
+    assert reached_web_service_startup is True
+    assert "loopback HTTP URL" in caplog.records[-1].reason
+
+
+def test_opencode_cli_runtime_degrades_when_server_stops_during_startup(
+    monkeypatch,
+    caplog,
+):
+    class _StoppedProcess:
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(opencode_cli_runtime, "_healthy", lambda *_args: False)
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_opencode_executable",
+        lambda: "/usr/local/bin/opencode",
+    )
+    monkeypatch.setattr(
+        opencode_cli_runtime.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: _StoppedProcess(),
+    )
+    config = LLMConfig(opencode_transport="cli", opencode_key="configured")
+
+    with opencode_cli_runtime.managed_opencode_server(config):
+        reached_web_service_startup = True
+
+    assert reached_web_service_startup is True
+    assert "using deterministic fallback" in caplog.text
+
+
+def test_opencode_cli_runtime_degrades_when_process_cannot_start(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(opencode_cli_runtime, "_healthy", lambda *_args: False)
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_opencode_executable",
+        lambda: "/usr/local/bin/opencode",
+    )
+
+    def _cannot_start(*_args, **_kwargs):
+        raise OSError("not enough memory")
+
+    monkeypatch.setattr(opencode_cli_runtime.subprocess, "Popen", _cannot_start)
+    config = LLMConfig(opencode_transport="cli", opencode_key="configured")
+
+    with opencode_cli_runtime.managed_opencode_server(config):
+        reached_web_service_startup = True
+
+    assert reached_web_service_startup is True
+    assert "using deterministic fallback" in caplog.text
 
 
 def test_opencode_cli_runtime_resolves_native_binary_behind_windows_shim(
