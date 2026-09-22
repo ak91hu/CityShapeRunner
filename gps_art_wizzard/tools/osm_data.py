@@ -23,11 +23,15 @@ from .geo import haversine
 logger = logging.getLogger(__name__)
 
 _OVERPASS_URL = os.getenv("OVERPASS_BASE_URL", "https://overpass-api.de/api/interpreter")
+_OVERPASS_FALLBACK_URL = os.getenv(
+    "OVERPASS_FALLBACK_URL",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+)
 # The public mirror's Apache rejects default library user agents with 406.
 _USER_AGENT = os.getenv("OVERPASS_USER_AGENT", "GPSArtWizard/1.0")
 _HEADERS = {"User-Agent": _USER_AGENT}
-_TIMEOUT = httpx.Timeout(connect=4.0, read=12.0, write=4.0, pool=4.0)
-_CACHE_MAX = 32
+_TIMEOUT = httpx.Timeout(connect=3.0, read=11.0, write=3.0, pool=3.0)
+_CACHE_MAX = 6
 _CACHE_TTL_S = 600.0
 
 _cache: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
@@ -107,26 +111,32 @@ def overpass_query(query: str, *, cache_key: str | None = None) -> list[dict]:
             return cached
     if offline_mode():
         raise OsmUnavailable("OpenStreetMap context is disabled in offline mode.")
-    try:
-        response = httpx.post(
-            _OVERPASS_URL,
-            data={"data": query},
-            headers=_HEADERS,
-            timeout=_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (httpx.HTTPError, ValueError) as error:
-        logger.info("Overpass lookup failed: %s", error)
-        raise OsmUnavailable(
-            "The OpenStreetMap context service is temporarily unavailable."
-        ) from error
-    elements = payload.get("elements") if isinstance(payload, dict) else None
-    if not isinstance(elements, list):
-        raise OsmUnavailable("The OpenStreetMap context service returned an unexpected answer.")
-    if cache_key:
-        _cache_put(cache_key, elements)
-    return elements
+    endpoints = [_OVERPASS_URL]
+    fallback = _OVERPASS_FALLBACK_URL.strip()
+    if fallback and fallback != _OVERPASS_URL:
+        endpoints.append(fallback)
+    for endpoint in endpoints:
+        try:
+            # These bounded QL statements fit comfortably in a URL. GET also
+            # works through proxies that time out Overpass form POST requests.
+            response = httpx.get(
+                endpoint,
+                params={"data": query},
+                headers=_HEADERS,
+                timeout=_TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            elements = payload.get("elements") if isinstance(payload, dict) else None
+            if not isinstance(elements, list):
+                raise ValueError("Overpass response has no elements list")
+        except (httpx.HTTPError, ValueError) as error:
+            logger.info("Overpass lookup failed at %s: %s", endpoint, type(error).__name__)
+            continue
+        if cache_key:
+            _cache_put(cache_key, elements)
+        return elements
+    raise OsmUnavailable("The OpenStreetMap context service is temporarily unavailable.")
 
 
 def _bbox_clause(bbox: tuple[float, float, float, float]) -> str:

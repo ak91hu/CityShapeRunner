@@ -78,10 +78,11 @@ Do not increase `ORS_SNAP_RADIUS_M` merely to make a failing route succeed. A la
 
 | Variable | Effective default | Description |
 | --- | --- | --- |
-| `OVERPASS_BASE_URL` | `https://overpass-api.de/api/interpreter` | Public Overpass mirror used by `/night-readiness` and `/route-landmarks` |
+| `OVERPASS_BASE_URL` | `https://overpass-api.de/api/interpreter` | Primary public Overpass endpoint for lighting, accessibility and landmarks |
+| `OVERPASS_FALLBACK_URL` | `https://maps.mail.ru/osm/tools/overpass/api/interpreter` | Second public endpoint tried when the primary lookup fails; set empty to disable |
 | `OVERPASS_USER_AGENT` | `GPSArtWizard/1.0` | User agent for Overpass; the mirror rejects default library user agents with HTTP 406 |
 
-Both layers are optional and best effort: an Overpass outage degrades the
+All three layers are optional and best effort: an outage of both Overpass endpoints degrades the
 response to `available: false` and never blocks generation. `GEOCODE_OFFLINE`
 also short-circuits these lookups so offline tests stay deterministic.
 Responses are cached in-process per rounded bounding box for ten minutes.
