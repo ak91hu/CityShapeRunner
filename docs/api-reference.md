@@ -267,15 +267,15 @@ Accepts 4–500 reference points, sport, closure flag, name, and route preferenc
 
 ### `POST /night-readiness`
 
-Accepts 2–5,000 routed points. The route's padded bounding box is queried against a public Overpass mirror for highways with an explicit `lit` tag. Every ~25 m sample is assigned to its nearest tagged segment and aggregated into `lit_share`, `unlit_share`, `unknown_share`, a class-weighted `traffic_exposure` score with a `traffic_label`, and up to six map-ready unlit-stretch concerns. Boxes wider than 12 km diagonally, missing tag coverage, and any Overpass outage return `available: false` instead of failing. Responses are cached per rounded bbox for ten minutes; `OVERPASS_BASE_URL` and `OVERPASS_USER_AGENT` override the endpoint and user agent. `GEOCODE_OFFLINE=1` short-circuits the network lookup.
+Accepts 2–5,000 routed points. The route's padded bounding box is queried against public Overpass instances for highways with an explicit `lit` tag. Every ~25 m sample is assigned to its nearest tagged segment and aggregated into `lit_share`, `unlit_share`, `unknown_share`, a class-weighted `traffic_exposure` score with a `traffic_label`, and up to six map-ready unlit-stretch concerns. Boxes wider than 12 km diagonally, missing tag coverage, and failure of both Overpass instances return `available: false` instead of failing. Successful responses are cached per rounded bbox for ten minutes; `OVERPASS_BASE_URL`, `OVERPASS_FALLBACK_URL`, and `OVERPASS_USER_AGENT` configure the sources. `GEOCODE_OFFLINE=1` short-circuits the network lookup.
 
 ### `POST /route-landmarks`
 
-Accepts 4–5,000 routed points and returns named OpenStreetMap tourism/historic attractions within 90 m of the line, ordered by kilometre offset and capped at 14. Duplicate names collapse; Overpass outages degrade to `available: false`.
+Accepts 4–5,000 routed points and returns named OpenStreetMap tourism/historic attractions within 90 m of the line, ordered by kilometre offset and capped at 14. Duplicate names collapse; failure of both Overpass sources degrades to `available: false`.
 
 ### `POST /accessibility-readiness`
 
-Accepts 2–5,000 routed points. The route's padded bounding box is queried against a public Overpass mirror and every ~25 m sample is assigned to its nearest tagged highway segment. The response reports honest shares of explicitly accessible, restricted, barrier (steps), unpaved, paved, and untagged ground, plus up to six map-ready barrier concerns of at least 30 m so the map can highlight exactly where a wheelchair user would be blocked. Sparse OSM tagging means an untagged street is unknown, not accessible; boxes wider than 12 km diagonally and any Overpass outage return `available: false` instead of failing.
+Accepts 2–5,000 routed points. The route's padded bounding box is queried against public Overpass instances and every ~25 m sample is assigned to its nearest tagged highway segment. The response reports honest shares of explicitly accessible, restricted, barrier (steps), unpaved, paved, and untagged ground, plus up to six map-ready barrier concerns of at least 30 m so the map can highlight exactly where a wheelchair user would be blocked. Sparse OSM tagging means an untagged street is unknown, not accessible; boxes wider than 12 km diagonally and failure of both Overpass sources return `available: false` instead of failing.
 
 ### `POST /lesson-pack`
 

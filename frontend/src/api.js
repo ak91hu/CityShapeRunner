@@ -198,7 +198,7 @@ export function analyseInkproof(payload, options = {}) {
 export function requestNightReadiness(payload, options = {}) {
   return request("/night-readiness", {
     ...options,
-    timeoutMs: 20_000,
+    timeoutMs: 35_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -208,7 +208,7 @@ export function requestNightReadiness(payload, options = {}) {
 export function requestRouteLandmarks(payload, options = {}) {
   return request("/route-landmarks", {
     ...options,
-    timeoutMs: 20_000,
+    timeoutMs: 35_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -240,7 +240,7 @@ export function rescueArtwork(payload, options = {}) {
 export function requestAccessibilityReadiness(payload, options = {}) {
   return request("/accessibility-readiness", {
     ...options,
-    timeoutMs: 20_000,
+    timeoutMs: 35_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
