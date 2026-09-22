@@ -89,6 +89,9 @@ OPENCODE_DISABLE_AUTOUPDATE=true
 AI_SHAPE_VERIFIER_ENABLED=false
 AI_SHAPE_MAX_CANDIDATES=1
 AI_ROUTE_VERIFIER_ENABLED=false
+WORKFLOW_MAX_DURATION_SECONDS=75
+MAX_REFINEMENT_ITERATIONS=3
+SHAPE_POLISH_CANDIDATES=2
 WORKFLOW_MAX_LLM_CALLS=-1
 NOMINATIM_EMAIL=operations@example.com
 ORS_BASE_URL=https://api.heigit.org/openrouteservice
@@ -119,6 +122,12 @@ larger instance, enabling `OPENCODE_SERVER_AUTOSTART` activates the named free
 model with no global call-count quota. If that child cannot become healthy, it
 is stopped before Uvicorn starts and the runtime logs one warning rather than
 leaving a CPU- or memory-consuming process behind.
+
+The free instance also uses a 75-second advisory search budget, three main
+refinement attempts, and two final shape-polish candidates. These bounds reduce
+long requests on the 0.1 vCPU instance; they do not relax the ORS road-routing
+or export requirements. A single provider call can still exceed the advisory
+budget, so monitor actual generation latency after deployment.
 
 The free-model catalogue is a service policy and can change. Verify the model
 name before deployment rather than silently replacing it with a paid model.
