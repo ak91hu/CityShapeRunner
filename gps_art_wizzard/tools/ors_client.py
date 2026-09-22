@@ -1308,7 +1308,7 @@ def snap_route_detailed(
         # Reuse identical ORS results only inside one generation. A later user
         # request always asks ORS again, so stale road evidence cannot silently
         # satisfy a new GPS-art workflow.
-        workflow_scope=runtime.trace.run_id if runtime is not None else None,
+        workflow_scope=runtime.cache_scope if runtime is not None else None,
     )
     cached = _directions_cache_get(cache_key) if runtime is not None else None
     if cached is not None:

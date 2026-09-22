@@ -147,7 +147,7 @@ def routing_stub(monkeypatch):
     monkeypatch.setattr(
         ors_client,
         "active_workflow_runtime",
-        lambda: SimpleNamespace(trace=SimpleNamespace(run_id="test-workflow")),
+        lambda: SimpleNamespace(cache_scope="test-workflow"),
     )
     return routing
 
@@ -251,13 +251,13 @@ def test_directions_cache_is_scoped_to_one_workflow(routing_stub, monkeypatch):
     monkeypatch.setattr(
         ors_client, "_ors_request", counter.responder([(47.5, 19.0), (47.51, 19.01)])
     )
-    active = SimpleNamespace(trace=SimpleNamespace(run_id="workflow-a"))
+    active = SimpleNamespace(cache_scope="workflow-a")
     monkeypatch.setattr(ors_client, "active_workflow_runtime", lambda: active)
     waypoints = [(47.5, 19.0), (47.51, 19.01)]
 
     ors_client.snap_route_detailed(waypoints)
     ors_client.snap_route_detailed(waypoints)
-    active.trace.run_id = "workflow-b"
+    active.cache_scope = "workflow-b"
     ors_client.snap_route_detailed(waypoints)
 
     assert len(counter.calls) == 2

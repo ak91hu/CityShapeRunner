@@ -81,6 +81,14 @@ def test_instrumented_node_records_a_typed_balanced_lifecycle() -> None:
     assert active_workflow_runtime() is None
 
 
+def test_cache_scope_is_unique_even_when_request_id_is_reused() -> None:
+    first = _runtime(WorkflowState(prompt="heart", request_id="reused"))
+    second = _runtime(WorkflowState(prompt="heart", request_id="reused"))
+
+    assert first.trace.run_id == second.trace.run_id == "reused"
+    assert first.cache_scope != second.cache_scope
+
+
 def test_failed_step_is_classified_without_recording_exception_text() -> None:
     state = WorkflowState(prompt="private prompt")
     clock = MutableClock()
