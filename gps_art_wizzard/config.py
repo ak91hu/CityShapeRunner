@@ -21,6 +21,15 @@ ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_YAML = ROOT / "config" / "settings.yaml"
 
 
+def _ors_base_url() -> str:
+    configured = os.getenv("ORS_BASE_URL", "https://api.heigit.org/openrouteservice")
+    # Northflank may still carry the old host as a runtime override. Its quota
+    # is being retired, while the API path and key stay the same on HeiGIT.
+    if configured.rstrip("/") == "https://api.openrouteservice.org":
+        return "https://api.heigit.org/openrouteservice"
+    return configured
+
+
 @dataclass
 class LLMConfig:
     provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "auto"))
@@ -70,12 +79,7 @@ class RoutingConfig:
     shape_graph_snapshot: str = field(default_factory=lambda: os.getenv("SHAPE_GRAPH_SNAPSHOT", ""))
     shape_graph_seconds: float = field(default_factory=lambda: _float("SHAPE_GRAPH_SECONDS", 2.0))
     ors_api_key: str = field(default_factory=lambda: os.getenv("ORS_API_KEY", ""))
-    ors_base_url: str = field(
-        default_factory=lambda: os.getenv(
-            "ORS_BASE_URL",
-            "https://api.heigit.org/openrouteservice",
-        )
-    )
+    ors_base_url: str = field(default_factory=lambda: _ors_base_url())
     snap_radius_m: int = field(default_factory=lambda: _int("ORS_SNAP_RADIUS_M", 120))
     # GPS-art cusps and lettering often require U-turns at via-points.
     continue_straight: bool = field(

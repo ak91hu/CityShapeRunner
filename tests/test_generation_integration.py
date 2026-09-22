@@ -443,7 +443,7 @@ def test_road_guide_budget_is_bounded_and_has_its_own_directions_cache(monkeypat
     monkeypatch.setattr(
         ors_client,
         "active_workflow_runtime",
-        lambda: SimpleNamespace(trace=SimpleNamespace(run_id="guide-budget-test")),
+        lambda: SimpleNamespace(cache_scope="guide-budget-test"),
     )
     calls = []
 

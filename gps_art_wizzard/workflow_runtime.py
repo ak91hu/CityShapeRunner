@@ -188,6 +188,9 @@ class WorkflowRuntime:
         self._sequence = 0
         self._deadline_noted = False
         self._finished = False
+        # A caller may reuse its request ID; memoised routing must never cross
+        # the boundary between two distinct workflow executions.
+        self.cache_scope = uuid.uuid4().hex
         request_id = state.request_id
         self.trace = WorkflowTrace(
             run_id=request_id or uuid.uuid4().hex,

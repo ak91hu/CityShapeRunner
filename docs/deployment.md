@@ -89,6 +89,12 @@ OPENCODE_DISABLE_AUTOUPDATE=true
 AI_SHAPE_VERIFIER_ENABLED=false
 AI_SHAPE_MAX_CANDIDATES=1
 AI_ROUTE_VERIFIER_ENABLED=false
+SHAPE_GRAPH_ENABLED=false
+PREFLIGHT_MAX_PLACEMENTS=90
+PREFLIGHT_SHORTLIST=4
+WORKFLOW_MAX_DURATION_SECONDS=75
+MAX_REFINEMENT_ITERATIONS=2
+SHAPE_POLISH_CANDIDATES=0
 WORKFLOW_MAX_LLM_CALLS=-1
 NOMINATIM_EMAIL=operations@example.com
 ORS_BASE_URL=https://api.heigit.org/openrouteservice
@@ -106,8 +112,9 @@ to enable the anonymous map-screenshot gallery. Never expose it to Vite or any
 `ORS_BASE_URL` uses HeiGIT's current public endpoint. The legacy
 `https://api.openrouteservice.org` host is scheduled to shut down on
 2026-09-28; since August 27 it has only 10% of the normal quota. Existing
-overrides remain recognised during migration, but new
-deployments must use the value above. See the
+overrides for that exact legacy host are automatically mapped to HeiGIT's
+endpoint, while custom ORS deployments retain their configured URL. New
+deployments should use the value above. See the
 [updated openrouteservice announcement](https://ask.openrouteservice.org/t/reducing-the-quota-of-deprecated-api-api-openrouteservice-org/8013).
 The dashboard shows the new host's quota, not the legacy host's quota. Check
 the effective environment override as well as the application default.
@@ -119,6 +126,15 @@ larger instance, enabling `OPENCODE_SERVER_AUTOSTART` activates the named free
 model with no global call-count quota. If that child cannot become healthy, it
 is stopped before Uvicorn starts and the runtime logs one warning rather than
 leaving a CPU- or memory-consuming process behind.
+
+The free instance disables the optional in-process OSM street graph and its
+Overpass downloads, which can exhaust 256 MB during generation. ORS remains the
+road-routing authority. Its preflight searches up to 90 placements and keeps
+four for routing; the run has a 75-second advisory budget, two main refinement
+attempts, and no final shape-polish pass. These bounds reduce long requests on
+the 0.1 vCPU instance without relaxing the ORS road-routing or export rules. A
+single provider call can still exceed the advisory budget, so monitor actual
+generation latency after deployment.
 
 The free-model catalogue is a service policy and can change. Verify the model
 name before deployment rather than silently replacing it with a paid model.
