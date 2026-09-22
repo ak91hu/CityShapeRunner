@@ -1,6 +1,6 @@
-"""Best-effort OpenStreetMap street context through a public Overpass mirror.
+"""Best-effort OpenStreetMap street context through public Overpass instances.
 
-The module powers the night-readiness and route-landmark layers. Every lookup
+The module powers the night, accessibility, and landmark layers. Every lookup
 is cached in-process by rounded bounding box and degrades to ``OsmUnavailable``
 instead of failing a request: these layers are planning evidence, never a hard
 dependency. The offline flag used by the geocoder also short-circuits network
