@@ -52,6 +52,18 @@ def test_opencode_visual_model_defaults_to_fast_responses_model(monkeypatch) -> 
     assert config.LLMConfig().opencode_structured_model == "gpt-5.4-mini"
 
 
+def test_opencode_cli_transport_settings_are_environment_driven(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCODE_TRANSPORT", "cli")
+    monkeypatch.setenv("OPENCODE_SERVER_URL", "http://127.0.0.1:4097")
+    monkeypatch.setenv("LLM_USAGE_MODE", "essential")
+
+    settings = config.LLMConfig()
+
+    assert settings.opencode_transport == "cli"
+    assert settings.opencode_server_url == "http://127.0.0.1:4097"
+    assert settings.usage_mode == "essential"
+
+
 def test_yaml_overlays_populate_workflow_and_routing(monkeypatch) -> None:
     for name in (
         "MAX_REFINEMENT_ITERATIONS",
@@ -130,6 +142,13 @@ def test_workflow_runtime_limits_are_configurable(monkeypatch) -> None:
     assert workflow.max_duration_seconds == 42.5
     assert workflow.max_llm_calls == 3
     assert workflow.max_trace_events == 64
+
+
+def test_workflow_allows_unlimited_free_model_sentinel(monkeypatch) -> None:
+    monkeypatch.setenv("WORKFLOW_MAX_LLM_CALLS", "-1")
+    monkeypatch.setattr(config, "_load_yaml_overlays", lambda: {})
+
+    assert config.get_settings().workflow.max_llm_calls == -1
 
 
 def test_routing_uses_the_current_heigit_public_endpoint_by_default(monkeypatch) -> None:

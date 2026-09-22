@@ -7,6 +7,10 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
+FROM node:24-bookworm-slim AS opencode-build
+RUN npm install --global --no-audit --no-fund opencode-ai@1.18.32 \
+    && cp "$(readlink -f "$(command -v opencode)")" /opencode
+
 FROM python:3.14-slim-bookworm AS python-build
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
@@ -31,6 +35,15 @@ ENV API_HOST=0.0.0.0 \
     SERVICE_NAME=gps-art-wizard \
     LOG_FORMAT=json \
     LOG_FILE="" \
+    OPENCODE_TRANSPORT=cli \
+    OPENCODE_SERVER_URL=http://127.0.0.1:4097 \
+    OPENCODE_MODEL=muse-spark-1.3-contributor-free \
+    OPENCODE_DISABLE_AUTOUPDATE=true \
+    LLM_USAGE_MODE=essential \
+    AI_SHAPE_VERIFIER_ENABLED=false \
+    AI_SHAPE_MAX_CANDIDATES=1 \
+    AI_ROUTE_VERIFIER_ENABLED=false \
+    WORKFLOW_MAX_LLM_CALLS=-1 \
     OLLAMA_BASE_URL= \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
@@ -41,10 +54,13 @@ RUN groupadd --system --gid 10001 app \
 
 WORKDIR /app
 COPY --from=python-build /runtime/ /usr/local/
+COPY --from=opencode-build /opencode /usr/local/bin/opencode
 COPY --chown=app:app gps_art_wizzard/ ./gps_art_wizzard/
 COPY --chown=app:app config/ ./config/
 COPY --chown=app:app docs/ ./docs/
 COPY --from=frontend-build --chown=app:app /build/frontend/dist/ ./frontend/dist/
+RUN mkdir -p /app/.local/share/opencode \
+    && chown -R app:app /app
 
 USER app
 EXPOSE 8000

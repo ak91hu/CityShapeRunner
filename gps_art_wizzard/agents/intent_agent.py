@@ -138,10 +138,13 @@ class IntentAgent(BaseAgent):
     def run(self, state: WorkflowState) -> WorkflowState:
         fallback = self._fallback(state.prompt)
         fallback_intent = self._parse(fallback.text)
-        if self._is_complete_fallback(fallback_intent):
+        if (
+            get_settings().llm.usage_mode == "essential"
+            or self._is_complete_fallback(fallback_intent)
+        ):
             # Common template/text requests are fully structured by local
-            # rules. Avoiding a remote LLM call makes route generation faster
-            # and removes nondeterministic numeric interpretation.
+            # rules. Essential mode also keeps ambiguous interpretation local
+            # so hosted AI is reserved for genuinely custom shape geometry.
             intent = fallback_intent
         else:
             instructions = render("intent")

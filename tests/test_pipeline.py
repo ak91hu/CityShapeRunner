@@ -38,8 +38,7 @@ def test_pipeline_produces_safe_preview_without_a_routing_provider():
     assert response["workflow"]["run_id"] == state.workflow.run_id
     assert response["workflow"]["status"] == "needs_review"
     assert "events" not in response["workflow"]
-    assert state.export is not None
-    assert "<gpx" in state.export.gpx
+    assert state.export is None
     assert state.snapped is not None
     assert len(state.snapped.points) >= 2
     assert state.snapped.snapped is False
@@ -47,7 +46,7 @@ def test_pipeline_produces_safe_preview_without_a_routing_provider():
     assert 0.0 <= state.validation.score <= 1.0
     assert state.validation.on_roads is False
     assert state.iterations == 0
-    assert any("explicit user acceptance" in error.lower() for error in state.errors)
+    assert any("preview cannot be exported" in error.lower() for error in state.errors)
     assert len(state.candidates) >= 1
     assert state.plan is not None
     assert state.plan.shape_strategy in ("template", "text", "llm")
@@ -59,19 +58,21 @@ def test_pipeline_text_shape():
     state = generate("write HI in Berlin")
     assert state.shape is not None
     assert state.shape.source == "text"
-    assert state.export is not None
-    assert any("explicit user acceptance" in error for error in state.errors)
+    assert state.export is None
+    assert any("preview cannot be exported" in error for error in state.errors)
 
 
-def test_unknown_shape_uses_the_complete_word_as_its_offline_fallback():
+def test_unknown_shape_uses_grounded_offline_scaffold_when_available():
     _clear_custom_shape_cache()
     state = generate("a platypus in Budapest, 8 km")
     assert state.intent is not None
     assert state.intent.shape == "platypus"
     assert state.shape is not None
-    assert state.shape.name == "text:PLATYPUS"
+    assert state.shape.name == "grounded:platypus"
     assert state.shape.name != "P label"
     assert state.shape.source == "fallback"
+    assert state.shape.spec is not None
+    assert state.shape.spec.subject == "platypus"
     assert any("fallback" in error for error in state.errors)
 
 

@@ -63,7 +63,8 @@ Budgets are scoped to one generation, not to the process:
 
 - `WORKFLOW_MAX_LLM_CALLS` counts actual provider invocations, including
   fallback-provider attempts. When exhausted, subsequent optional calls use
-  the agent's deterministic fallback.
+  the agent's deterministic fallback. Set it to `-1` for no call-count quota;
+  the production free-model profile uses this value. `0` disables model calls.
 - `WORKFLOW_MAX_DURATION_SECONDS` is an advisory end-to-end deadline. Once it
   expires, new model calls use deterministic fallback. In-flight provider and
   routing calls retain their own transport timeouts.
@@ -131,6 +132,12 @@ The release gate has three layers:
 ```powershell
 .\.venv\Scripts\python.exe scripts\benchmark_ai_shapes.py --output ai-shape-report.json
 ```
+
+The report includes the complete ShapeSpec and selected generation strategy.
+Treat same-provider image-review scores as advisory and potentially variable;
+route validity, required-cue coverage, and deterministic regression tests are
+hard gates. Candidate selection minimises missing required cues before using
+the aggregate visual score.
 
 Do not approve a prompt/model change on a few attractive examples. Compare the
 benchmark report and the deterministic test suite, then canary the revision and

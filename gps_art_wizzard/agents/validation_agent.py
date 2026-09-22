@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from ..config import get_settings
-from ..quality import quality_gate_report
+from ..quality import distance_fit_minimum, quality_gate_report
 from ..state import EvaluatedCandidate, Validation, WorkflowState
 from ..tools import geo, shape_similarity
 from .base import BaseAgent
@@ -98,7 +98,7 @@ class ValidationAgent(BaseAgent):
             )
         if closure_applicable and closure_score < 0.6:
             issues.append(f"loop not closed (gap {gap_m:.0f} m)")
-        if distance_fit < 0.6:
+        if distance_fit < distance_fit_minimum(target):
             issues.append(f"distance {actual_km:.1f} km off target/bounds")
         if fidelity < minimum_fidelity:
             issues.append(f"low shape fidelity ({fidelity:.2f})")
@@ -138,6 +138,12 @@ class ValidationAgent(BaseAgent):
                 f"({diagnostics.extent_similarity:.2f})"
             )
 
+        from ..tools.feature_tracking import measure_features
+        feature_measurements, feature_preservation = measure_features(state)
+        for feature in feature_measurements:
+            if not feature["preserved"]:
+                issues.append(f"recognition feature lost: {feature['label']} ({feature['score']:.2f})")
+
         state.validation = Validation(
             score=score,
             closure=closure_score,
@@ -159,6 +165,8 @@ class ValidationAgent(BaseAgent):
             target_distance_km=target,
             route_point_count=len(snapped.points),
             guide_point_count=len(state.route_draft.waypoints),
+            feature_measurements=feature_measurements,
+            feature_preservation=feature_preservation,
         )
         state.candidates.append(
             EvaluatedCandidate(

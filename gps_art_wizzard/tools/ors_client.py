@@ -23,6 +23,7 @@ from shapely.geometry import LineString
 
 from ..config import get_settings
 from ..state import RouteConcern, RoutePreferences, RouteReadiness, RouteSurface
+from ..workflow_runtime import record_routing_failure, record_routing_request
 from . import geo, shape_similarity
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,8 @@ _MAX_SNAP_LOCATIONS = 5_000
 _RADIUS_RETRIES = [80, 120, 200, 350]  # bounded shape-preserving search radii (m)
 _MAX_ORS_ATTEMPTS = 7
 _ACCEPTABLE_FIDELITY = 0.70
+# Bound gaps between visual guides while protecting authored corners. Ideal
+# drawings use 24 guides; street-graph proposals can use the full 50-point limit.
 _GUIDANCE_SPACING_M = 400.0
 _CORNER_TURN_DEG = 14.0
 _HTTP_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=10.0, pool=5.0)
@@ -84,6 +87,7 @@ def _directions_cache_key(
     start_radius: int,
     route_preferences: RoutePreferences | None,
     start_direction_deg: float | None = None,
+    guide_budget: int = _MAX_GUIDE_COORDINATES,
 ) -> tuple:
     cfg = get_settings().routing
     return (
@@ -96,6 +100,7 @@ def _directions_cache_key(
         int(start_radius),
         _route_preferences_key(route_preferences),
         None if start_direction_deg is None else round(start_direction_deg % 360.0, 3),
+        guide_budget,
     )
 
 
@@ -204,6 +209,8 @@ class SnapPreflightResult:
     length_similarity: float
     route_length_ratio: float
     landmark_similarity: float = 0.0
+    network_connectivity: float | None = None
+    network_detour_ratio: float | None = None
 
 
 def profile_for(sport: str) -> str:
@@ -225,6 +232,7 @@ def _snap_request(
     """Snap a batch of locations without calculating routes between them."""
     try:
         sender = client if client is not None else httpx
+        record_routing_request("snap")
         response = sender.post(
             url,
             json={"locations": locations, "radius": radius},
@@ -232,6 +240,7 @@ def _snap_request(
             timeout=_HTTP_TIMEOUT,
         )
         if response.status_code != 200:
+            record_routing_failure("snap", f"http_{response.status_code}")
             log.warning(
                 "ORS snap preflight returned HTTP %d: %s",
                 response.status_code,
@@ -241,13 +250,16 @@ def _snap_request(
         payload = response.json()
         snapped = payload.get("locations") if isinstance(payload, dict) else None
         if not isinstance(snapped, list) or len(snapped) != len(locations):
+            record_routing_failure("snap", "invalid_response")
             log.warning("ORS snap preflight returned an incomplete location list")
             return None
         return snapped
     except httpx.HTTPError as error:
+        record_routing_failure("snap", "transport")
         log.warning("ORS snap preflight network error: %s", error)
         return None
     except Exception as error:  # noqa: BLE001
+        record_routing_failure("snap", "invalid_response")
         log.warning("ORS snap preflight error: %s", error)
         return None
 
@@ -1111,9 +1123,13 @@ def _ors_request(
         payload["options"] = options
     try:
         sender = client if client is not None else httpx
+        record_routing_request("directions")
         r = sender.post(url, json=payload, headers=headers, timeout=_HTTP_TIMEOUT)
         if r.status_code != 200:
             failure = _response_failure(r)
+            if not (r.status_code in {400, 404}
+                    and failure.error_code in _CONNECTIVITY_ERROR_CODES | {2010}):
+                record_routing_failure("directions", f"http_{r.status_code}")
             log.warning(
                 "ORS returned HTTP %d, code=%s (radius=%dm): %s",
                 r.status_code,
@@ -1125,17 +1141,30 @@ def _ors_request(
         data = r.json()
         features = data.get("features") or []
         if not features:
+            record_routing_failure("directions", "invalid_response")
             log.warning("ORS returned no features (radius=%dm)", radius)
             return _ORSFailure(r.status_code, None, "ORS returned no route features")
         feature = features[0]
         geom = feature.get("geometry") or {}
+        if geom.get("type") != "LineString":
+            record_routing_failure("directions", "invalid_response")
+            return _ORSFailure(r.status_code, None, "ORS did not return a connected LineString")
         coords_xy = geom.get("coordinates") or []
         polyline = [_validate_waypoint((coord[1], coord[0])) for coord in coords_xy]
         if len(polyline) < 2:
+            record_routing_failure("directions", "invalid_response")
             log.warning("ORS returned fewer than two geometry points (radius=%dm)", radius)
             return _ORSFailure(r.status_code, None, "ORS returned incomplete route geometry")
 
         properties = feature.get("properties") or {}
+        # ORS warning 3 denotes skipped (unrouted) segments. A HTTP 200 with
+        # those straight connectors is not complete street-routing evidence.
+        warnings = properties.get("warnings") or []
+        metadata_query = (data.get("metadata") or {}).get("query") or {}
+        if (any(str(warning.get("code")) == "3" for warning in warnings)
+                or metadata_query.get("skip_segments")):
+            record_routing_failure("directions", "invalid_response")
+            return _ORSFailure(r.status_code, None, "ORS returned skipped, unrouted segments")
         summary = properties.get("summary") or {}
         distance = summary.get("distance")
         if distance is None:
@@ -1146,6 +1175,9 @@ def _ors_request(
             ]
             distance = sum(float(value) for value in segment_distances) if segment_distances else None
         geometry_distance = geo.path_distance_m(polyline)
+        if not math.isfinite(geometry_distance) or geometry_distance <= 0:
+            record_routing_failure("directions", "invalid_response")
+            return _ORSFailure(r.status_code, None, "ORS returned zero-length route geometry")
         distance = float(distance) if distance is not None else geometry_distance
         if not math.isfinite(distance) or distance <= 0:
             distance = geometry_distance
@@ -1160,9 +1192,11 @@ def _ors_request(
         )
         return _ORSRouteResult(polyline, distance, readiness)
     except httpx.HTTPError as e:
+        record_routing_failure("directions", "transport")
         log.warning("ORS network error (radius=%dm): %s", radius, e)
         return _ORSFailure(None, None, str(e))
     except Exception as e:  # noqa: BLE001
+        record_routing_failure("directions", "invalid_response")
         log.warning("ORS routing error (radius=%dm): %s", radius, e)
         return _ORSFailure(None, None, str(e))
 
@@ -1225,8 +1259,13 @@ def snap_route_detailed(
     waypoints: list[LatLon], *, sport: str = "run", closed: bool = False,
     route_preferences: RoutePreferences | None = None,
     start_direction_deg: float | None = None,
+    guide_budget: int | None = None,
 ) -> tuple[list[LatLon], float, bool, RouteReadiness]:
     """Snap waypoints and include readiness evidence for the returned route.
+
+    Ideal drawings default to 24 guides. Already street-routed graph proposals
+    may request up to 50 to preserve their road choices. The budget is part of
+    the cache key and only affects request guides, never returned geometry.
 
     Two bounded retry strategies:
     - **Radius widening** (error 2010): a via-point lands on a building/park
@@ -1236,6 +1275,9 @@ def snap_route_detailed(
       ORS has freedom to find a detour around the obstacle.
     """
     cfg = get_settings().routing
+    budget = _MAX_GUIDE_COORDINATES if guide_budget is None else guide_budget
+    if type(budget) is not int or not (3 if closed else 2) <= budget <= _MAX_ORS_COORDINATES:
+        raise ValueError("guide_budget must fit the route endpoints and ORS's 50-coordinate limit")
     prepared = _prepare_waypoints(waypoints, closed=closed)
     if len(prepared) < 2:
         route, distance, snapped = _straight_line_connector(prepared, closed=closed)
@@ -1255,6 +1297,7 @@ def snap_route_detailed(
         start_radius=start,
         route_preferences=route_preferences,
         start_direction_deg=start_direction_deg,
+        guide_budget=budget,
     )
     cached = _directions_cache_get(cache_key)
     if cached is not None:
@@ -1273,7 +1316,7 @@ def snap_route_detailed(
     via = _subsample(
         prepared,
         closed=closed,
-        max_points=min(_MAX_GUIDE_COORDINATES, _MAX_ORS_COORDINATES),
+        max_points=budget,
     )
     url = f"{cfg.ors_base_url.rstrip('/')}/v2/directions/{profile}/geojson"
     headers = {"Content-Type": "application/json"}

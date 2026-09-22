@@ -15,6 +15,14 @@ from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_respo
 _DEFAULT_MODEL = "glm-5.2"
 _DEFAULT_BASE_URL = "https://opencode.ai/zen/v1"
 _DEFAULT_STRUCTURED_MODEL = "gpt-5.4-mini"
+_STRUCTURED_TIMEOUT_S = 30.0
+_LARGE_STRUCTURED_TIMEOUT_S = 45.0
+_MAX_STRUCTURED_RETRY_TOKENS = 16_384
+
+
+def _is_timeout_error(error: Exception) -> bool:
+    message = str(error).casefold()
+    return isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message
 
 
 class OpenCodeProvider:
@@ -112,6 +120,14 @@ class OpenCodeProvider:
             "model": self._structured_model,
             "input": messages,
             "max_output_tokens": self._max_tokens if max_tokens is None else max_tokens,
+            # Geometry/repair schemas are much larger than intent or review
+            # JSON. Give only those calls a little more transport time; the
+            # workflow call/deadline budgets still bound the complete run.
+            "timeout": (
+                _LARGE_STRUCTURED_TIMEOUT_S
+                if (self._max_tokens if max_tokens is None else max_tokens) > 4096
+                else _STRUCTURED_TIMEOUT_S
+            ),
         }
         if json_schema is not None:
             kwargs["text"] = {
@@ -126,8 +142,40 @@ class OpenCodeProvider:
             kwargs["text"] = {"format": {"type": "json_object"}}
         if self._structured_model.casefold().startswith("gpt-5"):
             kwargs["reasoning"] = {"effort": "low"}
+        timeout_retried = False
+
+        def create_response():
+            nonlocal timeout_retried
+            try:
+                return self._client.responses.create(**kwargs)
+            except Exception as error:  # noqa: BLE001
+                if timeout_retried or not _is_timeout_error(error):
+                    raise
+                # A single transport timeout does not establish provider
+                # unavailability. Retry this exact strict-schema request once
+                # with the larger bounded timeout; factory-level provider
+                # rotation remains available if the second attempt also fails.
+                timeout_retried = True
+                kwargs["timeout"] = _LARGE_STRUCTURED_TIMEOUT_S
+                return self._client.responses.create(**kwargs)
+
         try:
-            resp = self._client.responses.create(**kwargs)
+            resp = create_response()
+            status = getattr(resp, "status", None)
+            details = getattr(resp, "incomplete_details", None)
+            reason = getattr(details, "reason", "unknown")
+            output_budget = int(kwargs["max_output_tokens"])
+            if (
+                status == "incomplete"
+                and reason == "max_output_tokens"
+                and output_budget < _MAX_STRUCTURED_RETRY_TOKENS
+            ):
+                kwargs["max_output_tokens"] = min(
+                    _MAX_STRUCTURED_RETRY_TOKENS,
+                    output_budget * 2,
+                )
+                kwargs["timeout"] = _LARGE_STRUCTURED_TIMEOUT_S
+                resp = create_response()
         except Exception as e:  # noqa: BLE001
             raise LLMError(f"OpenCode Zen structured call failed: {e}") from e
 

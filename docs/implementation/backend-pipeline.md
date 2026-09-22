@@ -85,7 +85,7 @@ Important normalization rules:
 - city accents and complete custom-subject descriptions are preserved;
 - API-level `intent_override` replaces the parsed result only after the agent records its interpretation.
 
-Provider selection is lazy. `llm.factory` builds configured providers in primary/fallback order, keeps the first successful generation provider sticky for coherence, and places failures in a 30-second probe cooldown. Independent visual review can explicitly exclude the generation provider and avoid pinning the reviewer.
+Provider selection is lazy. `llm.factory` builds configured providers in primary/fallback order, keeps the first successful generation provider sticky for coherence, and places failures in a 30-second probe cooldown. Shape review first excludes the generation provider and avoids pinning the reviewer. If no independent provider answers, one non-pinning, temperature-zero call to the generator performs a disclosed visual self-review; it is never labelled independent.
 
 ## Shape selection hierarchy
 
@@ -137,7 +137,7 @@ flowchart LR
     Grid --> Rotate[6 orientations]
     Rotate --> Scale[3 scales]
     Scale --> Cap[Deduplicate + bbox filter<br/>cap at 180]
-    Cap --> Batch[One batched nearest-edge search]
+    Cap --> Batch[Up to 3 adaptive batches<br/>within the same cap]
     Batch --> Rank[Coverage + distance +<br/>shape proxies]
     Rank --> Diverse[Greedy quality/diversity]
     Diverse --> Best[Best draft]
@@ -221,9 +221,12 @@ Validation compares the placed ideal guide with the returned street polyline in 
 Refinement order:
 
 1. consume remaining road-fit shortlist placements;
-2. if distance error exceeds 8%, try the measured scale ratio `target / actual`;
+2. if an explicit target's distance error exceeds 20%, try the measured scale
+   ratio `target / actual`; reserve the last two iteration slots for this
+   correction while it remains outside tolerance;
 3. also try the square root of that factor to bracket discontinuous road-network jumps;
-4. when fidelity is low, tighten simplification and test bounded rotation/offset variants;
+4. when fidelity or an independent shape cue is low, test bounded
+   rotation/offset variants while preserving every Directions vertex;
 5. when closure is weak, prioritize a 0.93 scale reduction;
 6. remember transform signatures so an already measured draft cannot consume the iteration budget again.
 
@@ -265,7 +268,8 @@ Explicit user-selected shapes follow a different rule: if the result is connecte
 2. rank candidates by selected-shape match, all-gates pass, connectivity, bottleneck, score, fidelity;
 3. retain other-shape attempts only in `candidate_audit`;
 4. suppress unrouted candidates from the selector;
-5. sample full and ideal lines to at most 500 preview points;
+5. preserve every routed vertex for the map/download and sample only the ideal
+   diagnostic guide to at most 500 preview points;
 6. regenerate GPX/TCX per connected candidate;
 7. expose verification, transform, readiness, summary, and Street Canvas evidence;
 8. issue gallery publish capabilities only for connected route results.
@@ -277,7 +281,7 @@ The endpoint performs one final `_has_connected_route()` check after orchestrati
 | Request type | Model calls | Preflight | Full Directions | Notes |
 | --- | --- | --- | --- | --- |
 | Known template with complete prompt | Usually 0 | Up to 180 transformations in batch | Best + bounded recovery/refinement | Local intent/planning/shape fast path |
-| Free-text custom shape | Spec/generation, optional independent review, at most one repair | Same placement search | Same measured shortlist | Candidate count adapts from 2–4 |
+| Free-text custom shape | Spec/generation, independent review when available or disclosed self-review, at most one repair | Same placement search | Same measured shortlist | Complexity selects 2–4 candidates; configuration may cap this to 1 for the free production profile |
 | Linked SVG | 0 for shape extraction | Same | Same | Exact vector sampling |
 | Linked raster | One primary multimodal strict-schema call | Same | Same | Local silhouette fallback, no provider cascade |
 | Route edit | 0 | None | One bounded ORS retry sequence | Server re-routes browser control points |

@@ -82,6 +82,7 @@ nav:
       - UI/UX rationale: ui-ux-rationale.md
   - Algorithms and research:
       - Algorithm audit (2026-08): gps-art-algorithm-audit-2026-08.md
+      - Generation improvements (2026-09): generation-development.md
       - GPS-art research: gps-art-research.md
       - Niche positioning (2026-08): niche-positioning-2026-08.md
       - Lessons learned (2026-07-30): 2026-07-30-lessons-learned.md

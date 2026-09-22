@@ -66,21 +66,25 @@ is reduced to a bounded urban search area. Invalid coordinates fall back
 explicitly instead of entering placement math.
 
 Free-form drawings are not limited to the 158-option catalog either. A named
-custom idea is preserved locally, converted into two structured vector
-alternatives with an explicit recognition-feature brief, and checked for
+custom idea is preserved locally, converted into a structured semantic brief
+and one to four bounded route-native candidates, and checked for
 degenerate proportions, transfer lines, duplicates, and self-intersections.
 Compound requests reuse a related catalog contour as an anatomy/proportion
-anchor without copying it unchanged. The preferred valid alternative wins;
-both invalid alternatives trigger at most one bounded repair. Only successful
+anchor without copying it unchanged. Executable geometry and cue review rank
+the valid candidates; invalid or semantically weak candidates trigger at most
+one bounded repair.
+The zero-cost production profile requests one model candidate and adds a
+deterministic semantic scaffold locally. Only successful
 generated shapes enter the 128-entry cache. If no model is available, the
 result uses an explicit full-word text fallback instead of reducing the request
 to its initial or relabelling a
 stock icon as the requested object. See the
 [custom-shape research and decision record](docs/custom-shape-generation.md).
 
-Route search is coarse-to-fine. Before spending Directions requests, one
-batched road-snap preflight compares up to 180 city-wide
-translation/rotation/scale placements. A quality-and-diversity selector sends
+Route search is coarse-to-fine. Before spending Directions requests, up to three
+batched road-snap rounds share a budget of 180 city-wide
+translation/rotation/scale placements, refining promising neighbourhoods.
+A quality-and-diversity selector sends
 seven distinct alternatives to the full router, while every
 preflight score remains in the diagnostics. Eighteen curvature-preserving
 guide points per placement improve the proxy without adding Directions calls.
@@ -88,6 +92,18 @@ If Directions rejects the top-ranked placement, the orchestrator tries the
 remaining road-fit shortlist before giving up. If none produces a connected
 street polyline, `POST /generate` fails closed with HTTP 503 instead of placing
 the original drawing over buildings, water, or other unroutable areas.
+
+Successful graph proposals compete with the original-guide route under the
+same measured quality checks. A final bounded neighbourhood search improves
+the best routed placement (`SHAPE_POLISH_CANDIDATES=4`, zero disables it).
+If direct contour reconnection still leaves the turning gate below target, one
+last bounded local-graph pass combines those windows with separated high-error
+turning phases and can replace only one weak street section; Directions must
+reroute and validate the complete line before it can win.
+Within usable distance and closure, selection prioritises shape fidelity.
+Every routed vertex is preserved in validation, the map and downloads; no
+corner-cutting simplification or 500-point street preview sampling is applied.
+Unrouted previews cannot be exported, including through the offline pipeline.
 
 Recognition is evaluated from outline coverage, characteristic turns,
 salient tips and notches, unintended U-turns, street-detour stretch, and
@@ -113,11 +129,21 @@ anchors; and Time-aware Readiness combines daylight with an optional hourly
 weather check. Groups can split one continuous route into balanced Community
 GPS Mural sections with a GPX for each participant. Inkproof runs correlated
 GPS-drift simulations before departure and highlights details likely to blur.
-These analyses need no paid map call or account. The privacy model and endpoint
-contracts are in
+Every download-producing Intelligence action re-routes its submitted geometry
+through activity-specific Directions first. Recognition Repair, Community GPS
+Mural and Art Rescue return HTTP 503 and no file if ORS cannot prove one complete
+road/path route; raw uploads, independent nearest-edge snaps and straight
+connectors are never accepted as export evidence. The remaining analyses need no
+paid map call or account. The privacy model and endpoint contracts are in
 [GPS Art Intelligence](docs/gps-art-intelligence.md).
 
 ## Research basis
+
+The [September generation improvements](docs/generation-development.md) add
+adaptive placement, bounded shape-aware OSM graph proposals, early connectivity
+and detour checks, semantic feature preservation and repair, cached final-route
+AI review, and a 200-case comparison runner. Graph proposals still pass through
+Directions before becoming exportable street routes. AI opinions remain advisory.
 
 The pipeline is an engineering adaptation of published GPS-art, computational
 geometry, route-choice, and map-matching research. It does not claim to
@@ -160,6 +186,13 @@ accepts that exact geometry, but only when Directions returned a connected
 street route. A straight-line diagnostic returned internally without road
 routing never enters the API candidate selector, and the public response never
 contains downloadable GPX/TCX data for it.
+
+This invariant applies to every public file-producing workflow, not only
+`/generate`: Recognition Repair, Community GPS Mural and Art Rescue first pass
+their complete geometry through the same activity-specific Directions authority.
+A malformed, zero-length, partially skipped or otherwise unproven provider
+response produces HTTP 503 and no GPX/TCX. There is no public straight-line
+fallback.
 
 The built-in Leaflet editor exposes numbered draggable control points for every
 candidate. After a correction, `/edit-route` routes the guide through the
@@ -317,6 +350,13 @@ Northflank build, rollout, and public health check. The free Sandbox is
 always-on but resource-limited and has no production SLA; the deployment guide
 records the exact service, port, health-check, environment, and Loki-sink
 settings.
+
+The production image also embeds a pinned OpenCode CLI and defaults to a
+zero-cost, text-only model in `essential` mode. Known shapes, request parsing,
+planning, and visual/route verification are deterministic; an unknown custom
+drawing normally begins with two model calls. The free profile has no global
+AI-call quota, so bounded quality repairs can continue when needed. The model
+can be replaced through `OPENCODE_MODEL` without rebuilding the app.
 
 > Generated routes are planning candidates, not safety guarantees. Review every
 > route against current access rules, crossings, closures, terrain, and local

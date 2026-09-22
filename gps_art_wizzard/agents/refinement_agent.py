@@ -12,6 +12,7 @@ import copy
 import math
 
 from ..config import get_settings
+from ..quality import MAX_DISTANCE_ERROR_RATIO, distance_fit_minimum
 from ..state import WorkflowState
 from .base import BaseAgent
 
@@ -27,7 +28,20 @@ class RefinementAgent(BaseAgent):
             or state.shape is None
         ):
             raise RuntimeError("refinement requires validation, route draft, intent, and shape")
-        if state.placement_candidates:
+        from ..tools.feature_tracking import propose_feature_repair
+        if propose_feature_repair(state):
+            self._record(state, f"refine: preserve {state.route_draft.feature_repair}")
+            return state
+        # A seven-entry shortlist can otherwise consume every pass in a
+        # six-iteration workflow, starving measured distance correction.
+        # Reserve the final two existing slots only while distance fails;
+        # leave untested placements queued if the correction solves it.
+        distance_due = (
+            state.validation.on_roads
+            and state.validation.distance_fit < distance_fit_minimum(state.validation.target_distance_km)
+            and state.iterations >= max(1, get_settings().workflow.max_refinement_iterations - 1)
+        )
+        if state.placement_candidates and not distance_due:
             state.route_draft = copy.deepcopy(state.placement_candidates.pop(0))
             score = state.route_draft.preflight_score
             self._record(
@@ -37,6 +51,7 @@ class RefinementAgent(BaseAgent):
             )
             return state
         draft = state.route_draft
+        draft.feature_repair = None
         tweaks = self._heuristic(state)
         self._apply(draft, tweaks)
         self._record(state, f"refine: {tweaks.get('rationale', 'applied')}")
@@ -95,7 +110,11 @@ class RefinementAgent(BaseAgent):
             else None
         )
 
-        if distance_error > 0.08:
+        # The requested activity length may vary by 20%. While inside that
+        # band, spend refinement attempts on the recognisable contour rather
+        # than resizing a good street-grid placement toward an exact kilometre
+        # total. Distance correction takes precedence only outside the band.
+        if distance_error > MAX_DISTANCE_ERROR_RATIO:
             measured_factor = (
                 min(1.5, max(0.35, target / actual_km))
                 if actual_km > 0
@@ -136,7 +155,13 @@ class RefinementAgent(BaseAgent):
                     }
                 )
 
-        if v.shape_fidelity < cfg.min_shape_fidelity:
+        shape_components = (
+            "spatial_similarity", "coverage_similarity", "turning_similarity",
+            "landmark_similarity", "reversal_similarity", "length_similarity",
+            "extent_similarity",
+        )
+        if (v.shape_fidelity < cfg.min_shape_fidelity
+                or any(getattr(v, name) < cfg.min_shape_fidelity for name in shape_components)):
             step = min(1_600.0, max(600.0, draft.scale_m * 0.70))
             variants = (
                 (0.0, 0.0, -step, "west grid"),
@@ -155,7 +180,7 @@ class RefinementAgent(BaseAgent):
                         "lon_offset_m": lon_offset,
                         "simplify_tolerance": tighter_tolerance,
                         "rationale": (
-                            f"fidelity {v.shape_fidelity:.3f}: test {label} "
+                            f"shape match {v.shape_fidelity:.3f}: test {label} "
                             f"(rotation {rotation:+.0f}°)"
                         ),
                     }

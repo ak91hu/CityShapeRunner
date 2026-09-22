@@ -13,6 +13,7 @@ import json
 import math
 import re
 
+from ..config import get_settings
 from ..llm import LLMResponse, extract_json, try_complete
 from ..prompts import render
 from ..state import Plan, WorkflowState
@@ -55,7 +56,12 @@ class PlanningAgent(BaseAgent):
             suggest="true" if state.intent.suggest else "false",
         )
         fallback = self._fallback(state, extent_heading, map_context)
-        if state.intent.shape or state.intent.text or state.intent.suggest:
+        if (
+            get_settings().llm.usage_mode == "essential"
+            or state.intent.shape
+            or state.intent.text
+            or state.intent.suggest
+        ):
             # The curated city context already provides deterministic rotation
             # and placement priors.  A named custom drawing only needs the
             # ShapeAgent's geometry call; spending another model call on the

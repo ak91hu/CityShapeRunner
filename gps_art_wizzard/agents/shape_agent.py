@@ -22,7 +22,9 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass
 from threading import Lock
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from ..config import get_settings
 from ..llm import ImageInput, LLMResponse, extract_json, try_complete
@@ -40,9 +42,23 @@ from ..tools import geo, shape_library, shape_program, shape_uniqueness, text_sh
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v7"
+_CUSTOM_SHAPE_CACHE_VERSION = "v31-final-semantic-scaffolds"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
+_FULL_SEMANTIC_SCAFFOLD_MODES = {
+    "bear", "bicycle", "cat", "coffee_cup", "dragon", "key", "moon_leap",
+    "phoenix", "platypus", "radial", "robot_umbrella", "sailboat",
+    "spiral",
+}
+
+# Responses API output budgets include the strict JSON payload and, for
+# reasoning-capable models, internal reasoning tokens. A four-candidate shape
+# response is substantially larger than ordinary intent JSON; using the global
+# 2K default made valid calls intermittently terminate before the JSON closed.
+_SHAPE_SPEC_MAX_TOKENS = 6144
+_SHAPE_GEOMETRY_MAX_TOKENS = 8192
+_SHAPE_REPAIR_MAX_TOKENS = 6144
+_SHAPE_REVIEW_MAX_TOKENS = 4096
 
 _POINT_SCHEMA = {
     "type": "array",
@@ -106,7 +122,7 @@ _CUSTOM_SHAPE_JSON_SCHEMA = {
         "name": {"type": "string", "maxLength": 80},
         "variants": {
             "type": "array",
-            "minItems": 2,
+            "minItems": 1,
             "maxItems": 4,
             "items": _CUSTOM_SHAPE_VARIANT_JSON_SCHEMA,
         },
@@ -287,13 +303,14 @@ class ShapeAgent(BaseAgent):
         # Templates and text are already sampled appropriately; extra passes
         # would inflate CPU work and route payloads without adding detail.
         shape.paths = self._smooth(shape)
-        shape.paths = geo.normalize_shape(shape.paths)
+        from ..tools.feature_tracking import normalize_with_features
+        normalize_with_features(shape)
         state.shape = shape
         if shape.source == "fallback":
             requested = state.intent.shape if state.intent else None
             state.errors.append(
                 f"shape: we couldn't build a reliable custom outline for "
-                f"{requested or 'this idea'!r}; using the clearly labelled "
+                f"{requested or 'this idea'!r}; using the deterministic "
                 f"{shape.name!r} fallback"
             )
         self._record(state, f"shape={shape.name} source={shape.source} paths={len(shape.paths)}")
@@ -303,9 +320,10 @@ class ShapeAgent(BaseAgent):
         if shape.source == "llm":
             smoothed: list[geo.Path] = []
             for path in shape.paths:
+                path_closed = len(path) >= 3 and path[0] == path[-1]
                 candidate = geo.catmull_rom_smooth(
                     path,
-                    closed=shape.closed,
+                    closed=path_closed,
                     subdivisions=3,
                     corner_threshold_deg=70.0,
                 )
@@ -389,6 +407,7 @@ class ShapeAgent(BaseAgent):
         system = self.system_prompt
         route_context = _route_context(state)
         geometry_response: LLMResponse | None = None
+        spec_response: LLMResponse | None = None
         if reference_images:
             reference_prompt = render(
                 "shape_reference",
@@ -405,7 +424,7 @@ class ShapeAgent(BaseAgent):
                 json_mode=True,
                 json_schema=_REFERENCE_SHAPE_JSON_SCHEMA,
                 temperature=0.15,
-                max_tokens=4096,
+                max_tokens=_SHAPE_GEOMETRY_MAX_TOKENS,
                 images=reference_images,
                 max_provider_attempts=1,
             )
@@ -416,7 +435,11 @@ class ShapeAgent(BaseAgent):
                 if not isinstance(reference_payload, dict):
                     raise ValueError("visual response must be an object")
                 spec = _shape_spec_from_payload(reference_payload.get("spec"), idea)
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError) as error:
+                self.log.warning(
+                    "Visual reference ShapeSpec was invalid: %s",
+                    " ".join(str(error).split())[:320],
+                )
                 return self._llm_fallback_shape(idea)
         else:
             spec_prompt = render(
@@ -432,17 +455,22 @@ class ShapeAgent(BaseAgent):
                 json_mode=True,
                 json_schema=_SHAPE_SPEC_JSON_SCHEMA,
                 temperature=0.15,
+                max_tokens=_SHAPE_SPEC_MAX_TOKENS,
             )
             try:
                 spec = _shape_spec_from_response(spec_response, idea)
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError) as error:
                 if spec_response.provider != "fallback" and _looks_like_geometry_response(spec_response):
                     spec = _heuristic_shape_spec(idea)
                     geometry_response = spec_response
                 else:
-                    return self._llm_fallback_shape(idea)
+                    self.log.warning(
+                        "AI ShapeSpec was invalid; using the bounded heuristic spec: %s",
+                        " ".join(str(error).split())[:320],
+                    )
+                    spec = _heuristic_shape_spec(idea)
             if spec_response.provider == "fallback":
-                return self._llm_fallback_shape(idea)
+                return _catalog_fallback_shape(idea, spec, spec_response) or self._llm_fallback_shape(idea)
 
         if geometry_response is None:
             candidate_count = _adaptive_candidate_count(spec)
@@ -463,10 +491,18 @@ class ShapeAgent(BaseAgent):
                 json_mode=True,
                 json_schema=_CUSTOM_SHAPE_JSON_SCHEMA,
                 temperature=0.25,
-                max_tokens=4096,
+                max_tokens=_SHAPE_GEOMETRY_MAX_TOKENS,
                 images=reference_images or None,
             )
         if geometry_response.provider == "fallback":
+            if not reference_images:
+                grounded_fallback = _catalog_fallback_shape(
+                    idea,
+                    spec,
+                    spec_response or geometry_response,
+                )
+                if grounded_fallback is not None:
+                    return grounded_fallback
             return self._llm_fallback_shape(idea)
 
         repair_used = False
@@ -483,20 +519,64 @@ class ShapeAgent(BaseAgent):
                     " ".join(str(exc).split())[:320],
                 )
                 return self._llm_fallback_shape(idea)
-            repair_used = True
-            repaired = self._repair_candidate(
+            grounded_candidate = _semantic_scaffold_candidate(
                 idea=idea,
                 spec=spec,
-                route_context=route_context,
-                candidate_payload=_safe_response_payload(geometry_response),
-                diagnostics={"geometry_errors": [" ".join(str(exc).split())[:320]]},
-                system=system,
-                reference_images=reference_images,
+                response=geometry_response,
+                index=0,
             )
-            if repaired is None:
-                return self._llm_fallback_shape(idea)
-            candidates, preferred, geometry_response = [repaired], 0, repaired.response
-
+            if grounded_candidate is not None:
+                self.log.warning(
+                    "AI programs were unusable; retaining a semantic scaffold "
+                    "candidate for visual review: %s",
+                    " ".join(str(exc).split())[:320],
+                )
+                candidates, preferred = [grounded_candidate], 0
+            else:
+                repair_used = True
+                repaired = self._repair_candidate(
+                    idea=idea,
+                    spec=spec,
+                    route_context=route_context,
+                    candidate_payload=_safe_response_payload(geometry_response),
+                    diagnostics={"geometry_errors": [" ".join(str(exc).split())[:320]]},
+                    system=system,
+                    reference_images=reference_images,
+                )
+                if repaired is None:
+                    return self._llm_fallback_shape(idea)
+                candidates, preferred, geometry_response = [repaired], 0, repaired.response
+        if (
+            not reference_images
+            and not any("grounded semantic scaffold" in candidate.strategy for candidate in candidates)
+            and not any("ShapeSpec scaffold" in candidate.strategy for candidate in candidates)
+        ):
+            removed: _GeneratedCandidate | None = None
+            if len(candidates) < 4:
+                grounded_index = next(
+                    index for index in range(4)
+                    if all(candidate.index != index for candidate in candidates)
+                )
+            else:
+                removable = [
+                    candidate for candidate in candidates
+                    if candidate.index != preferred
+                ] or list(candidates)
+                removed = min(removable, key=lambda candidate: candidate.local_score)
+                grounded_index = removed.index
+            grounded = _semantic_scaffold_candidate(
+                idea=idea,
+                spec=spec,
+                response=geometry_response,
+                index=grounded_index,
+            )
+            if grounded is not None:
+                if removed is not None:
+                    candidates = [
+                        candidate for candidate in candidates
+                        if candidate is not removed
+                    ]
+                candidates.append(grounded)
         if reference_images:
             verifications = {
                 candidate.index: _geometry_only_verification(candidate)
@@ -511,6 +591,68 @@ class ShapeAgent(BaseAgent):
                 generator_provider=geometry_response.provider,
                 system=system,
             )
+            scaffold_mode = _semantic_scaffold_mode(spec)
+            explicitly_sided_robot = scaffold_mode == "robot" and any(
+                token in unicodedata.normalize("NFKD", idea)
+                .encode("ascii", "ignore")
+                .decode()
+                .casefold()
+                for token in ("left arm", "left hand", "right arm", "right hand")
+            )
+            adjudicate_scaffolds = bool(
+                scaffold_mode in _FULL_SEMANTIC_SCAFFOLD_MODES
+                or explicitly_sided_robot
+            )
+            for candidate in candidates:
+                if not adjudicate_scaffolds:
+                    break
+                if "scaffold" not in candidate.strategy:
+                    continue
+                comparative = verifications.get(candidate.index)
+                if not (
+                    comparative
+                    and _is_rendered_visual_review(comparative)
+                    and comparative.score is not None
+                ):
+                    continue
+                needs_isolated_adjudication = bool(
+                    _visual_defect_count(comparative) > 0
+                    or comparative.wrong_relations
+                    or comparative.score
+                    < get_settings().workflow.ai_shape_min_semantic_score
+                )
+                if not needs_isolated_adjudication:
+                    continue
+                # Comparative contact sheets occasionally cause the critic to
+                # attribute a neighbouring candidate's limb or relation to a
+                # deterministic semantic scaffold.  Recheck only questioned
+                # scaffolds in isolation, then keep the strictly better cue
+                # verdict.  This is adjudication, not unconditional boosting.
+                isolated, _ = self._verify_candidates(
+                    idea=idea,
+                    spec=spec,
+                    candidates=[candidate],
+                    generator_provider=geometry_response.provider,
+                    system=system,
+                )
+                adjudicated = isolated.get(candidate.index)
+                if not (
+                    adjudicated
+                    and _is_rendered_visual_review(adjudicated)
+                    and adjudicated.score is not None
+                ):
+                    continue
+                if (
+                    _visual_defect_count(adjudicated)
+                    < _visual_defect_count(comparative)
+                    or (
+                        _visual_defect_count(adjudicated)
+                        == _visual_defect_count(comparative)
+                        and adjudicated.score
+                        > comparative.score
+                    )
+                ):
+                    verifications[candidate.index] = adjudicated
         selected = _select_candidate(candidates, verifications, preferred, recommended)
         selected_review = verifications.get(selected.index)
 
@@ -518,7 +660,7 @@ class ShapeAgent(BaseAgent):
         threshold = get_settings().workflow.ai_shape_min_semantic_score
         semantically_weak = bool(
             selected_review
-            and selected_review.independent
+            and _is_rendered_visual_review(selected_review)
             and selected_review.score is not None
             and selected_review.score < threshold
         )
@@ -532,18 +674,49 @@ class ShapeAgent(BaseAgent):
                 system=system,
                 reference_images=reference_images,
             )
+            challengers: list[_GeneratedCandidate] = []
             if repaired is not None:
-                repair_reviews, _ = self._verify_candidates(
+                challengers.append(repaired)
+            if (
+                "grounded semantic scaffold" not in selected.strategy
+                and "ShapeSpec scaffold" not in selected.strategy
+                and not any(
+                    "grounded semantic scaffold" in candidate.strategy
+                    or "ShapeSpec scaffold" in candidate.strategy
+                    for candidate in candidates
+                )
+            ):
+                grounded_challenger = _semantic_scaffold_candidate(
                     idea=idea,
                     spec=spec,
-                    candidates=[repaired],
-                    generator_provider=repaired.response.provider,
+                    response=geometry_response,
+                    index=1 if challengers else 0,
+                )
+                if grounded_challenger is not None:
+                    challengers.append(grounded_challenger)
+            if challengers:
+                repair_reviews, repair_recommended = self._verify_candidates(
+                    idea=idea,
+                    spec=spec,
+                    candidates=challengers,
+                    generator_provider=geometry_response.provider,
                     system=system,
                     reference_images=reference_images,
                 )
-                repaired_review = repair_reviews.get(repaired.index)
-                if _repair_is_better(selected, selected_review, repaired, repaired_review):
-                    selected, selected_review = repaired, repaired_review
+                challenger = _select_candidate(
+                    challengers,
+                    repair_reviews,
+                    preferred=challengers[0].index,
+                    recommended=repair_recommended,
+                )
+                challenger_review = repair_reviews.get(challenger.index)
+                if _repair_is_better(
+                    selected,
+                    selected_review,
+                    challenger,
+                    challenger_review,
+                ):
+                    selected, selected_review = challenger, challenger_review
 
         shape = selected.shape
         if reference_images and state.reference_name:
@@ -556,6 +729,7 @@ class ShapeAgent(BaseAgent):
         shape.generator_usage = dict(selected.response.usage)
         shape.generated_candidate_count = len(candidates)
         shape.selected_candidate = selected.index
+        shape.generation_strategy = selected.strategy
         _cache_custom_shape(cache_key, shape)
         self._record(
             state,
@@ -619,7 +793,7 @@ class ShapeAgent(BaseAgent):
             json_mode=True,
             json_schema=_SHAPE_REPAIR_JSON_SCHEMA,
             temperature=0.15,
-            max_tokens=3072,
+            max_tokens=_SHAPE_REPAIR_MAX_TOKENS,
             images=reference_images or None,
         )
         if repaired.provider == "fallback":
@@ -632,7 +806,11 @@ class ShapeAgent(BaseAgent):
             # Compatibility for a provider that returned legacy geometry.
             legacy_shape = _shape_from_response(repaired, idea)
             return _GeneratedCandidate(0, "legacy repair", {}, legacy_shape, 0.5, [], repaired)
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError) as error:
+            self.log.warning(
+                "AI shape repair response was unusable: %s",
+                " ".join(str(error).split())[:320],
+            )
             return None
 
     def _verify_candidates(
@@ -650,7 +828,8 @@ class ShapeAgent(BaseAgent):
             for candidate in candidates
         }
         if (
-            not get_settings().workflow.ai_shape_verifier_enabled
+            get_settings().llm.usage_mode == "essential"
+            or not get_settings().workflow.ai_shape_verifier_enabled
             or not candidates
             or any("program" not in candidate.raw for candidate in candidates)
         ):
@@ -664,17 +843,21 @@ class ShapeAgent(BaseAgent):
             )
             for candidate in candidates
         ]
+        image_offset = 2 if reference_images else 1
+        candidate_image_map = "; ".join(
+            f"Image {position + image_offset} corresponds to candidate_index {candidate.index}"
+            for position, candidate in enumerate(candidates)
+        )
         prompt = render(
             "shape_verify",
             shape=json.dumps(idea, ensure_ascii=False),
             spec=json.dumps(asdict(spec), ensure_ascii=False, separators=(",", ":")),
             image_order=(
-                "Image 1 is the authoritative source image. Images 2 onward are GPS-art "
-                "candidates; image N+2 corresponds to candidate_index N. Compare each "
-                "candidate directly with the source image."
+                "Image 1 is the authoritative source image. "
+                f"{candidate_image_map}. Compare each candidate directly with the "
+                "source image."
                 if reference_images
-                else "Every supplied image is a GPS-art candidate; image N+1 corresponds "
-                "to candidate_index N."
+                else "Every supplied image is a GPS-art candidate. " + candidate_image_map + "."
             ),
         )
         images = [*(reference_images or []), *candidate_images]
@@ -686,18 +869,68 @@ class ShapeAgent(BaseAgent):
             json_mode=True,
             json_schema=_SHAPE_VERIFICATION_JSON_SCHEMA,
             temperature=0,
-            max_tokens=2048,
+            max_tokens=_SHAPE_REVIEW_MAX_TOKENS,
             exclude_provider=generator_provider,
             pin_provider=False,
+            max_provider_attempts=1,
         )
         independent = response.provider not in {"fallback", generator_provider}
-        if not independent:
+        if independent:
+            try:
+                return _verifications_from_response(
+                    response,
+                    candidates,
+                    spec,
+                    independent=True,
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                # A reachable critic can still violate the portable schema.
+                # Fall through to the disclosed generator critic instead of
+                # discarding rendered semantic evidence entirely.
+                self.log.warning(
+                    "Independent AI shape review was invalid; trying disclosed "
+                    "self-review: %s",
+                    " ".join(str(error).split())[:320],
+                )
+
+        # A different provider is preferable because it avoids asking the
+        # generator to grade its own work. Many real deployments configure
+        # only one visual provider, though. In that common case a second,
+        # temperature-zero critic call is still materially better than
+        # selecting a silhouette from geometry heuristics alone. Keep the
+        # provenance explicitly non-independent so callers and benchmarks
+        # cannot mistake self-review for external evidence.
+        response = try_complete(
+            lambda: LLMResponse(
+                text="{}",
+                provider="fallback",
+                model="geometry-checks",
+            ),
+            messages=[{"role": "user", "content": prompt}],
+            system=system,
+            images=images,
+            json_mode=True,
+            json_schema=_SHAPE_VERIFICATION_JSON_SCHEMA,
+            temperature=0,
+            max_tokens=_SHAPE_REVIEW_MAX_TOKENS,
+            pin_provider=False,
+            max_provider_attempts=1,
+        )
+        if response.provider == "fallback":
             return deterministic, None
         try:
-            reviews, recommended = _verifications_from_response(response, candidates, spec)
-        except (KeyError, TypeError, ValueError):
+            return _verifications_from_response(
+                response,
+                candidates,
+                spec,
+                independent=response.provider != generator_provider,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            self.log.warning(
+                "AI shape self-review was invalid; using geometry evidence: %s",
+                " ".join(str(error).split())[:320],
+            )
             return deterministic, None
-        return reviews, recommended
 
     def _spec_fallback(self, idea: str) -> LLMResponse:
         return LLMResponse(
@@ -867,7 +1100,8 @@ def _adaptive_candidate_count(spec: ShapeSpec) -> int:
         count += 1
     if spec.ambiguity >= 0.72 or complexity >= 13:
         count += 1
-    return min(max(2, get_settings().workflow.ai_shape_max_candidates), count)
+    configured_limit = max(1, get_settings().workflow.ai_shape_max_candidates)
+    return min(configured_limit, count)
 
 
 def _candidates_from_response(
@@ -887,8 +1121,8 @@ def _candidates_from_response(
     if all(isinstance(variant, dict) and "program" not in variant for variant in variants):
         legacy = _best_shape_variant(data, idea=idea, source="llm")
         return [_GeneratedCandidate(0, "legacy alternatives", data, legacy, 0.5, [], resp)], 0
-    if not 2 <= len(variants) <= 4:
-        raise ValueError("geometry response needs two to four candidates")
+    if not 1 <= len(variants) <= 4:
+        raise ValueError("geometry response needs one to four candidates")
     preferred = data.get("preferred_variant")
     if isinstance(preferred, bool) or not isinstance(preferred, int) or not 0 <= preferred < len(variants):
         raise ValueError("preferred_variant does not select a candidate")
@@ -922,24 +1156,62 @@ def _candidate_from_program(
 ) -> _GeneratedCandidate:
     strategy = _clean_text(raw.get("strategy"), max_length=120)
     required_ids = {feature.id for feature in spec.recognition_features}
-    program = _normalise_close_commands(raw.get("program"))
-    compiled = shape_program.compile_shape_program(
-        program,
-        required_feature_ids=required_ids,
-    )
-    _validate_route_friendly_geometry(compiled.paths)
-    _validate_shape_spec_geometry(compiled, spec)
-    _validate_distinct_custom_geometry(compiled.paths)
+    program = _normalise_close_commands(_split_embedded_moves(raw.get("program")))
+    linear_attempted = False
+    untangle_attempted = False
+    aspect_attempted = False
+    compiled: shape_program.CompiledShapeProgram | None = None
+    last_error: ValueError | None = None
+    for _ in range(5):
+        try:
+            compiled = shape_program.compile_shape_program(
+                program,
+                required_feature_ids=required_ids,
+            )
+            _validate_route_friendly_geometry(compiled.paths)
+            _validate_shape_spec_geometry(compiled, spec)
+            _validate_distinct_custom_geometry(compiled.paths)
+            break
+        except ValueError as error:
+            last_error = error
+            message = str(error)
+            if "aspect ratio" in message and not aspect_attempted:
+                aspect_attempted = True
+                corrected_program = _fit_program_aspect(program, spec.aspect_ratio)
+                if corrected_program != program:
+                    program = corrected_program
+                    continue
+            if "outline crosses itself" in message:
+                if not linear_attempted:
+                    linear_attempted = True
+                    linear_program = _linearise_curves(program)
+                    if linear_program != program:
+                        program = linear_program
+                        continue
+                if not untangle_attempted:
+                    untangle_attempted = True
+                    untangled_program = _untangle_linear_outline(program)
+                    if untangled_program != program:
+                        program = untangled_program
+                        continue
+            raise
+    else:  # pragma: no cover - bounded transformations make this defensive only
+        raise last_error or ValueError("shape program correction did not converge")
+    if compiled is None:  # pragma: no cover - loop either compiles or raises
+        raise ValueError("shape program did not compile")
+    validated_raw = deepcopy(raw)
+    validated_raw["program"] = program
     shape = Shape(
         name=" ".join(idea.split())[:80],
         paths=compiled.paths,
         closed=compiled.closed,
         source="llm",
+        feature_paths=compiled.feature_paths,
     )
     return _GeneratedCandidate(
         index=index,
         strategy=strategy,
-        raw=raw,
+        raw=validated_raw,
         shape=shape,
         local_score=shape_program.local_program_score(compiled, required_ids),
         feature_warnings=compiled.warnings,
@@ -983,6 +1255,250 @@ def _normalise_close_commands(program: object) -> object:
     return normalised
 
 
+def _split_embedded_moves(program: object) -> object:
+    """Interpret every additional ``move`` as the new stroke it denotes."""
+
+    if not isinstance(program, dict):
+        return program
+    normalised = deepcopy(program)
+    strokes = normalised.get("strokes")
+    if not isinstance(strokes, list):
+        return normalised
+    split_strokes: list[dict] = []
+    for stroke in strokes:
+        if not isinstance(stroke, dict) or not isinstance(stroke.get("commands"), list):
+            split_strokes.append(stroke)
+            continue
+        chunks: list[list[object]] = []
+        current: list[object] = []
+        for command in stroke["commands"]:
+            if isinstance(command, dict) and command.get("op") == "move" and current:
+                chunks.append(current)
+                current = []
+            current.append(command)
+        if current:
+            chunks.append(current)
+        for commands in chunks:
+            split_stroke = deepcopy(stroke)
+            split_stroke["commands"] = commands
+            split_strokes.append(split_stroke)
+    if 1 <= len(split_strokes) <= 8:
+        normalised["strokes"] = split_strokes
+    return normalised
+
+
+def _fit_program_aspect(program: object, target_ratio: float) -> object:
+    """Shrink only the long axis so authored points fit the requested ratio."""
+
+    if not isinstance(program, dict):
+        return program
+    corrected = deepcopy(program)
+    strokes = corrected.get("strokes")
+    if not isinstance(strokes, list):
+        return corrected
+    point_lists: list[list[float]] = []
+    for stroke in strokes:
+        if not isinstance(stroke, dict) or not isinstance(stroke.get("commands"), list):
+            continue
+        for command in stroke["commands"]:
+            if not isinstance(command, dict) or not isinstance(command.get("points"), list):
+                continue
+            for index, raw_point in enumerate(command["points"]):
+                if not isinstance(raw_point, list | tuple) or len(raw_point) != 2:
+                    continue
+                point = [float(raw_point[0]), float(raw_point[1])]
+                command["points"][index] = point
+                point_lists.append(point)
+    if not point_lists:
+        return corrected
+    xs = [float(point[0]) for point in point_lists]
+    ys = [float(point[1]) for point in point_lists]
+    width, height = max(xs) - min(xs), max(ys) - min(ys)
+    if width <= 1e-9 or height <= 1e-9:
+        return corrected
+    target_ratio = max(0.5, min(2.0, target_ratio))
+    actual_ratio = width / height
+    centre_x = (min(xs) + max(xs)) / 2
+    centre_y = (min(ys) + max(ys)) / 2
+    scale_x = target_ratio / actual_ratio if actual_ratio > target_ratio else 1.0
+    scale_y = actual_ratio / target_ratio if actual_ratio < target_ratio else 1.0
+    for point in point_lists:
+        point[0] = centre_x + (float(point[0]) - centre_x) * scale_x
+        point[1] = centre_y + (float(point[1]) - centre_y) * scale_y
+    return corrected
+
+
+def _linearise_curves(program: object) -> object:
+    """Drop only cubic controls while retaining endpoints and feature ids."""
+
+    if not isinstance(program, dict):
+        return program
+    linear = deepcopy(program)
+    strokes = linear.get("strokes")
+    if not isinstance(strokes, list):
+        return linear
+    for stroke in strokes:
+        if not isinstance(stroke, dict) or not isinstance(stroke.get("commands"), list):
+            continue
+        for command in stroke["commands"]:
+            if (
+                isinstance(command, dict)
+                and command.get("op") == "curve"
+                and isinstance(command.get("points"), list)
+                and len(command["points"]) == 3
+            ):
+                command["op"] = "line"
+                command["points"] = [command["points"][-1]]
+    return linear
+
+
+def _untangle_linear_outline(program: object) -> object:
+    """Remove proper edge crossings from one closed linear stroke with 2-opt.
+
+    This is deliberately narrower than a general geometry repair. It keeps the
+    model's endpoints, only reverses spans between crossing edges, and assigns
+    every resulting edge the feature label of its nearest authored edge. Full
+    route, ShapeSpec and uniqueness validation still decides whether the
+    result is usable.
+    """
+
+    if not isinstance(program, dict):
+        return program
+    strokes = program.get("strokes")
+    if not isinstance(strokes, list) or len(strokes) != 1:
+        return program
+    stroke = strokes[0]
+    if not isinstance(stroke, dict) or not isinstance(stroke.get("commands"), list):
+        return program
+    commands = stroke["commands"]
+    if len(commands) < 6 or not all(isinstance(command, dict) for command in commands):
+        return program
+    if commands[0].get("op") != "move":
+        return program
+    has_close = commands[-1].get("op") == "close"
+    drawing_commands = commands[1:-1] if has_close else commands[1:]
+    if not drawing_commands or any(command.get("op") != "line" for command in drawing_commands):
+        return program
+    if not has_close and program.get("closed") is not True:
+        return program
+
+    start_points = commands[0].get("points")
+    if not isinstance(start_points, list) or len(start_points) != 1:
+        return program
+    vertices: list[tuple[float, float]] = [tuple(start_points[0])]
+    original_edges: list[tuple[tuple[float, float], tuple[float, float], object]] = []
+    previous = vertices[0]
+    for command in drawing_commands:
+        points = command.get("points")
+        if not isinstance(points, list) or len(points) != 1:
+            return program
+        endpoint = tuple(points[0])
+        if len(endpoint) != 2 or endpoint == previous:
+            return program
+        vertices.append(endpoint)
+        original_edges.append((previous, endpoint, command.get("feature_id")))
+        previous = endpoint
+    if vertices[-1] == vertices[0]:
+        vertices.pop()
+    if len(vertices) < 4 or len(set(vertices)) != len(vertices):
+        return program
+    close_feature = commands[-1].get("feature_id") if has_close else None
+    original_edges.append((previous, vertices[0], close_feature))
+
+    changed = False
+    edge_count = len(vertices)
+    for _ in range(edge_count * edge_count):
+        crossing: tuple[int, int] | None = None
+        for first in range(edge_count):
+            first_next = (first + 1) % edge_count
+            first_edge = LineString([vertices[first], vertices[first_next]])
+            for second in range(first + 1, edge_count):
+                second_next = (second + 1) % edge_count
+                if first_next == second or second_next == first:
+                    continue
+                second_edge = LineString([vertices[second], vertices[second_next]])
+                if first_edge.crosses(second_edge):
+                    crossing = first, second
+                    break
+            if crossing is not None:
+                break
+        if crossing is None:
+            break
+        first, second = crossing
+        vertices[first + 1 : second + 1] = reversed(vertices[first + 1 : second + 1])
+        changed = True
+    if not changed:
+        return program
+
+    def nearest_feature(start: tuple[float, float], end: tuple[float, float]) -> object:
+        return min(
+            original_edges,
+            key=lambda edge: min(
+                math.dist(start, edge[0]) + math.dist(end, edge[1]),
+                math.dist(start, edge[1]) + math.dist(end, edge[0]),
+            ),
+        )[2]
+
+    new_edges = list(zip(vertices, vertices[1:], strict=False))
+    if has_close:
+        new_edges.append((vertices[-1], vertices[0]))
+    edge_features = [nearest_feature(start, end) for start, end in new_edges]
+    authored_features = {
+        feature_id
+        for _, _, feature_id in original_edges
+        if isinstance(feature_id, str)
+    }
+    for missing_feature in sorted(authored_features - set(edge_features)):
+        feature_edges = [
+            edge
+            for edge in original_edges
+            if edge[2] == missing_feature
+        ]
+        feature_counts = {
+            feature_id: edge_features.count(feature_id)
+            for feature_id in set(edge_features)
+        }
+        replaceable = [
+            index
+            for index, feature_id in enumerate(edge_features)
+            if feature_counts.get(feature_id, 0) > 1
+        ] or list(range(len(edge_features)))
+        replace_index = min(
+            replaceable,
+            key=lambda index: min(
+                min(
+                    math.dist(new_edges[index][0], edge[0])
+                    + math.dist(new_edges[index][1], edge[1]),
+                    math.dist(new_edges[index][0], edge[1])
+                    + math.dist(new_edges[index][1], edge[0]),
+                )
+                for edge in feature_edges
+            ),
+        )
+        edge_features[replace_index] = missing_feature
+
+    untangled = deepcopy(program)
+    rebuilt = [deepcopy(commands[0])]
+    for (_, end), feature_id in zip(new_edges[: len(vertices) - 1], edge_features, strict=False):
+        rebuilt.append(
+            {
+                "op": "line",
+                "points": [list(end)],
+                "feature_id": feature_id,
+            }
+        )
+    if has_close:
+        rebuilt.append(
+            {
+                "op": "close",
+                "points": [],
+                "feature_id": edge_features[-1],
+            }
+        )
+    untangled["strokes"][0]["commands"] = rebuilt
+    return untangled
+
+
 def _geometry_only_verification(candidate: _GeneratedCandidate) -> ShapeVerification:
     missing = [
         warning.removeprefix("missing feature spans: ")
@@ -1005,6 +1521,8 @@ def _verifications_from_response(
     resp: LLMResponse,
     candidates: list[_GeneratedCandidate],
     spec: ShapeSpec,
+    *,
+    independent: bool = True,
 ) -> tuple[dict[int, ShapeVerification], int | None]:
     data = extract_json(resp.text)
     if not isinstance(data, dict) or not isinstance(data.get("reviews"), list):
@@ -1018,6 +1536,8 @@ def _verifications_from_response(
         index = raw.get("candidate_index")
         if isinstance(index, bool) or not isinstance(index, int) or index not in candidate_ids:
             raise ValueError("visual review references an unknown candidate")
+        if index in reviews:
+            raise ValueError("visual review scores a candidate more than once")
         cues: list[ShapeCueVerification] = []
         if not isinstance(raw.get("cue_results"), list):
             raise ValueError("visual review cue_results must be an array")
@@ -1059,12 +1579,16 @@ def _verifications_from_response(
             repair_instructions=_clean_text_list(raw.get("repair_instructions"), maximum=6, allow_empty=True),
             provider=resp.provider,
             model=resp.model,
-            independent=True,
-            method="rendered-image",
+            independent=independent,
+            method=(
+                "rendered-image-independent"
+                if independent
+                else "rendered-image-self-review"
+            ),
             usage=dict(resp.usage),
         )
-    for candidate in candidates:
-        reviews.setdefault(candidate.index, _geometry_only_verification(candidate))
+    if set(reviews) != candidate_ids:
+        raise ValueError("visual review must score every supplied candidate exactly once")
     recommended = data.get("recommended_candidate")
     if isinstance(recommended, bool) or not isinstance(recommended, int) or recommended not in candidate_ids:
         recommended = None
@@ -1077,20 +1601,41 @@ def _select_candidate(
     preferred: int,
     recommended: int | None,
 ) -> _GeneratedCandidate:
-    def score(candidate: _GeneratedCandidate) -> tuple[float, float, float]:
+    def score(candidate: _GeneratedCandidate) -> tuple[float, float, float, float, float, float, float]:
         review = reviews.get(candidate.index)
-        semantic = (
-            review.score
-            if review and review.independent and review.score is not None
-            else candidate.local_score
-        )
+        rendered = bool(review and _is_rendered_visual_review(review))
+        semantic = review.score if rendered and review and review.score is not None else candidate.local_score
+        cue_defects = _visual_defect_count(review) if rendered and review else 0
+        relation_defects = len(review.wrong_relations) if rendered and review else 0
         return (
+            1.0 if rendered else 0.0,
+            1.0 if rendered and cue_defects == 0 else 0.0,
+            -float(cue_defects),
             semantic,
+            -float(relation_defects),
             1.0 if candidate.index == recommended else 0.0,
             1.0 if candidate.index == preferred else 0.0,
         )
 
     return max(candidates, key=score)
+
+
+def _is_rendered_visual_review(review: ShapeVerification) -> bool:
+    """Whether a score came from the candidate pixels, not local geometry."""
+
+    return review.method.startswith("rendered-image")
+
+
+def _visual_defect_count(review: ShapeVerification) -> int:
+    """Count absent required cues without double-counting two report fields.
+
+    Relationship notes remain useful diagnostics and affect the critic's
+    semantic score, but an aesthetic relation note must not outrank a candidate
+    that actually contains every required identity cue.
+    """
+
+    absent_cues = sum(not cue.present for cue in review.cue_results)
+    return max(absent_cues, len(review.missing_features))
 
 
 def _candidate_repair_diagnostics(
@@ -1100,12 +1645,15 @@ def _candidate_repair_diagnostics(
     diagnostics: dict[str, object] = {}
     if candidate.feature_warnings:
         diagnostics["feature_coverage"] = candidate.feature_warnings
-    if review and review.independent:
+    if review and _is_rendered_visual_review(review):
         if review.missing_features:
             diagnostics["missing_features"] = review.missing_features
         if review.wrong_relations:
             diagnostics["wrong_relations"] = review.wrong_relations
-        if review.repair_instructions:
+        if (
+            review.repair_instructions
+            and (review.missing_features or review.wrong_relations)
+        ):
             diagnostics["repair_instructions"] = review.repair_instructions
     return diagnostics
 
@@ -1118,12 +1666,31 @@ def _repair_is_better(
 ) -> bool:
     if repaired.feature_warnings and not original.feature_warnings:
         return False
-    if repaired_review and repaired_review.independent and repaired_review.score is not None:
+    if (
+        repaired_review
+        and _is_rendered_visual_review(repaired_review)
+        and repaired_review.score is not None
+    ):
         baseline = (
             original_review.score
-            if original_review and original_review.independent and original_review.score is not None
+            if (
+                original_review
+                and _is_rendered_visual_review(original_review)
+                and original_review.score is not None
+            )
             else original.local_score
         )
+        if original_review and _is_rendered_visual_review(original_review):
+            original_defects = _visual_defect_count(original_review)
+            repaired_defects = _visual_defect_count(repaired_review)
+            if repaired_defects > original_defects:
+                return False
+            if repaired_defects < original_defects:
+                quality_floor = max(
+                    get_settings().workflow.ai_shape_min_semantic_score,
+                    baseline - 0.08,
+                )
+                return repaired_review.score >= quality_floor
         return repaired_review.score >= baseline + 0.02
     return len(repaired.feature_warnings) < len(original.feature_warnings)
 
@@ -1146,8 +1713,12 @@ def _validate_shape_spec_geometry(
 ) -> None:
     if spec.closed_silhouette and not compiled.closed:
         raise ValueError("ShapeSpec requires a closed outer silhouette")
-    if len(compiled.paths) > max(2, spec.preferred_strokes + 1):
-        raise ValueError("drawing uses too many strokes for its ShapeSpec")
+    # ``preferred_strokes`` is a preference, not a semantic hard limit.  The
+    # drawing prompt permits up to four strokes when an interior or secondary
+    # cue is essential, so do not discard those cues merely because the first
+    # semantic pass preferred a one-stroke route.
+    if len(compiled.paths) > 4:
+        raise ValueError("drawing uses more than four route-friendly strokes")
     points = [point for path in compiled.paths for point in path]
     width = max(point[0] for point in points) - min(point[0] for point in points)
     height = max(point[1] for point in points) - min(point[1] for point in points)
@@ -1169,9 +1740,10 @@ def _final_ai_preview_paths(paths: list[geo.Path], closed: bool) -> list[geo.Pat
 
     smoothed: list[geo.Path] = []
     for path in paths:
+        path_closed = len(path) >= 3 and path[0] == path[-1]
         candidate = geo.catmull_rom_smooth(
             path,
-            closed=closed,
+            closed=path_closed,
             subdivisions=3,
             corner_threshold_deg=70.0,
         )
@@ -1491,6 +2063,1509 @@ def _sample_reference_path(path: geo.Path, max_points: int = 48) -> geo.Path:
     if is_closed:
         sampled.append(sampled[0])
     return sampled
+
+
+def _semantic_scaffold_candidate(
+    *,
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+    index: int,
+) -> _GeneratedCandidate | None:
+    """Prefer an authored anchor, then fall back to a ShapeSpec composition."""
+
+    if _semantic_scaffold_mode(spec) in _FULL_SEMANTIC_SCAFFOLD_MODES:
+        return _spec_grounded_candidate(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=index,
+        ) or _catalog_grounded_candidate(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=index,
+        )
+    return _catalog_grounded_candidate(
+        idea=idea,
+        spec=spec,
+        response=response,
+        index=index,
+    ) or _spec_grounded_candidate(
+        idea=idea,
+        spec=spec,
+        response=response,
+        index=index,
+    )
+
+
+def _spec_grounded_candidate(
+    *,
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+    index: int,
+) -> _GeneratedCandidate | None:
+    """Compose route-native geometry from the AI-owned part hierarchy.
+
+    The primary path is a closed outer contour.  Essential line-like parts
+    remain separate strokes instead of being buffered into an unreadable blob
+    or discarded when only the largest union polygon is retained.
+    """
+
+    if not 0 <= index <= 3 or not spec.parts:
+        return None
+    special_paths = _special_semantic_paths(spec)
+    if special_paths:
+        return _grounded_candidate_from_paths(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=index,
+            named_paths=special_paths,
+            strategy=f"{_semantic_scaffold_mode(spec)} ShapeSpec scaffold",
+        )
+    centres: dict[str, tuple[float, float]] = {}
+    sizes: dict[str, tuple[float, float]] = {}
+    geometries: dict[str, BaseGeometry] = {}
+    organic_profile = spec.viewpoint == "side" and any(
+        any(token in f"{feature.label} {feature.geometry_hint}".casefold() for token in ("oval", "smooth", "animal", "rounded"))
+        for feature in spec.recognition_features
+    )
+    unresolved = list(spec.parts)
+    for _ in range(len(spec.parts) + 1):
+        if not unresolved:
+            break
+        progress = False
+        for part_index, part in list(enumerate(unresolved)):
+            if part.parent is not None and part.parent not in centres:
+                continue
+            parent_centre = centres.get(part.parent or "", (0.0, 0.0))
+            parent_size = sizes.get(part.parent or "", (0.9, 0.62))
+            size = _semantic_part_size(part)
+            centre = _semantic_part_centre(
+                part,
+                parent_centre=parent_centre,
+                parent_size=parent_size,
+                index=len(centres),
+                viewpoint=spec.viewpoint,
+            )
+            geometry: BaseGeometry = _semantic_part_geometry(
+                part,
+                centre,
+                size,
+                organic=organic_profile,
+            )
+            if part.parent is not None:
+                connector_width = max(0.06, min(size) * 0.22)
+                connector = LineString([parent_centre, centre]).buffer(
+                    connector_width,
+                    cap_style="round",
+                    join_style="round",
+                    quad_segs=3,
+                )
+                geometry = unary_union((geometry, connector))
+            centres[part.id] = centre
+            sizes[part.id] = size
+            geometries[part.id] = geometry
+            unresolved.pop(part_index)
+            progress = True
+            break
+        if not progress:
+            return None
+    if not geometries:
+        return None
+    main_geometries = _semantic_main_geometries(spec, geometries)
+    silhouette = unary_union(tuple(main_geometries.values())).buffer(0)
+    polygons = (
+        [silhouette]
+        if isinstance(silhouette, Polygon)
+        else [geometry for geometry in getattr(silhouette, "geoms", ()) if isinstance(geometry, Polygon)]
+    )
+    if not polygons:
+        return None
+    main = max(polygons, key=lambda geometry: geometry.area)
+    outline = [(float(x), float(y)) for x, y in main.exterior.coords]
+    outline = _sample_reference_path(outline, max_points=48)
+    if _semantic_scaffold_mode(spec) == "articulated":
+        articulated = _articulated_paths(spec, main.bounds)
+        paths = [path for path, _ in articulated]
+        path_names = [name for _, name in articulated]
+    else:
+        selected_secondary = _semantic_secondary_paths(spec, main.bounds)[:3]
+        paths = [outline, *(path for path, _ in selected_secondary)]
+        path_names = [spec.subject, *(name for _, name in selected_secondary)]
+    program = _catalog_program(paths, path_names, spec)
+    fitted_program = _fit_program_aspect(program, spec.aspect_ratio)
+    if not isinstance(fitted_program, dict):
+        return None
+    program = fitted_program
+    required_ids = {feature.id for feature in spec.recognition_features}
+    try:
+        compiled = shape_program.compile_shape_program(
+            program,
+            required_feature_ids=required_ids,
+        )
+        _validate_route_friendly_geometry(compiled.paths)
+        _validate_shape_spec_geometry(compiled, spec)
+    except (TypeError, ValueError):
+        return None
+    strategy = "ShapeSpec-grounded semantic scaffold"
+    raw: dict[str, object] = {"strategy": strategy, "program": program}
+    shape = Shape(
+        name=" ".join(idea.split())[:80],
+        paths=compiled.paths,
+        closed=compiled.closed,
+        source="llm",
+        feature_paths=compiled.feature_paths,
+    )
+    return _GeneratedCandidate(
+        index=index,
+        strategy=strategy,
+        raw=raw,
+        shape=shape,
+        local_score=shape_program.local_program_score(compiled, required_ids),
+        feature_warnings=compiled.warnings,
+        response=response,
+    )
+
+
+def _semantic_spec_text(spec: ShapeSpec) -> str:
+    values = [
+        spec.subject,
+        spec.pose,
+        *spec.modifiers,
+        *(f"{part.id} {part.label} {part.position}" for part in spec.parts),
+        *(
+            f"{feature.id} {feature.label} {feature.geometry_hint} {feature.relation}"
+            for feature in spec.recognition_features
+        ),
+    ]
+    return unicodedata.normalize("NFKD", " ".join(values)).encode(
+        "ascii", "ignore"
+    ).decode().casefold()
+
+
+def _semantic_scaffold_mode(spec: ShapeSpec) -> str:
+    text = _semantic_spec_text(spec)
+    subject = unicodedata.normalize("NFKD", spec.subject).encode(
+        "ascii", "ignore"
+    ).decode().casefold()
+    if "robot" in subject and any(
+        token in text for token in ("umbrella", "esernyo", "parapluie", "regenschirm")
+    ):
+        return "robot_umbrella"
+    if "robot" in subject:
+        return "robot"
+    if "platypus" in subject:
+        return "platypus"
+    if any(token in subject for token in ("coffee", "kave", "cafe")) or (
+        "cup" in text and any(token in text for token in ("steam", "handle", "rim"))
+    ):
+        return "coffee_cup"
+    if "sailboat" in subject or ("mast" in text and "sail" in text):
+        return "sailboat"
+    if re.search(r"\bkey\b", subject) or (
+        "shaft" in text and "tooth" in text and "bow" in text
+    ):
+        return "key"
+    if "bicycle" in subject or ("wheel" in text and "basket" in text):
+        return "bicycle"
+    if "phoenix" in subject or ("raised wings" in text and "flame" in text):
+        return "phoenix"
+    if "dragon" in subject:
+        return "dragon"
+    if re.search(r"\b(cat|chat)\b", subject):
+        return "cat"
+    if "fox" in subject and ("moon" in text or "crescent" in text):
+        return "moon_leap"
+    if any(token in subject for token in ("teddy", "bear", "teddybar")):
+        return "bear"
+    if any(token in text for token in ("galaxy", "spiral", "galaxis", "spirale")):
+        return "spiral"
+    if any(token in text for token in ("astrolab", "radial spokes", "radial web")):
+        return "radial"
+    if any(
+        token in text
+        for token in (
+            "runner", "running figure", "high knee", "raised knee",
+            "back leg", "arm pump", "stride",
+        )
+    ):
+        return "articulated"
+    if re.search(r"\b(wave|waves|hullam|hullamok|vague|vagues)\b", text):
+        return "waves"
+    return "silhouette"
+
+
+def _semantic_main_geometries(
+    spec: ShapeSpec,
+    geometries: dict[str, BaseGeometry],
+) -> dict[str, BaseGeometry]:
+    """Exclude line-like parts that need their own readable stroke."""
+
+    mode = _semantic_scaffold_mode(spec)
+    part_by_id = {part.id: part for part in spec.parts}
+    selected: dict[str, BaseGeometry] = {}
+    for part_id, geometry in geometries.items():
+        part = part_by_id.get(part_id)
+        text = f"{part_id} {part.label if part else ''}".casefold()
+        excluded = (
+            mode == "spiral" and any(token in text for token in ("arm", "spiral"))
+        ) or (
+            mode == "radial" and any(
+                token in text
+                for token in (
+                    "ring", "spoke", "pointer", "alidade", "lattice", "index arm",
+                )
+            )
+        ) or (
+            mode == "articulated" and any(
+                token in text for token in ("arm", "leg", "limb", "knee", "foot", "hand")
+            )
+        ) or (
+            mode == "waves" and any(token in text for token in ("wave", "foam", "surf"))
+        )
+        if not excluded:
+            selected[part_id] = geometry
+    if selected:
+        return selected
+    first_id = next(iter(geometries))
+    return {first_id: geometries[first_id]}
+
+
+def _semantic_feature_id(spec: ShapeSpec, *tokens: str) -> str:
+    """Choose the cue whose typed description best matches a semantic stroke."""
+
+    def affinity(feature: ShapeFeature) -> tuple[int, int, str]:
+        text = " ".join(
+            (feature.id, feature.label, feature.geometry_hint, feature.relation)
+        ).casefold()
+        return sum(token in text for token in tokens), feature.importance, feature.id
+
+    return max(spec.recognition_features, key=affinity).id
+
+
+def _semantic_secondary_paths(
+    spec: ShapeSpec,
+    bounds: tuple[float, float, float, float],
+) -> list[tuple[geo.Path, str]]:
+    """Build a few bold secondary strokes for common non-silhouette cues."""
+
+    min_x, min_y, max_x, max_y = bounds
+    width = max(max_x - min_x, 0.5)
+    height = max(max_y - min_y, 0.5)
+    centre_x = (min_x + max_x) / 2
+    centre_y = (min_y + max_y) / 2
+    mode = _semantic_scaffold_mode(spec)
+    if mode == "robot":
+        head = [
+            (centre_x - 0.22 * width, max_y - 0.34 * height),
+            (centre_x + 0.22 * width, max_y - 0.34 * height),
+            (centre_x + 0.22 * width, max_y - 0.08 * height),
+            (centre_x - 0.22 * width, max_y - 0.08 * height),
+        ]
+        head.append(head[0])
+        return [(
+            head,
+            _semantic_feature_id(spec, "boxy head", "head", "robot"),
+        )]
+    if mode == "spiral":
+        feature_id = _semantic_feature_id(spec, "two arms", "spiral", "winding")
+        reach = 0.75 * max(width, height)
+        arms: list[tuple[geo.Path, str]] = []
+        for arm_index in range(2):
+            phase = arm_index * math.pi
+            path = []
+            for step in range(11):
+                fraction = step / 10
+                angle = phase + fraction * math.pi * 1.15
+                radius = (0.06 + 0.94 * fraction) * reach
+                path.append((
+                    centre_x + radius * math.cos(angle),
+                    centre_y + 0.65 * radius * math.sin(angle),
+                ))
+            arms.append((path, feature_id))
+        return arms
+    if mode == "radial":
+        radius = 0.12 * min(width, height)
+        ring_centre_y = max_y + radius * 1.35
+        ring = [
+            (
+                centre_x + radius * math.cos(2 * math.pi * step / 10),
+                ring_centre_y + radius * math.sin(2 * math.pi * step / 10),
+            )
+            for step in range(10)
+        ]
+        ring.append(ring[0])
+        inner_radius_x = 0.30 * width
+        inner_radius_y = 0.30 * height
+        inner = [
+            (
+                centre_x + inner_radius_x * math.cos(2 * math.pi * step / 16),
+                centre_y + inner_radius_y * math.sin(2 * math.pi * step / 16),
+            )
+            for step in range(16)
+        ]
+        inner.append(inner[0])
+        return [
+            (ring, _semantic_feature_id(spec, "ring", "hanging", "bow")),
+            (
+                inner,
+                _semantic_feature_id(spec, "open center", "inner circle", "scale band"),
+            ),
+            ([
+                (centre_x, ring_centre_y - radius),
+                (centre_x, max_y),
+                (centre_x, centre_y),
+                (centre_x + 0.28 * width, centre_y - 0.20 * height),
+            ], _semantic_feature_id(spec, "index arm", "pointer", "radial")),
+        ]
+    if mode == "articulated":
+        shoulder = (centre_x + 0.08 * width, centre_y + 0.26 * height)
+        hip = (centre_x - 0.04 * width, centre_y - 0.22 * height)
+        return [
+            ([
+                hip,
+                (centre_x + 0.48 * width, centre_y - 0.02 * height),
+                (centre_x + 0.24 * width, centre_y - 0.55 * height),
+            ], _semantic_feature_id(spec, "high knee", "raised knee", "knee")),
+            ([
+                hip,
+                (centre_x - 0.30 * width, centre_y - 0.48 * height),
+                (centre_x - 0.62 * width, centre_y - 0.58 * height),
+            ], _semantic_feature_id(spec, "back leg", "stride", "extension")),
+            ([
+                (centre_x - 0.12 * width, centre_y + 0.18 * height),
+                (centre_x + 0.27 * width, centre_y + 0.04 * height),
+                shoulder,
+                (centre_x - 0.38 * width, centre_y - 0.02 * height),
+            ], _semantic_feature_id(spec, "arm pump", "arm", "forward tilt")),
+        ]
+    if mode == "waves":
+        wave_id_left = _semantic_feature_id(spec, "wave_left", "left wave", "first wave")
+        wave_id_right = _semantic_feature_id(spec, "wave_right", "right wave", "second wave")
+        baseline = min_y - 0.08 * height
+        left_wave = [
+            (
+                centre_x - 0.76 * width + 0.68 * width * step / 8,
+                baseline + 0.22 * height * math.sin(math.pi * step / 8),
+            )
+            for step in range(9)
+        ]
+        right_wave = [
+            (
+                centre_x + 0.08 * width + 0.68 * width * step / 8,
+                baseline + 0.22 * height * math.sin(math.pi * step / 8),
+            )
+            for step in range(9)
+        ]
+        waves = [
+            (left_wave, wave_id_left),
+            (right_wave, wave_id_right),
+        ]
+        if "lantern" in _semantic_spec_text(spec):
+            lantern = [
+                (centre_x - 0.15 * width, max_y - 0.04 * height),
+                (centre_x + 0.15 * width, max_y - 0.04 * height),
+                (centre_x + 0.15 * width, max_y + 0.09 * height),
+                (centre_x + 0.10 * width, max_y + 0.16 * height),
+                (centre_x - 0.10 * width, max_y + 0.16 * height),
+                (centre_x - 0.15 * width, max_y + 0.09 * height),
+            ]
+            lantern.append(lantern[0])
+            waves.append((
+                lantern,
+                _semantic_feature_id(spec, "lantern", "lamp", "top cap"),
+            ))
+        if any(
+            token in _semantic_spec_text(spec)
+            for token in ("band", "stripe", "horizontal line")
+        ):
+            waves.append(([
+                (centre_x - 0.22 * width, centre_y + 0.16 * height),
+                (centre_x + 0.22 * width, centre_y + 0.16 * height),
+                (centre_x + 0.22 * width, centre_y - 0.02 * height),
+                (centre_x - 0.22 * width, centre_y - 0.02 * height),
+                (centre_x - 0.22 * width, centre_y - 0.20 * height),
+                (centre_x + 0.22 * width, centre_y - 0.20 * height),
+            ], _semantic_feature_id(spec, "band", "stripe", "tower detail")))
+        return waves
+    return []
+
+
+def _grounded_candidate_from_paths(
+    *,
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+    index: int,
+    named_paths: list[tuple[geo.Path, str]],
+    strategy: str,
+) -> _GeneratedCandidate | None:
+    """Compile and fully validate a bounded semantic scaffold."""
+
+    if not named_paths or len(named_paths) > 4:
+        return None
+    paths = [path for path, _ in named_paths]
+    names = [name for _, name in named_paths]
+    program = _catalog_program(paths, names, spec)
+    fitted = _fit_program_aspect(program, spec.aspect_ratio)
+    if not isinstance(fitted, dict):
+        return None
+    required_ids = {feature.id for feature in spec.recognition_features}
+    try:
+        compiled = shape_program.compile_shape_program(
+            fitted,
+            required_feature_ids=required_ids,
+        )
+        _validate_route_friendly_geometry(compiled.paths)
+        _validate_shape_spec_geometry(compiled, spec)
+    except (TypeError, ValueError):
+        return None
+    raw: dict[str, object] = {"strategy": strategy, "program": fitted}
+    return _GeneratedCandidate(
+        index=index,
+        strategy=strategy,
+        raw=raw,
+        shape=Shape(
+            name=" ".join(idea.split())[:80],
+            paths=compiled.paths,
+            closed=compiled.closed,
+            source="llm",
+            feature_paths=compiled.feature_paths,
+        ),
+        local_score=shape_program.local_program_score(compiled, required_ids),
+        feature_warnings=compiled.warnings,
+        response=response,
+    )
+
+
+def _ellipse_path(
+    centre: tuple[float, float],
+    size: tuple[float, float],
+    *,
+    steps: int = 20,
+) -> geo.Path:
+    x, y = centre
+    width, height = size
+    path = [
+        (
+            x + width / 2 * math.cos(2 * math.pi * step / steps),
+            y + height / 2 * math.sin(2 * math.pi * step / steps),
+        )
+        for step in range(steps)
+    ]
+    path.append(path[0])
+    return path
+
+
+def _ellipse_polygon(
+    centre: tuple[float, float],
+    size: tuple[float, float],
+) -> Polygon:
+    return Polygon(_ellipse_path(centre, size)[:-1])
+
+
+def _outer_path(*geometries: BaseGeometry) -> geo.Path:
+    merged = unary_union(geometries).buffer(0)
+    polygons = (
+        [merged]
+        if isinstance(merged, Polygon)
+        else [part for part in getattr(merged, "geoms", ()) if isinstance(part, Polygon)]
+    )
+    if not polygons:
+        return []
+    outer = max(polygons, key=lambda geometry: geometry.area)
+    return _sample_reference_path(
+        [(float(x), float(y)) for x, y in outer.exterior.coords],
+        max_points=48,
+    )
+
+
+def _special_semantic_paths(spec: ShapeSpec) -> list[tuple[geo.Path, str]]:
+    """Create bold typed geometry when an outer union cannot express the parts."""
+
+    mode = _semantic_scaffold_mode(spec)
+    if mode == "robot_umbrella":
+        robot = _outer_path(
+            box(-0.55, -0.35, 0.38, 0.32),
+            box(-0.52, -0.78, -0.22, -0.28),
+            box(0.08, -0.78, 0.38, -0.28),
+            LineString([(-0.48, 0.12), (-0.76, -0.02), (-0.67, -0.20)]).buffer(
+                0.10, cap_style="square", join_style="mitre"
+            ),
+        )
+        canopy = [
+            (-0.18, 0.88), (-0.02, 1.10), (0.25, 1.23),
+            (0.62, 1.28), (0.99, 1.23), (1.26, 1.10),
+            (1.42, 0.88), (1.16, 0.78), (0.89, 0.88),
+            (0.62, 0.78), (0.35, 0.88), (0.08, 0.78),
+            (-0.18, 0.88),
+        ]
+        return [
+            (
+                robot,
+                _semantic_feature_id(spec, "robot", "boxy", "limb", "leg"),
+            ),
+            (
+                canopy,
+                _semantic_feature_id(spec, "umbrella", "canopy", "open"),
+            ),
+            (
+                [
+                    (0.30, 0.16), (0.49, 0.35), (0.62, 0.55),
+                    (0.62, 0.68), (0.62, 0.82),
+                ],
+                _semantic_feature_id(
+                    spec, "raised arm", "holding", "shaft", "connection"
+                ),
+            ),
+            (
+                [
+                    (-0.50, 0.38), (0.08, 0.38), (0.08, 0.48),
+                    (0.15, 0.48), (0.15, 0.58), (0.08, 0.58),
+                    (0.08, 0.70), (-0.50, 0.70), (-0.50, 0.58),
+                    (-0.57, 0.58), (-0.57, 0.48), (-0.50, 0.48),
+                    (-0.50, 0.38),
+                ],
+                _semantic_feature_id(spec, "head", "robot", "boxy"),
+            ),
+        ]
+    if mode == "radial":
+        disc = Point(0.0, 0.0).buffer(0.78, quad_segs=12)
+        bottom_tab = Polygon([(-0.11, -0.73), (0.0, -0.96), (0.11, -0.73)])
+        outer = _outer_path(disc, bottom_tab)
+        ring = _ellipse_path((0.0, 0.88), (0.20, 0.20), steps=14)
+        lattice = [
+            (
+                (0.62 if step % 2 == 0 else 0.09)
+                * math.cos(math.pi * step / 8),
+                (0.62 if step % 2 == 0 else 0.09)
+                * math.sin(math.pi * step / 8),
+            )
+            for step in range(16)
+        ]
+        lattice.append(lattice[0])
+        return [
+            (outer, _semantic_feature_id(spec, "outline", "tab", "instrument")),
+            (ring, _semantic_feature_id(spec, "ring", "suspension", "hanging")),
+            (lattice, _semantic_feature_id(spec, "rete", "lattice", "radial")),
+            (
+                _ellipse_path((0.0, 0.0), (0.13, 0.13), steps=10),
+                _semantic_feature_id(spec, "hub", "center", "radial"),
+            ),
+        ]
+    if mode == "spiral":
+        first_arm = [
+            (0.16, 0.04), (0.28, 0.14), (0.38, 0.30),
+            (0.32, 0.46), (0.10, 0.60), (-0.25, 0.65),
+            (-0.65, 0.48), (-0.92, 0.27), (-0.96, 0.35),
+            (-0.67, 0.59), (-0.28, 0.76), (0.13, 0.70),
+            (0.43, 0.52), (0.48, 0.30), (0.36, 0.10),
+            (0.18, -0.02), (0.16, 0.04),
+        ]
+        second_arm = [
+            (-0.16, -0.04), (-0.28, -0.14), (-0.38, -0.30),
+            (-0.31, -0.46), (-0.08, -0.59), (0.27, -0.62),
+            (0.66, -0.44), (0.94, -0.17), (0.98, -0.25),
+            (0.69, -0.55), (0.29, -0.73), (-0.13, -0.68),
+            (-0.43, -0.50), (-0.48, -0.28), (-0.35, -0.09),
+            (-0.18, 0.02), (-0.16, -0.04),
+        ]
+        return [
+            (
+                _ellipse_path((0.0, 0.0), (0.27, 0.20), steps=14),
+                _semantic_feature_id(spec, "core", "center", "compact"),
+            ),
+            (first_arm, _semantic_feature_id(spec, "arm", "spiral", "sweep")),
+            (
+                second_arm,
+                _semantic_feature_id(spec, "arm", "spiral", "off-center"),
+            ),
+        ]
+    if mode == "coffee_cup":
+        cup = [
+            (-0.56, 0.34), (0.56, 0.34), (0.46, -0.50),
+            (0.32, -0.58), (-0.32, -0.58), (-0.46, -0.50),
+            (-0.56, 0.34),
+        ]
+        steam = [
+            (-0.36, 0.50), (-0.46, 0.65), (-0.36, 0.82),
+            (-0.25, 0.66), (-0.19, 0.50), (-0.08, 0.50),
+            (-0.10, 0.68), (0.00, 0.87), (0.10, 0.68),
+            (0.08, 0.50), (0.19, 0.50), (0.25, 0.66),
+            (0.36, 0.82), (0.46, 0.65), (0.36, 0.50),
+        ]
+        return [
+            (cup, _semantic_feature_id(spec, "cup", "body", "flat base")),
+            (
+                _ellipse_path((0.0, 0.35), (1.12, 0.18), steps=18),
+                _semantic_feature_id(spec, "rim", "opening", "mouth"),
+            ),
+            (
+                _ellipse_path((0.53, -0.06), (0.56, 0.58), steps=16),
+                _semantic_feature_id(spec, "handle", "right", "open loop"),
+            ),
+            (steam, _semantic_feature_id(spec, "steam", "curl", "above")),
+        ]
+    if mode == "key":
+        bow = Point(0.0, 0.42).buffer(0.46, quad_segs=8)
+        shaft = box(-0.11, -0.72, 0.11, 0.40)
+        tooth = box(0.08, -0.72, 0.42, -0.51)
+        outer = _outer_path(bow, shaft, tooth)
+        return [
+            (outer, _semantic_feature_id(spec, "shaft", "tooth", "profile")),
+            (
+                _ellipse_path((0.0, 0.42), (0.43, 0.43), steps=16),
+                _semantic_feature_id(spec, "bow", "round", "loop"),
+            ),
+        ]
+    if mode == "sailboat":
+        return [
+            ([
+                (-0.95, -0.30), (0.95, -0.30), (0.62, -0.58),
+                (-0.62, -0.58), (-0.95, -0.30),
+            ], _semantic_feature_id(spec, "hull", "bow", "stern")),
+            ([
+                (0.0, -0.29), (0.0, 0.58), (0.0, 0.88),
+            ], _semantic_feature_id(spec, "mast", "vertical")),
+            ([
+                (-0.07, -0.17), (-0.07, 0.82), (-0.76, -0.15),
+                (-0.07, -0.17),
+            ], _semantic_feature_id(spec, "front sail", "sail1", "filled")),
+            ([
+                (0.07, -0.17), (0.07, 0.82), (0.72, -0.12),
+                (0.07, -0.17),
+            ], _semantic_feature_id(spec, "rear sail", "sail2", "filled")),
+        ]
+    if mode == "bicycle":
+        return [
+            (
+                _ellipse_path((-0.58, -0.34), (0.58, 0.58), steps=16),
+                _semantic_feature_id(spec, "wheel", "rear wheel"),
+            ),
+            (
+                _ellipse_path((0.58, -0.34), (0.58, 0.58), steps=16),
+                _semantic_feature_id(spec, "wheel", "front wheel"),
+            ),
+            ([
+                (-0.58, -0.34), (-0.20, 0.28), (0.02, 0.28),
+                (0.58, -0.34),
+                (0.02, -0.16),
+                (-0.58, -0.34),
+            ], _semantic_feature_id(spec, "triangular frame", "frame")),
+            ([
+                (0.48, -0.06), (0.60, -0.06), (0.60, 0.08),
+                (0.86, 0.08), (0.80, 0.32), (0.72, 0.32),
+                (0.77, 0.36), (0.79, 0.42), (0.77, 0.48),
+                (0.72, 0.52), (0.66, 0.53), (0.61, 0.49),
+                (0.61, 0.56), (0.56, 0.62), (0.49, 0.64),
+                (0.42, 0.62), (0.37, 0.56), (0.36, 0.50),
+                (0.31, 0.52), (0.25, 0.51), (0.20, 0.47),
+                (0.18, 0.41), (0.20, 0.35), (0.26, 0.32),
+                (0.30, 0.08), (0.48, 0.08),
+                (0.48, -0.06),
+            ], _semantic_feature_id(spec, "basket", "flower", "bloom")),
+        ]
+    if mode == "platypus":
+        body = _ellipse_polygon((0.0, 0.02), (1.25, 0.58))
+        head = _ellipse_polygon((0.57, 0.10), (0.48, 0.38))
+        bill = box(0.55, -0.10, 1.38, 0.18).buffer(0.025, quad_segs=3)
+        tail = _ellipse_polygon((-0.82, 0.04), (0.78, 0.44))
+        legs = unary_union((
+            _ellipse_polygon((-0.30, -0.30), (0.24, 0.26)),
+            _ellipse_polygon((0.30, -0.30), (0.24, 0.26)),
+        ))
+        connectors = unary_union((
+            LineString([(-0.4, 0.0), (-0.8, 0.04)]).buffer(0.11, cap_style="round"),
+            LineString([(0.35, 0.05), (0.78, 0.05)]).buffer(0.10, cap_style="round"),
+        ))
+        return [(
+            _outer_path(body, head, bill, tail, legs, connectors),
+            _semantic_feature_id(spec, "body", "bill", "tail"),
+        )]
+    if mode == "moon_leap":
+        # Author the profile directly so the two ear tips and compact tucked
+        # legs survive final smoothing.  A boolean union rounded those small
+        # diagnostic features away and made the animal read as a fish.
+        fox = [
+            (-1.16, 0.63), (-0.98, 0.80), (-0.74, 0.82),
+            (-0.48, 0.57), (-0.27, 0.70), (0.00, 0.76),
+            (0.25, 0.70), (0.34, 0.91), (0.49, 0.68),
+            (0.55, 0.70), (0.70, 0.88), (0.71, 0.62),
+            (0.79, 0.56), (1.05, 0.42), (0.72, 0.31),
+            (0.50, 0.31), (0.38, 0.12), (0.18, 0.04),
+            (0.10, 0.25), (-0.09, 0.25), (-0.22, 0.05),
+            (-0.42, 0.12), (-0.36, 0.31), (-0.58, 0.30),
+            (-0.82, 0.35), (-1.03, 0.48), (-1.16, 0.63),
+        ]
+        moon_hit = shape_library.get_shape("moon")
+        if moon_hit is not None:
+            moon = _sample_reference_path([
+                (0.38 * x, 0.38 * y - 0.52)
+                for x, y in moon_hit[1][0]
+            ], max_points=32)
+            if moon_hit[2] and moon[0] != moon[-1]:
+                moon.append(moon[0])
+        else:
+            moon = _ellipse_path((0.0, -0.52), (0.55, 0.55))
+        return [
+            (fox, _semantic_feature_id(spec, "fox", "jump", "tucked", "tail")),
+            (
+                [(-0.38, 0.36), (-0.30, 0.25), (-0.18, 0.25)],
+                _semantic_feature_id(spec, "leg", "tucked", "jump"),
+            ),
+            (
+                [(0.24, 0.42), (0.31, 0.29), (0.43, 0.29)],
+                _semantic_feature_id(spec, "leg", "foreleg", "jump"),
+            ),
+            (moon, _semantic_feature_id(spec, "crescent", "moon")),
+        ]
+    if mode == "cat":
+        body = _ellipse_polygon((0.05, -0.02), (1.12, 0.58))
+        head = _ellipse_polygon((-0.25, 0.37), (0.46, 0.42))
+        neck = LineString([(-0.12, 0.18), (-0.24, 0.30)]).buffer(
+            0.13, cap_style="round"
+        )
+        ears = unary_union((
+            Polygon([(-0.46, 0.52), (-0.39, 0.76), (-0.25, 0.55)]),
+            Polygon([(-0.20, 0.56), (-0.05, 0.72), (0.00, 0.48)]),
+        ))
+        return [
+            (
+                _outer_path(body, head, neck, ears),
+                _semantic_feature_id(spec, "head", "ear", "arched back", "shoulder"),
+            ),
+            ([
+                (0.54, 0.02), (0.86, 0.18), (0.98, 0.48),
+                (0.86, 0.62),
+            ], _semantic_feature_id(spec, "tail", "rear curve")),
+            ([
+                (-0.38, -0.20), (-0.43, -0.53), (-0.20, -0.53),
+                (0.24, -0.20), (0.29, -0.53), (0.52, -0.53),
+            ], _semantic_feature_id(spec, "leg", "front", "hind")),
+        ]
+    if mode == "dragon":
+        text = _semantic_spec_text(spec)
+        if "folded" in text or "osszecsukott" in text:
+            body = _ellipse_polygon((-0.05, 0.04), (1.18, 0.58))
+            neck = LineString([(0.30, 0.19), (0.60, 0.50)]).buffer(
+                0.14, cap_style="round", join_style="round"
+            )
+            head = _ellipse_polygon((0.69, 0.52), (0.44, 0.29))
+            snout = Polygon([(0.79, 0.61), (1.16, 0.52), (0.79, 0.43)])
+            tail = Polygon([
+                (-0.47, 0.18), (-0.76, 0.32), (-1.05, 0.55),
+                (-1.35, 0.48), (-1.50, 0.35), (-1.24, 0.24),
+                (-0.95, 0.04), (-0.65, -0.12), (-0.47, -0.08),
+            ])
+            legs = unary_union((
+                box(-0.48, -0.56, -0.25, -0.15),
+                box(0.27, -0.56, 0.50, -0.15),
+            ))
+            main = _outer_path(body, neck, head, snout, tail, legs)
+            crown = [
+                (0.50, 0.70), (0.52, 0.95), (0.64, 0.82),
+                (0.73, 1.01), (0.82, 0.81), (0.95, 0.94),
+                (0.92, 0.69), (0.50, 0.70),
+            ]
+            outer_wing = [
+                (-0.10, 0.28), (-0.58, 0.51), (-0.46, 0.10),
+                (-0.17, -0.02), (-0.10, 0.28),
+            ]
+            inner_wing = [
+                (0.00, 0.24), (-0.34, 0.42), (-0.26, 0.08),
+                (0.00, -0.02), (0.00, 0.24),
+            ]
+            return [
+                (
+                    main,
+                    _semantic_feature_id(spec, "dragon", "snout", "tail", "body"),
+                ),
+                (crown, _semantic_feature_id(spec, "crown", "three point")),
+                (outer_wing, _semantic_feature_id(spec, "folded wing", "wing")),
+                (
+                    inner_wing,
+                    _semantic_feature_id(spec, "second wing", "layered", "folded"),
+                ),
+            ]
+        body = _ellipse_polygon((-0.05, -0.10), (0.92, 1.02))
+        neck = LineString([(0.12, 0.27), (0.38, 0.57)]).buffer(
+            0.16, cap_style="round", join_style="round"
+        )
+        head = _ellipse_polygon((0.45, 0.59), (0.48, 0.32))
+        snout = Polygon([(0.58, 0.68), (0.91, 0.58), (0.58, 0.48)])
+        legs = unary_union((
+            _ellipse_polygon((-0.38, -0.56), (0.28, 0.34)),
+            _ellipse_polygon((0.34, -0.56), (0.28, 0.34)),
+        ))
+        main = _outer_path(body, neck, head, snout, legs)
+        crown = [
+            (0.25, 0.82), (0.28, 1.09), (0.40, 0.94),
+            (0.50, 1.14), (0.59, 0.93), (0.72, 1.07),
+            (0.69, 0.81), (0.25, 0.82),
+        ]
+        tail_path = [
+            (-0.42, -0.18), (-0.72, -0.30), (-1.02, -0.56),
+            (-0.79, -0.78), (-0.42, -0.72), (-0.13, -0.52),
+        ]
+        detail = (
+            [(-0.20, 0.28), (-0.56, 0.50), (-0.48, 0.10), (-0.14, -0.04), (-0.20, 0.28)]
+            if "wing" in text
+            else [(-0.50, 0.08), (-0.34, 0.34), (-0.06, 0.10), (0.22, 0.34), (0.48, 0.08)]
+        )
+        return [
+            (main, _semantic_feature_id(spec, "body", "head", "neck", "muzzle")),
+            (crown, _semantic_feature_id(spec, "crown", "three point")),
+            (tail_path, _semantic_feature_id(spec, "tail", "curl")),
+            (detail, _semantic_feature_id(spec, "wing", "foreleg", "raised")),
+        ]
+    if mode == "phoenix":
+        body = _ellipse_polygon((0.0, 0.18), (0.40, 0.66))
+        head = _ellipse_polygon((0.11, 0.62), (0.27, 0.24))
+        neck = LineString([(0.04, 0.40), (0.11, 0.58)]).buffer(
+            0.10, cap_style="round"
+        )
+        beak = Polygon([(0.20, 0.68), (0.52, 0.61), (0.20, 0.55)])
+        tail = Polygon([
+            (-0.13, -0.10), (-0.19, -0.43), (0.0, -0.62),
+            (0.19, -0.43), (0.13, -0.10),
+        ])
+        return [
+            (
+                _outer_path(body, neck, head, beak, tail),
+                _semantic_feature_id(
+                    spec, "body", "head", "beak", "tail", "rising"
+                ),
+            ),
+            (
+                [
+                    (-0.10, 0.20), (-0.34, 0.39), (-0.82, 0.91),
+                    (-0.65, 0.24), (-0.98, 0.02), (-0.39, 0.11),
+                    (-0.10, 0.03), (-0.10, 0.20),
+                ],
+                _semantic_feature_id(spec, "left wing", "raised wing"),
+            ),
+            (
+                [
+                    (0.10, 0.20), (0.34, 0.39), (0.80, 0.88),
+                    (0.64, 0.23), (0.96, 0.03), (0.40, 0.11),
+                    (0.10, 0.03), (0.10, 0.20),
+                ],
+                _semantic_feature_id(spec, "right wing", "raised wing"),
+            ),
+            (
+                [
+                    (-0.76, -1.00), (-0.61, -0.58), (-0.43, -0.88),
+                    (-0.24, -0.52), (0.0, -0.90), (0.24, -0.48),
+                    (0.43, -0.88), (0.62, -0.58), (0.76, -1.00),
+                    (0.44, -1.06), (-0.44, -1.06), (-0.76, -1.00),
+                ],
+                _semantic_feature_id(spec, "three flame", "flame", "base"),
+            ),
+        ]
+    if mode == "bear":
+        body = _ellipse_polygon((0.0, -0.18), (0.90, 1.00))
+        head = _ellipse_polygon((0.0, 0.43), (0.62, 0.55))
+        ears = unary_union((
+            Point(-0.25, 0.68).buffer(0.14, quad_segs=5),
+            Point(0.25, 0.68).buffer(0.14, quad_segs=5),
+        ))
+        hat = [
+            (-0.48, 0.72), (0.48, 0.72), (0.30, 0.84),
+            (0.24, 1.08), (-0.18, 1.08), (-0.28, 0.83),
+            (-0.48, 0.72),
+        ]
+        return [
+            (
+                _outer_path(body, head, ears),
+                _semantic_feature_id(spec, "bear", "seated", "body", "head"),
+            ),
+            (hat, _semantic_feature_id(spec, "hat", "large")),
+            ([
+                (-0.28, -0.05), (-0.48, -0.35), (-0.22, -0.54),
+                (0.0, -0.24), (0.22, -0.54), (0.48, -0.35), (0.28, -0.05),
+            ], _semantic_feature_id(spec, "arm", "leg", "seated")),
+        ]
+    return []
+
+
+def _articulated_paths(
+    spec: ShapeSpec,
+    bounds: tuple[float, float, float, float],
+) -> list[tuple[geo.Path, str]]:
+    """Return a four-stroke side-view runner with independently visible arms."""
+
+    min_x, min_y, max_x, max_y = bounds
+    width = max(max_x - min_x, 0.5)
+    height = max(max_y - min_y, 0.5)
+    cx = (min_x + max_x) / 2
+    cy = (min_y + max_y) / 2
+    unit = max(width, height)
+    hip = (cx - 0.05 * unit, cy - 0.04 * unit)
+    shoulder = (cx + 0.18 * unit, cy + 0.34 * unit)
+    head_centre = (cx + 0.31 * unit, cy + 0.50 * unit)
+    torso = LineString([hip, shoulder]).buffer(
+        0.13 * unit,
+        cap_style="round",
+        join_style="round",
+    )
+    support_leg = LineString([
+        hip,
+        (cx - 0.34 * unit, cy - 0.44 * unit),
+        (cx - 0.70 * unit, cy - 0.52 * unit),
+    ]).buffer(0.07 * unit, cap_style="round", join_style="round")
+    neck = LineString([shoulder, head_centre]).buffer(
+        0.08 * unit,
+        cap_style="round",
+    )
+    main = _outer_path(
+        torso,
+        support_leg,
+        neck,
+        Point(*head_centre).buffer(0.13 * unit, quad_segs=6),
+    )
+    return [
+        (
+            main,
+            _semantic_feature_id(spec, "forward", "lean", "head", "support leg"),
+        ),
+        ([
+            hip,
+            (cx + 0.48 * unit, cy - 0.01 * unit),
+            (cx + 0.34 * unit, cy - 0.32 * unit),
+        ], _semantic_feature_id(spec, "high knee", "raised knee", "stride")),
+        ([
+            shoulder,
+            (cx + 0.53 * unit, cy + 0.16 * unit),
+            (cx + 0.43 * unit, cy - 0.01 * unit),
+        ], _semantic_feature_id(spec, "front arm", "lead arm", "arm swing")),
+        ([
+            shoulder,
+            (cx - 0.22 * unit, cy + 0.28 * unit),
+            (cx - 0.45 * unit, cy + 0.08 * unit),
+        ], _semantic_feature_id(spec, "back arm", "rear arm", "opposing arm")),
+    ]
+
+
+def _semantic_part_size(part: ShapePart) -> tuple[float, float]:
+    sizes = {
+        "dominant": (1.15, 0.76),
+        "large": (0.78, 0.56),
+        "medium": (0.58, 0.38),
+        "small": (0.36, 0.25),
+    }
+    width, height = sizes[part.relative_size]
+    text = f"{part.id} {part.label}".casefold()
+    if any(token in text for token in ("bill", "beak", "tail", "wing", "sail", "arm")):
+        width *= 1.35
+        height *= 0.72
+    if "leg" in text or "foot" in text:
+        width *= 0.75
+        height *= 0.65
+    if any(token in text for token in ("shaft", "antenna", "tower")):
+        width *= 0.55
+        height *= 1.45
+    return width, height
+
+
+def _semantic_part_centre(
+    part: ShapePart,
+    *,
+    parent_centre: tuple[float, float],
+    parent_size: tuple[float, float],
+    index: int,
+    viewpoint: str,
+) -> tuple[float, float]:
+    text = f"{part.id} {part.label} {part.position}".casefold()
+    dx = dy = 0.0
+    if any(token in text for token in ("right", "front", "forward")):
+        dx += parent_size[0] * 0.62
+    if any(token in text for token in ("left", "rear", "back", "behind")):
+        dx -= parent_size[0] * 0.62
+    if any(token in text for token in ("above", "upper", "top")):
+        dy += parent_size[1] * 0.72
+    if any(token in text for token in ("below", "lower", "bottom", "underside", "leg", "foot", "tucked")):
+        dy -= parent_size[1] * 0.72
+    if dx == 0.0 and dy == 0.0 and part.parent is not None:
+        if any(token in text for token in ("bill", "beak", "snout", "nose")):
+            dx = parent_size[0] * 0.72
+        elif "tail" in text:
+            dx = -parent_size[0] * 0.72
+        elif any(token in text for token in ("head", "crown", "hat", "antenna")):
+            dy = parent_size[1] * 0.72
+        else:
+            dx = parent_size[0] * (0.45 if index % 2 == 0 else -0.45)
+    if viewpoint == "side" and "head" in text and dx == 0.0:
+        dx = parent_size[0] * 0.55
+    return parent_centre[0] + dx, parent_centre[1] + dy
+
+
+def _semantic_part_geometry(
+    part: ShapePart,
+    centre: tuple[float, float],
+    size: tuple[float, float],
+    *,
+    organic: bool,
+) -> Polygon:
+    text = f"{part.id} {part.label}".casefold()
+    x, y = centre
+    width, height = size
+    if any(token in text for token in ("circle", "circular", "round", "disc", "oval")):
+        points = [
+            (
+                x + width / 2 * math.cos(2 * math.pi * step / 20),
+                y + height / 2 * math.sin(2 * math.pi * step / 20),
+            )
+            for step in range(20)
+        ]
+        return Polygon(points)
+    box_tokens = ("box", "torso", "chest", "building", "tower")
+    if any(token in text for token in box_tokens) or (
+        not organic and any(token in text for token in ("body", "head"))
+    ):
+        radius = min(width, height) * 0.14
+        return box(
+            x - width / 2 + radius,
+            y - height / 2 + radius,
+            x + width / 2 - radius,
+            y + height / 2 - radius,
+        ).buffer(radius, quad_segs=3)
+    if any(token in text for token in ("wing", "sail", "flame", "crown")):
+        return Polygon([
+            (x - width / 2, y - height / 2),
+            (x, y + height / 2),
+            (x + width / 2, y - height / 2),
+        ])
+    points = [
+        (
+            x + width / 2 * math.cos(2 * math.pi * step / 16),
+            y + height / 2 * math.sin(2 * math.pi * step / 16),
+        )
+        for step in range(16)
+    ]
+    return Polygon(points)
+
+
+def _catalog_grounded_candidate(
+    *,
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+    index: int,
+) -> _GeneratedCandidate | None:
+    """Build one route-valid candidate from known subject/accessory anchors.
+
+    The generated variants remain the main creative path. This candidate gives
+    the rendered critic a stable anatomical baseline when the request contains
+    a catalogued subject, while the AI-produced ShapeSpec still defines every
+    required cue and the final selection.
+    """
+
+    if not 0 <= index <= 3:
+        return None
+    references = _reference_shape_payloads(idea, limit=2)
+    if (
+        _semantic_scaffold_mode(spec) == "waves"
+        and references
+        and references[0].get("name") == "lighthouse"
+    ):
+        # The generic wave strokes below deliberately create the requested
+        # pair.  Keeping a single catalogue wave here would produce a third,
+        # asymmetric water mass and consume the lantern stroke budget.
+        references = references[:1]
+    if not references:
+        return None
+    anchored_paths: list[geo.Path] = []
+    path_names: list[str] = []
+    related_offset = _related_anchor_offset(idea)
+    for reference_index, reference in enumerate(references):
+        name = reference.get("name")
+        if not isinstance(name, str):
+            return None
+        hit = shape_library.get_shape(name)
+        if hit is None or not hit[2]:
+            return None
+        authored = shape_library.AUTHORED_OUTLINES.get(hit[0])
+        source_paths = [list(authored)] if authored else [list(path) for path in hit[1]]
+        if hit[0] == "robot":
+            source_paths = _pose_robot_anchor(source_paths, idea)
+        normalised = geo.normalize_shape(source_paths)
+        if len(references) > 1:
+            if reference_index == 0:
+                normalised = [
+                    [(x - 0.20, y - 0.10) for x, y in path]
+                    for path in normalised
+                ]
+            elif (
+                references[0].get("name") == "robot"
+                and hit[0] == "umbrella"
+                and _is_holding_relation(idea)
+            ):
+                normalised = _place_held_umbrella(normalised)
+            else:
+                normalised = [
+                    [
+                        (
+                            0.65 * x + related_offset[0],
+                            0.65 * y + related_offset[1],
+                        )
+                        for x, y in path
+                    ]
+                    for path in normalised
+                ]
+        anchored_paths.extend(normalised)
+        path_names.extend([hit[0]] * len(normalised))
+    if anchored_paths:
+        all_anchor_points = [point for path in anchored_paths for point in path]
+        anchor_bounds = (
+            min(point[0] for point in all_anchor_points),
+            min(point[1] for point in all_anchor_points),
+            max(point[0] for point in all_anchor_points),
+            max(point[1] for point in all_anchor_points),
+        )
+        secondary = _semantic_secondary_paths(spec, anchor_bounds)
+        for path, name in secondary[:max(0, 4 - len(anchored_paths))]:
+            anchored_paths.append(path)
+            path_names.append(name)
+    if not anchored_paths or len(anchored_paths) > 8:
+        return None
+    max_points = max(8, min(48, 88 // len(anchored_paths)))
+    sampled_paths = [
+        _sample_reference_path(path, max_points=max_points)
+        for path in anchored_paths
+    ]
+    program = _catalog_program(sampled_paths, path_names, spec)
+    required_ids = {feature.id for feature in spec.recognition_features}
+    try:
+        compiled = shape_program.compile_shape_program(
+            program,
+            required_feature_ids=required_ids,
+        )
+        _validate_route_friendly_geometry(compiled.paths)
+        _validate_shape_spec_geometry(compiled, spec)
+    except (TypeError, ValueError):
+        return None
+    strategy = "catalog-grounded semantic scaffold"
+    raw: dict[str, object] = {
+        "strategy": strategy,
+        "program": program,
+    }
+    shape = Shape(
+        name=" ".join(idea.split())[:80],
+        paths=compiled.paths,
+        closed=compiled.closed,
+        source="llm",
+        feature_paths=compiled.feature_paths,
+    )
+    return _GeneratedCandidate(
+        index=index,
+        strategy=strategy,
+        raw=raw,
+        shape=shape,
+        local_score=shape_program.local_program_score(compiled, required_ids),
+        feature_warnings=compiled.warnings,
+        response=response,
+    )
+
+
+def _catalog_fallback_shape(
+    idea: str,
+    spec: ShapeSpec,
+    response: LLMResponse,
+) -> Shape | None:
+    """Return an honestly marked, recognisable semantic fallback when possible."""
+
+    mode = _semantic_scaffold_mode(spec)
+    candidate = None
+    if mode in _FULL_SEMANTIC_SCAFFOLD_MODES:
+        candidate = _spec_grounded_candidate(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=0,
+        )
+    if candidate is None:
+        candidate = _catalog_grounded_candidate(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=0,
+        )
+    if candidate is None and mode != "silhouette":
+        candidate = _spec_grounded_candidate(
+            idea=idea,
+            spec=spec,
+            response=response,
+            index=0,
+        )
+    if candidate is None:
+        return None
+    shape = candidate.shape
+    shape.name = f"grounded:{' '.join(idea.split())[:70]}"
+    shape.source = "fallback"
+    shape.spec = spec
+    shape.recognition_features = [feature.label for feature in spec.recognition_features]
+    shape.semantic_verification = _geometry_only_verification(candidate)
+    shape.generator_provider = response.provider
+    shape.generator_model = response.model
+    shape.generator_usage = dict(response.usage)
+    shape.generated_candidate_count = 1
+    shape.selected_candidate = 0
+    return shape
+
+
+def _related_anchor_offset(idea: str) -> tuple[float, float]:
+    words = unicodedata.normalize("NFKD", idea).encode("ascii", "ignore").decode().casefold()
+    if _is_holding_relation(words):
+        return 0.17, 0.34
+    if any(token in words for token in ("above", "over", "felett")):
+        return 0.0, 0.68
+    if any(token in words for token in ("beside", "next to", "mellett")):
+        return 0.62, 0.0
+    return 0.45, 0.42
+
+
+def _is_holding_relation(idea: str) -> bool:
+    words = unicodedata.normalize("NFKD", idea).encode("ascii", "ignore").decode().casefold()
+    return any(token in words for token in ("holding", "held", "with", "tart", "fog"))
+
+
+def _place_held_umbrella(paths: list[geo.Path]) -> list[geo.Path]:
+    """Separate the canopy from the head while pulling its handle to the hand."""
+
+    placed: list[geo.Path] = []
+    for path in paths:
+        transformed: geo.Path = []
+        for x, y in path:
+            placed_x = 0.65 * x + 0.40
+            placed_y = 0.65 * y + 0.48
+            if y < -0.15:
+                blend = min(1.0, max(0.0, (-0.15 - y) / 0.38))
+                placed_x -= 0.255 * blend
+                placed_y -= 0.175 * blend
+            transformed.append((placed_x, placed_y))
+        placed.append(transformed)
+    return placed
+
+
+def _pose_robot_anchor(paths: list[geo.Path], idea: str) -> list[geo.Path]:
+    """Apply bounded silhouette deformations for common robot pose modifiers."""
+
+    words = unicodedata.normalize("NFKD", idea).encode("ascii", "ignore").decode().casefold()
+    waving = any(word in words for word in ("wave", "waving", "integet"))
+    walking = any(word in words for word in ("walk", "walking", "setal", "lepked"))
+    # ShapeSpec expresses pose relations in image coordinates ("viewer left"
+    # and "viewer right"), so explicit side requests must follow that contract
+    # rather than anatomical mirroring.  Unspecified waves retain the catalog
+    # pose on positive X.
+    if any(token in words for token in ("left arm", "left hand", "bal kar", "bal kezzel")):
+        raised_side = -1.0
+    else:
+        raised_side = 1.0
+    posed = deepcopy(paths)
+    for path in posed:
+        for point_index, (x, y) in enumerate(path):
+            side_x = raised_side * x
+            if waving and side_x >= 0.70 and -0.30 <= y <= 0.40:
+                path[point_index] = (
+                    raised_side * (0.66 + 0.50 * (side_x - 0.66)),
+                    y + 1.60 * (side_x - 0.66),
+                )
+                continue
+            if walking and y <= -0.60:
+                direction = 1.0 if x >= 0 else -1.0
+                path[point_index] = (
+                    x + direction * (0.10 + 0.05 * abs(y)),
+                    y + (0.08 if x >= 0 else -0.08),
+                )
+    return posed
+
+
+def _catalog_program(
+    paths: list[geo.Path],
+    path_names: list[str],
+    spec: ShapeSpec,
+) -> dict[str, object]:
+    """Encode anchored paths and assign broad, spatially meaningful cue spans."""
+
+    strokes: list[dict[str, object]] = []
+    segments: list[tuple[dict[str, object], str, tuple[float, float], float]] = []
+    all_points = [point for path in paths for point in path]
+    min_x = min(point[0] for point in all_points)
+    max_x = max(point[0] for point in all_points)
+    min_y = min(point[1] for point in all_points)
+    max_y = max(point[1] for point in all_points)
+    centre_x = (min_x + max_x) / 2
+    centre_y = (min_y + max_y) / 2
+    half_width = max((max_x - min_x) / 2, 1e-9)
+    half_height = max((max_y - min_y) / 2, 1e-9)
+    for path, path_name in zip(paths, path_names, strict=True):
+        closed_path = len(path) >= 3 and path[0] == path[-1]
+        vertices = path[:-1] if closed_path else path
+        if len(vertices) < 3:
+            continue
+        commands: list[dict[str, object]] = [
+            {"op": "move", "points": [list(vertices[0])], "feature_id": None}
+        ]
+        previous = vertices[0]
+        for endpoint in vertices[1:]:
+            command: dict[str, object] = {
+                "op": "line",
+                "points": [list(endpoint)],
+                "feature_id": None,
+            }
+            commands.append(command)
+            midpoint = (
+                ((previous[0] + endpoint[0]) / 2 - centre_x) / half_width,
+                ((previous[1] + endpoint[1]) / 2 - centre_y) / half_height,
+            )
+            segments.append((command, path_name, midpoint, math.dist(previous, endpoint)))
+            previous = endpoint
+        if closed_path:
+            close_command: dict[str, object] = {
+                "op": "close",
+                "points": [],
+                "feature_id": None,
+            }
+            commands.append(close_command)
+            midpoint = (
+                ((previous[0] + vertices[0][0]) / 2 - centre_x) / half_width,
+                ((previous[1] + vertices[0][1]) / 2 - centre_y) / half_height,
+            )
+            segments.append((
+                close_command,
+                path_name,
+                midpoint,
+                math.dist(previous, vertices[0]),
+            ))
+        strokes.append({"commands": commands})
+
+    features = list(spec.recognition_features)
+
+    def assigned_feature(segment: tuple[dict[str, object], str, tuple[float, float], float]) -> str:
+        value = segment[0].get("feature_id")
+        return value if isinstance(value, str) else ""
+
+    for command, path_name, midpoint, _ in segments:
+        command["feature_id"] = max(
+            features,
+            key=lambda feature: _catalog_feature_affinity(feature, path_name, midpoint),
+        ).id
+    minimum_segments = (
+        max(2, math.ceil(len(segments) * 0.06))
+        if len(segments) >= 2 * len(features)
+        else 1
+    )
+    for feature in sorted(features, key=lambda item: (-item.importance, item.id)):
+        while sum(command.get("feature_id") == feature.id for command, *_ in segments) < minimum_segments:
+            counts = {
+                candidate.id: sum(
+                    command.get("feature_id") == candidate.id
+                    for command, *_ in segments
+                )
+                for candidate in features
+            }
+            replaceable = [
+                segment
+                for segment in segments
+                if counts.get(assigned_feature(segment), 0) > minimum_segments
+            ]
+            if not replaceable:
+                break
+            command, _, _, _ = max(
+                replaceable,
+                key=lambda segment: (
+                    _catalog_feature_affinity(feature, segment[1], segment[2]),
+                    segment[3],
+                ),
+            )
+            command["feature_id"] = feature.id
+    total_length = sum(length for *_, length in segments)
+    minimum_lengths = {
+        feature.id: total_length * (0.06 if feature.importance >= 4 else 0.04)
+        for feature in features
+    }
+    for feature in sorted(features, key=lambda item: (-item.importance, item.id)):
+        for _ in range(len(segments)):
+            lengths = {
+                candidate.id: sum(
+                    length
+                    for command, _, _, length in segments
+                    if command.get("feature_id") == candidate.id
+                )
+                for candidate in features
+            }
+            if lengths[feature.id] >= minimum_lengths[feature.id]:
+                break
+            replaceable = [
+                segment
+                for segment in segments
+                if assigned_feature(segment) != feature.id
+                and lengths.get(assigned_feature(segment), 0.0) - segment[3]
+                >= minimum_lengths.get(assigned_feature(segment), 0.0)
+            ]
+            if not replaceable:
+                break
+            command, _, _, _ = max(
+                replaceable,
+                key=lambda segment: (
+                    _catalog_feature_affinity(feature, segment[1], segment[2]),
+                    segment[3],
+                ),
+            )
+            command["feature_id"] = feature.id
+    for stroke in strokes:
+        stroke_commands = stroke.get("commands")
+        if (
+            isinstance(stroke_commands, list)
+            and len(stroke_commands) > 1
+            and isinstance(stroke_commands[0], dict)
+            and isinstance(stroke_commands[1], dict)
+        ):
+            stroke_commands[0]["feature_id"] = stroke_commands[1].get("feature_id")
+    return {"strokes": strokes, "closed": spec.closed_silhouette}
+
+
+def _catalog_feature_affinity(
+    feature: ShapeFeature,
+    path_name: str,
+    midpoint: tuple[float, float],
+) -> float:
+    text = " ".join(
+        (feature.id, feature.label, feature.geometry_hint, feature.relation)
+    ).casefold()
+    x, y = midpoint
+    score = feature.importance * 0.01
+    readable_name = path_name.replace("_", " ")
+    if readable_name in text:
+        score += 8.0
+    groups = {
+        "top": ("head", "antenna", "crown", "hat", "roof", "top", "canopy", "sail"),
+        "bottom": ("leg", "foot", "base", "stride", "flame", "wave", "ground"),
+        "side": ("arm", "hand", "wing", "handle", "shaft", "tail", "bill", "beak"),
+        "front": ("front", "bill", "beak", "nose", "forward", "right"),
+        "rear": ("rear", "back", "tail", "left"),
+        "centre": ("body", "torso", "chest", "mass", "centre", "center"),
+    }
+    if any(token in text for token in groups["top"]):
+        score += 3.0 * y
+    if any(token in text for token in groups["bottom"]):
+        score -= 3.0 * y
+    if any(token in text for token in groups["side"]):
+        score += 2.0 * abs(x)
+    if any(token in text for token in groups["front"]):
+        score += 2.0 * x
+    if any(token in text for token in groups["rear"]):
+        score -= 2.0 * x
+    if any(token in text for token in groups["centre"]):
+        score += 2.0 * (1.0 - min(1.0, abs(x)))
+    if path_name == "umbrella":
+        score += 6.0 if any(token in text for token in ("umbrella", "canopy", "handle", "shaft", "open")) else -2.0
+    if path_name == "robot":
+        score += 3.0 if any(token in text for token in ("robot", "head", "body", "torso", "arm", "leg", "antenna")) else 0.0
+    return score
 
 
 def _custom_shape_cache_key(

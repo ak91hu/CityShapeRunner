@@ -15,6 +15,7 @@ from gps_art_wizzard.state import RouteReadiness
 from gps_art_wizzard.tools import (
     art_rescue,
     destination_catalog,
+    geo,
     gpx_writer,
     lesson_pack,
     occasions,
@@ -27,7 +28,19 @@ from gps_art_wizzard.tools import (
 POINTS = [[47.0, 19.0], [47.001, 19.0], [47.001, 19.001], [47.0, 19.001], [47.0, 19.0]]
 
 
-def test_mural_plan_splits_one_route_into_balanced_gpx_sections():
+def test_mural_plan_splits_one_provider_routed_route_into_balanced_gpx_sections(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        ors_client,
+        "snap_route_detailed",
+        lambda points, **_kwargs: (
+            points,
+            geo.path_distance_m(points),
+            True,
+            RouteReadiness(status="ready", data_quality="good"),
+        ),
+    )
     with TestClient(create_app()) as client:
         response = client.post(
             "/mural-plan", json={"points": POINTS, "participants": 2, "name": "Team heart"}
@@ -37,6 +50,31 @@ def test_mural_plan_splits_one_route_into_balanced_gpx_sections():
     assert len(sections) == 2
     assert all("<gpx" in section["gpx"] for section in sections)
     assert abs(sections[0]["distance_km"] - sections[1]["distance_km"]) < 0.02
+    assert response.json()["snapped"] is True
+
+
+def test_mural_plan_refuses_unrouted_geometry(monkeypatch):
+    monkeypatch.setattr(
+        ors_client,
+        "snap_route_detailed",
+        lambda points, **_kwargs: (points, geo.path_distance_m(points), False, RouteReadiness()),
+    )
+    monkeypatch.setattr(
+        niche.gpx_writer,
+        "to_gpx",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unrouted mural geometry must never reach GPX serialisation"
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/mural-plan",
+            json={"points": POINTS, "participants": 2, "name": "Unsafe mural"},
+        )
+
+    assert response.status_code == 503
+    assert "no GPS file was created" in response.json()["detail"]
 
 
 def test_timed_readiness_exposes_daylight_and_resilient_weather(monkeypatch):
@@ -226,6 +264,30 @@ def test_recognition_repair_keeps_salient_anchor_route_exportable(monkeypatch):
     assert "Refined GPS art" in body["gpx"]
 
 
+def test_recognition_repair_refuses_straight_line_fallback(monkeypatch):
+    monkeypatch.setattr(
+        ors_client,
+        "snap_route_detailed",
+        lambda points, **_kwargs: (points, geo.path_distance_m(points), False, RouteReadiness()),
+    )
+    monkeypatch.setattr(
+        niche.gpx_writer,
+        "to_gpx",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unrouted repair geometry must never reach GPX serialisation"
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/recognition-repair",
+            json={"reference_points": POINTS, "sport": "run", "closed": True},
+        )
+
+    assert response.status_code == 503
+    assert "no GPS file was created" in response.json()["detail"]
+
+
 def test_inkproof_forecast_reports_drift_resilience_and_mappable_details():
     with TestClient(create_app()) as client:
         response = client.post(
@@ -236,8 +298,9 @@ def test_inkproof_forecast_reports_drift_resilience_and_mappable_details():
     body = response.json()
     # The 100 m square is a clean drawing: deterministic simulations put it
     # just above the "durable" boundary with no fragile sections at all.
-    assert body["resilience_score"] == pytest.approx(0.8595, abs=2e-3)
-    assert body["expected_recognition"] == pytest.approx(0.8049, abs=2e-3)
+    # closed-phase-v2 also aligns the perturbed loops by their full contour.
+    assert body["resilience_score"] == pytest.approx(0.8614, abs=2e-3)
+    assert body["expected_recognition"] == pytest.approx(0.8075, abs=2e-3)
     assert body["fragile_share"] == 0.0
     assert body["fragile_segments"] == []
     assert body["rating"] == "durable"
@@ -264,7 +327,7 @@ def test_inkproof_forecast_flags_a_tight_pinch_as_fragile():
 
     assert body["fragile_share"] == pytest.approx(1.0)
     assert len(body["fragile_segments"]) == 1
-    assert body["resilience_score"] == pytest.approx(0.6639, abs=2e-3)
+    assert body["resilience_score"] == pytest.approx(0.6663, abs=2e-3)
     assert body["rating"] == "fragile"
     assert len(body["tips"]) == 3  # lock tip + slow-down + widen/enlarge advice
     first = body["fragile_segments"][0]
@@ -277,13 +340,25 @@ def test_inkproof_forecast_flags_a_tight_pinch_as_fragile():
     assert first["points_preview"]
 
 
-def test_art_rescue_preserves_pen_up_gaps_and_exports_only_missing_ink():
+def test_art_rescue_preserves_pen_up_gaps_and_exports_only_routed_missing_ink(
+    monkeypatch,
+):
     first = [(47.0, 19.0), (47.001, 19.0), (47.001, 19.001)]
     second = [(47.0, 19.001), (47.0, 19.0)]
     recordings = [
         {"name": "day-one.gpx", "gpx": gpx_writer.to_gpx(first)},
         {"name": "day-two.gpx", "gpx": gpx_writer.to_gpx(second)},
     ]
+    monkeypatch.setattr(
+        ors_client,
+        "snap_route_detailed",
+        lambda points, **_kwargs: (
+            points,
+            geo.path_distance_m(points),
+            True,
+            RouteReadiness(status="ready", data_quality="good"),
+        ),
+    )
     with TestClient(create_app()) as client:
         response = client.post(
             "/art-rescue",
@@ -303,8 +378,41 @@ def test_art_rescue_preserves_pen_up_gaps_and_exports_only_missing_ink():
     assert body["missing_segments"]
     assert body["missing_ink_gpx"].count("<trkseg>") == 1
     assert body["merged_recording_gpx"].count("<trkseg>") == 2
-    assert "recorded points only" in body["authenticity"]
+    assert "Directions-verified road/path route" in body["authenticity"]
     assert "not stored" in body["privacy"]
+
+
+def test_art_rescue_refuses_any_unrouted_export_segment(monkeypatch):
+    recording = {
+        "name": "day-one.gpx",
+        "gpx": gpx_writer.to_gpx([(47.0, 19.0), (47.001, 19.0)]),
+    }
+    monkeypatch.setattr(
+        ors_client,
+        "snap_route_detailed",
+        lambda points, **_kwargs: (points, geo.path_distance_m(points), False, RouteReadiness()),
+    )
+    monkeypatch.setattr(
+        art_rescue.gpx_writer,
+        "to_segmented_gpx",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unrouted rescue geometry must never reach GPX serialisation"
+        ),
+    )
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/art-rescue",
+            json={
+                "planned_points": POINTS,
+                "recordings": [recording],
+                "name": "Unsafe rescue",
+                "sport": "run",
+            },
+        )
+
+    assert response.status_code == 503
+    assert "no GPS file was created" in response.json()["detail"]
 
 
 # ---- occasion catalog ------------------------------------------------------- #

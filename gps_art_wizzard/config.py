@@ -24,6 +24,9 @@ SETTINGS_YAML = ROOT / "config" / "settings.yaml"
 @dataclass
 class LLMConfig:
     provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "auto"))
+    usage_mode: str = field(
+        default_factory=lambda: os.getenv("LLM_USAGE_MODE", "balanced").strip().lower()
+    )
     fallback_order: list[str] = field(default_factory=lambda: _split_env("LLM_FALLBACK", ["opencode", "anthropic", "openai", "ollama"]))
     temperature: float = field(default_factory=lambda: _float("LLM_TEMPERATURE", 0.2))
     max_tokens: int = field(default_factory=lambda: _int("LLM_MAX_TOKENS", 2048))
@@ -34,6 +37,15 @@ class LLMConfig:
     ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", ""))
     opencode_key: str = field(default_factory=lambda: os.getenv("OPENCODE_API_KEY", ""))
     opencode_base_url: str = field(default_factory=lambda: os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"))
+    opencode_transport: str = field(
+        default_factory=lambda: os.getenv("OPENCODE_TRANSPORT", "api").strip().lower()
+    )
+    opencode_server_url: str = field(
+        default_factory=lambda: os.getenv(
+            "OPENCODE_SERVER_URL",
+            "http://127.0.0.1:4097",
+        )
+    )
     opencode_structured_model: str = field(
         default_factory=lambda: os.getenv(
             "OPENCODE_STRUCTURED_MODEL",
@@ -51,6 +63,9 @@ class LLMConfig:
 
 @dataclass
 class RoutingConfig:
+    shape_graph_enabled: bool = field(default_factory=lambda: _bool("SHAPE_GRAPH_ENABLED", True))
+    shape_graph_snapshot: str = field(default_factory=lambda: os.getenv("SHAPE_GRAPH_SNAPSHOT", ""))
+    shape_graph_seconds: float = field(default_factory=lambda: _float("SHAPE_GRAPH_SECONDS", 2.0))
     ors_api_key: str = field(default_factory=lambda: os.getenv("ORS_API_KEY", ""))
     ors_base_url: str = field(
         default_factory=lambda: os.getenv(
@@ -76,6 +91,7 @@ class GeocoderConfig:
 
 @dataclass
 class WorkflowConfig:
+    shape_polish_candidates: int = field(default_factory=lambda: _int("SHAPE_POLISH_CANDIDATES", 4))
     max_refinement_iterations: int = field(default_factory=lambda: _int("MAX_REFINEMENT_ITERATIONS", 6))
     validation_score_threshold: float = field(default_factory=lambda: _float("VALIDATION_SCORE_THRESHOLD", 0.72))
     min_shape_fidelity: float = 0.7
@@ -91,6 +107,9 @@ class WorkflowConfig:
     preflight_guide_points: int = field(
         default_factory=lambda: _int("PREFLIGHT_GUIDE_POINTS", 18)
     )
+    preflight_adaptive: bool = field(
+        default_factory=lambda: _bool("PREFLIGHT_ADAPTIVE", True)
+    )
     # Candidate route measurements (road recovery, suggestion and fallback
     # searches) run concurrently through this bounded worker pool. Higher
     # values trade API rate limits for lower wall-clock time.
@@ -99,6 +118,12 @@ class WorkflowConfig:
     )
     ai_shape_verifier_enabled: bool = field(
         default_factory=lambda: _bool("AI_SHAPE_VERIFIER_ENABLED", True)
+    )
+    ai_route_verifier_enabled: bool = field(
+        default_factory=lambda: _bool("AI_ROUTE_VERIFIER_ENABLED", True)
+    )
+    ai_route_verifier_candidates: int = field(
+        default_factory=lambda: _int("AI_ROUTE_VERIFIER_CANDIDATES", 3)
     )
     ai_shape_min_semantic_score: float = field(
         default_factory=lambda: _float("AI_SHAPE_MIN_SEMANTIC_SCORE", 0.68)
@@ -196,13 +221,17 @@ def get_settings() -> Settings:
                 # Env vars win over yaml; only apply yaml when env didn't set it.
                 env_name = {
                     "max_refinement_iterations": "MAX_REFINEMENT_ITERATIONS",
+                    "shape_polish_candidates": "SHAPE_POLISH_CANDIDATES",
                     "validation_score_threshold": "VALIDATION_SCORE_THRESHOLD",
                     "preflight_enabled": "PREFLIGHT_ENABLED",
                     "preflight_max_placements": "PREFLIGHT_MAX_PLACEMENTS",
                     "preflight_shortlist": "PREFLIGHT_SHORTLIST",
                     "preflight_guide_points": "PREFLIGHT_GUIDE_POINTS",
+                    "preflight_adaptive": "PREFLIGHT_ADAPTIVE",
                     "measurement_workers": "MEASUREMENT_WORKERS",
                     "ai_shape_verifier_enabled": "AI_SHAPE_VERIFIER_ENABLED",
+                    "ai_route_verifier_enabled": "AI_ROUTE_VERIFIER_ENABLED",
+                    "ai_route_verifier_candidates": "AI_ROUTE_VERIFIER_CANDIDATES",
                     "ai_shape_min_semantic_score": "AI_SHAPE_MIN_SEMANTIC_SCORE",
                     "ai_shape_max_candidates": "AI_SHAPE_MAX_CANDIDATES",
                     "max_duration_seconds": "WORKFLOW_MAX_DURATION_SECONDS",
@@ -221,6 +250,9 @@ def get_settings() -> Settings:
             if hasattr(settings.routing, k):
                 env_name = {
                     "snap_radius_m": "ORS_SNAP_RADIUS_M",
+                    "shape_graph_enabled": "SHAPE_GRAPH_ENABLED",
+                    "shape_graph_snapshot": "SHAPE_GRAPH_SNAPSHOT",
+                    "shape_graph_seconds": "SHAPE_GRAPH_SECONDS",
                     "continue_straight": "ORS_CONTINUE_STRAIGHT",
                     "preference": "ORS_PREFERENCE",
                 }.get(k)

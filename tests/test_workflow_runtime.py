@@ -177,6 +177,17 @@ def test_llm_call_budget_switches_subsequent_calls_to_local_fallback(
     assert "llm_fallback:call_budget_exhausted" in runtime.trace.degraded_reasons
 
 
+def test_negative_one_allows_unlimited_free_model_calls() -> None:
+    runtime = _runtime(WorkflowState(prompt="free custom shapes"), max_llm_calls=-1)
+
+    reservations = [runtime.reserve_llm_attempt("opencode") for _ in range(100)]
+
+    assert all(allowed and reason is None for allowed, reason in reservations)
+    assert runtime.trace.max_llm_calls == -1
+    assert runtime.trace.llm_attempts == 100
+    assert "llm_call_budget_exhausted" not in runtime.trace.degraded_reasons
+
+
 def test_expired_deadline_blocks_only_optional_ai_work() -> None:
     state = WorkflowState(prompt="a custom animal")
     clock = MutableClock()

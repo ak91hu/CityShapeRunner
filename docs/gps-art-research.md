@@ -596,12 +596,15 @@ request. See the official
 [snapping endpoint documentation](https://giscience.github.io/openrouteservice/api-reference/endpoints/snapping/).
 
 As of 2026-04-28, openrouteservice deprecated
-`api.openrouteservice.org` and announced its shutdown for 2026-08-24. The
+`api.openrouteservice.org`. The August 27 update reduced the old host to 10%
+quota and moved the shutdown to 2026-09-28. The
 application default now uses `api.heigit.org/openrouteservice`; the old base URL
 is still identified as a hosted service during the transition so a missing key
 cannot accidentally trigger anonymous traffic. This is an operational
 migration, not an algorithm change. See the
 [official announcement](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912).
+The [updated announcement](https://ask.openrouteservice.org/t/reducing-the-quota-of-deprecated-api-api-openrouteservice-org/8013)
+also clarifies that the account dashboard reports only the new host's quota.
 
 Therefore the current ORS funnel is a measured approximation, not an
 implementation of Waschk–Krüger or Li–Fu. A research-grade next engine would

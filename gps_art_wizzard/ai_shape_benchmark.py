@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from .state import Shape
 
@@ -39,6 +39,21 @@ AI_SHAPE_BENCHMARK_CASES = (
 )
 
 
+def passes_ai_shape_quality(shape: Shape, *, minimum_score: float = 0.68) -> bool:
+    """Require rendered evidence, threshold score, and every requested cue."""
+
+    review = shape.semantic_verification
+    return bool(
+        shape.source == "llm"
+        and review
+        and review.method.startswith("rendered-image")
+        and review.score is not None
+        and review.score >= minimum_score
+        and not review.missing_features
+        and all(cue.present for cue in review.cue_results)
+    )
+
+
 def benchmark_shape_record(case: AIShapeBenchmarkCase, shape: Shape) -> dict[str, object]:
     """Create a JSON-ready record without claiming a visual score when none exists."""
 
@@ -52,12 +67,22 @@ def benchmark_shape_record(case: AIShapeBenchmarkCase, shape: Shape) -> dict[str
         "source": shape.source,
         "candidate_count": shape.generated_candidate_count,
         "selected_candidate": shape.selected_candidate,
+        "generation_strategy": shape.generation_strategy,
         "spec_feature_count": len(shape.spec.recognition_features) if shape.spec else 0,
+        "shape_spec": asdict(shape.spec) if shape.spec else None,
         "semantic_score": review.score if review else None,
+        "semantic_pass": passes_ai_shape_quality(shape),
+        "visually_reviewed": bool(
+            review and review.method.startswith("rendered-image")
+        ),
         "independent_verifier": bool(review and review.independent),
+        "verifier_provider": review.provider if review else None,
+        "verifier_method": review.method if review else None,
         "missing_features": list(review.missing_features) if review else [],
+        "absent_cue_ids": [
+            cue.feature_id for cue in review.cue_results if not cue.present
+        ] if review else [],
         "wrong_relations": list(review.wrong_relations) if review else [],
         "path_count": len(shape.paths),
         "point_count": sum(len(path) for path in shape.paths),
     }
-

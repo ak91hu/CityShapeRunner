@@ -18,7 +18,12 @@ import pytest
 from gps_art_wizzard.agents.preflight_agent import PreflightAgent
 from gps_art_wizzard.agents.refinement_agent import RefinementAgent
 from gps_art_wizzard.orchestrator import Orchestrator
-from gps_art_wizzard.quality import quality_bottleneck, quality_gate_report
+from gps_art_wizzard.quality import (
+    DISTANCE_FIT_THRESHOLD,
+    MAX_DISTANCE_ERROR_RATIO,
+    quality_bottleneck,
+    quality_gate_report,
+)
 from gps_art_wizzard.state import RouteDraft, Validation, WorkflowState
 from gps_art_wizzard.tools import geo
 
@@ -28,6 +33,8 @@ def _good_validation(**overrides: object) -> Validation:
         "score": 0.95,
         "closure": 0.95,
         "distance_fit": 0.95,
+        "actual_distance_km": 15.0,
+        "target_distance_km": 15.0,
         "shape_fidelity": 0.95,
         "on_roads": True,
         "spatial_similarity": 0.95,
@@ -180,7 +187,7 @@ def test_every_numeric_quality_gate_is_independent_and_boundary_inclusive() -> N
         "reversal_similarity": ("reversal_similarity", thresholds["shape"]),
         "length_similarity": ("length_similarity", thresholds["shape"]),
         "extent_similarity": ("extent_similarity", thresholds["shape"]),
-        "distance_fit": ("distance_fit", thresholds["usability"]),
+        "distance_fit": ("distance_fit", thresholds["distance_fit"]),
         "closure": ("closure", thresholds["usability"]),
     }
 
@@ -254,9 +261,81 @@ def test_quality_bottleneck_and_candidate_order_reward_balanced_safe_routes() ->
         lopsided, closed=True
     )
     assert quality_bottleneck(unsafe, closed=True) == 0.0
-    assert Orchestrator._candidate_is_better(balanced, lopsided)
+    # Both pass: the more faithful drawing wins within the accepted distance.
+    assert Orchestrator._candidate_is_better(lopsided, balanced)
+    # A severely wrong distance must still lose, even with excellent fidelity.
+    assert Orchestrator._candidate_is_better(balanced, replace(lopsided, distance_fit=0.3))
     assert Orchestrator._candidate_is_better(balanced, unsafe)
     assert not Orchestrator._candidate_is_better(unsafe, balanced)
+
+
+def test_twenty_percent_distance_limit_and_fidelity_first_candidate_order() -> None:
+    assert MAX_DISTANCE_ERROR_RATIO == 0.20
+    assert DISTANCE_FIT_THRESHOLD == pytest.approx(math.exp(-0.6))
+    at_limit = _good_validation(distance_fit=math.exp(-3 * 0.20))
+    beyond_limit = replace(at_limit, distance_fit=math.exp(-3 * 0.201))
+    assert "distance_fit" not in quality_gate_report(at_limit, closed=True)["failed_gates"]
+    assert "distance_fit" in quality_gate_report(beyond_limit, closed=True)["failed_gates"]
+    untargeted = replace(at_limit, target_distance_km=None, distance_fit=0.57)
+    assert "distance_fit" in quality_gate_report(untargeted, closed=True)["failed_gates"]
+
+    in_range = _good_validation(
+        score=0.76, shape_fidelity=0.787, distance_fit=0.554,
+        turning_similarity=0.616, length_similarity=0.636,
+    )
+    just_outside = _good_validation(
+        score=0.757, shape_fidelity=0.795, distance_fit=0.532,
+        turning_similarity=0.645, length_similarity=0.656,
+    )
+    assert Orchestrator._candidate_is_better(in_range, just_outside)
+
+    more_faithful = _good_validation(
+        score=0.80, shape_fidelity=0.80, distance_fit=0.70,
+        turning_similarity=0.60,
+    )
+    slightly_more_balanced = _good_validation(
+        score=0.80, shape_fidelity=0.76, distance_fit=0.70,
+        turning_similarity=0.65,
+    )
+    assert Orchestrator._candidate_is_better(more_faithful, slightly_more_balanced)
+
+
+def test_incomplete_candidate_order_advances_the_weakest_shape_gate() -> None:
+    faithful_but_missing_turns = _good_validation(
+        shape_fidelity=0.9,
+        turning_similarity=0.5,
+    )
+    more_balanced = _good_validation(
+        shape_fidelity=0.82,
+        turning_similarity=0.65,
+    )
+
+    assert Orchestrator._candidate_is_better(
+        more_balanced, faithful_but_missing_turns,
+    )
+    assert not Orchestrator._candidate_is_better(
+        faithful_but_missing_turns, more_balanced,
+    )
+
+    # A marginal bottleneck gain must not justify a large loss of the overall
+    # silhouette. These values reproduce the trade-off seen in the frozen star
+    # candidate set.
+    recognisable_star = _good_validation(
+        shape_fidelity=0.758,
+        spatial_similarity=0.678,
+        turning_similarity=0.580,
+    )
+    flatter_bottleneck_only = _good_validation(
+        shape_fidelity=0.7,
+        spatial_similarity=0.59,
+        turning_similarity=0.6,
+    )
+    assert quality_bottleneck(
+        flatter_bottleneck_only, closed=True,
+    ) > quality_bottleneck(recognisable_star, closed=True)
+    assert Orchestrator._candidate_is_better(
+        recognisable_star, flatter_bottleneck_only,
+    )
 
 
 def test_preflight_diversity_is_symmetric_and_wraps_rotation_at_north() -> None:

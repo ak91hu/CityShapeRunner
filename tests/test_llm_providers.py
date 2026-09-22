@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from gps_art_wizzard.config import LLMConfig
+from gps_art_wizzard.llm import opencode_cli_runtime
 from gps_art_wizzard.llm.anthropic_provider import (
     AnthropicProvider,
     _supports_structured_outputs,
@@ -16,6 +20,7 @@ from gps_art_wizzard.llm.openai_provider import (
 from gps_art_wizzard.llm.openai_provider import (
     _supports_structured_outputs as openai_supports_structured_outputs,
 )
+from gps_art_wizzard.llm.opencode_cli_provider import OpenCodeCLIProvider
 from gps_art_wizzard.llm.opencode_provider import OpenCodeProvider
 
 _SCHEMA = {
@@ -35,6 +40,114 @@ class _Recorder:
     def create(self, **kwargs):
         self.kwargs = kwargs
         return self._response
+
+
+def test_opencode_cli_provider_uses_free_model_and_deletes_session():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"healthy": True})
+        if request.method == "DELETE":
+            return httpx.Response(200, json=True)
+        if request.url.path == "/session":
+            return httpx.Response(200, json={"id": "ses_test"})
+        return httpx.Response(
+            200,
+            json={
+                "info": {
+                    "tokens": {"input": 120, "output": 12},
+                    "cost": 0,
+                },
+                "parts": [{"type": "text", "text": '{"closed":true}'}],
+            },
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://127.0.0.1:4097",
+    )
+    provider = OpenCodeCLIProvider(
+        "http://127.0.0.1:4097",
+        "muse-spark-1.3-contributor-free",
+        client=client,
+    )
+
+    assert provider.is_available() is True
+    response = provider.complete(
+        [Message(role="user", content="draw")],
+        json_schema=_SCHEMA,
+        max_tokens=512,
+        system="Return JSON only.",
+    )
+
+    assert response.text == '{"closed":true}'
+    assert response.model == "muse-spark-1.3-contributor-free"
+    assert response.usage == {"prompt": 120, "completion": 12}
+    message_request = next(
+        request for request in requests
+        if request.method == "POST" and request.url.path.endswith("/message")
+    )
+    payload = json.loads(message_request.content)
+    assert payload["model"] == {
+        "providerID": "opencode",
+        "modelID": "muse-spark-1.3-contributor-free",
+    }
+    assert "JSON Schema" in payload["parts"][0]["text"]
+    assert "512 output tokens" in payload["parts"][0]["text"]
+    assert any(request.method == "DELETE" for request in requests)
+
+
+def test_opencode_cli_provider_rejects_unreliable_free_image_calls():
+    provider = OpenCodeCLIProvider.__new__(OpenCodeCLIProvider)
+    provider._model = "muse-spark-1.3-contributor-free"
+    provider._max_tokens = 256
+
+    with pytest.raises(LLMError, match="image inputs unavailable"):
+        provider.complete(
+            [Message(role="user", content="review")],
+            images=[_PNG],
+        )
+
+
+def test_opencode_cli_runtime_does_not_start_without_a_key(monkeypatch):
+    monkeypatch.setattr(
+        opencode_cli_runtime,
+        "_healthy",
+        lambda *_args: pytest.fail("server must not be probed without a key"),
+    )
+    config = LLMConfig(opencode_transport="cli", opencode_key="")
+
+    with opencode_cli_runtime.managed_opencode_server(config):
+        pass
+
+
+def test_opencode_cli_runtime_rejects_non_loopback_server(monkeypatch):
+    monkeypatch.setattr(opencode_cli_runtime, "_healthy", lambda *_args: False)
+    config = LLMConfig(
+        opencode_transport="cli",
+        opencode_key="configured",
+        opencode_server_url="http://0.0.0.0:4097",
+    )
+
+    with pytest.raises(RuntimeError, match="loopback"):
+        with opencode_cli_runtime.managed_opencode_server(config):
+            pass
+
+
+def test_opencode_cli_runtime_resolves_native_binary_behind_windows_shim(
+    monkeypatch,
+    tmp_path,
+):
+    shim = tmp_path / "opencode.cmd"
+    shim.touch()
+    native = tmp_path / "node_modules" / "opencode-ai" / "bin" / "opencode.exe"
+    native.parent.mkdir(parents=True)
+    native.touch()
+    monkeypatch.setattr(opencode_cli_runtime.shutil, "which", lambda *_args: str(shim))
+
+    assert opencode_cli_runtime._opencode_executable(platform_name="nt") == str(native)
 
 
 def test_opencode_provider_uses_responses_schema_model_for_structured_calls():
@@ -73,9 +186,35 @@ def test_opencode_provider_uses_responses_schema_model_for_structured_calls():
     }
     assert recorder.kwargs["reasoning"] == {"effort": "low"}
     assert recorder.kwargs["max_output_tokens"] == 256
+    assert recorder.kwargs["timeout"] == 30.0
     assert response.text == '{"closed":true}'
     assert response.model == "gpt-5.4-mini"
     assert response.usage == {"prompt": 12, "completion": 5}
+
+
+def test_opencode_large_structured_shape_gets_bounded_extra_transport_time():
+    recorder = _Recorder(
+        SimpleNamespace(
+            output_text='{"closed":true}',
+            status="completed",
+            usage=None,
+        )
+    )
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "deepseek-v4-flash"
+    provider._structured_model = "gpt-5.4-mini"
+    provider._temperature = 0.2
+    provider._max_tokens = 2048
+
+    provider.complete(
+        [Message(role="user", content="draw")],
+        json_schema=_SCHEMA,
+        max_tokens=8192,
+    )
+
+    assert recorder.kwargs["max_output_tokens"] == 8192
+    assert recorder.kwargs["timeout"] == 45.0
 
 
 def test_opencode_provider_rejects_incomplete_structured_output():
@@ -99,6 +238,79 @@ def test_opencode_provider_rejects_incomplete_structured_output():
             [Message(role="user", content="draw")],
             json_schema=_SCHEMA,
         )
+
+
+def test_opencode_provider_retries_truncated_structure_with_larger_budget():
+    class SequenceRecorder:
+        def __init__(self):
+            self.calls = []
+            self.responses = iter([
+                SimpleNamespace(
+                    output_text='{"closed":',
+                    status="incomplete",
+                    incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+                    usage=None,
+                ),
+                SimpleNamespace(
+                    output_text='{"closed":true}',
+                    status="completed",
+                    usage=None,
+                ),
+            ])
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return next(self.responses)
+
+    recorder = SequenceRecorder()
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "deepseek-v4-flash"
+    provider._structured_model = "gpt-5.4-mini"
+    provider._temperature = 0.2
+    provider._max_tokens = 256
+
+    response = provider.complete(
+        [Message(role="user", content="draw")],
+        json_schema=_SCHEMA,
+    )
+
+    assert response.text == '{"closed":true}'
+    assert [call["max_output_tokens"] for call in recorder.calls] == [256, 512]
+    assert recorder.calls[1]["timeout"] == 45.0
+
+
+def test_opencode_provider_retries_one_structured_timeout():
+    class SequenceRecorder:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(dict(kwargs))
+            if len(self.calls) == 1:
+                raise TimeoutError("Request timed out")
+            return SimpleNamespace(
+                output_text='{"closed":true}',
+                status="completed",
+                usage=None,
+            )
+
+    recorder = SequenceRecorder()
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "deepseek-v4-flash"
+    provider._structured_model = "gpt-5.4-mini"
+    provider._temperature = 0.2
+    provider._max_tokens = 256
+
+    response = provider.complete(
+        [Message(role="user", content="draw")],
+        json_schema=_SCHEMA,
+    )
+
+    assert response.text == '{"closed":true}'
+    assert len(recorder.calls) == 2
+    assert recorder.calls[1]["timeout"] == 45.0
 
 
 def test_openai_provider_uses_strict_json_schema_when_supplied():
@@ -462,6 +674,44 @@ def test_max_provider_attempts_stops_after_the_first_failure(isolated_factory, m
     assert result == "deterministic"
     assert first.calls == 1
     assert second.calls == 0  # attempt cap reached before trying the backup
+
+
+def test_truncated_output_does_not_open_provider_reachability_cooldown(
+    isolated_factory,
+    monkeypatch,
+):
+    provider = _install_providers(
+        monkeypatch,
+        _StubProvider(
+            "structured",
+            error="OpenCode Zen structured response was incomplete: max_output_tokens",
+        ),
+    )[0]
+
+    result = llm_factory.try_complete(_fallback, max_provider_attempts=1)
+
+    assert result == "deterministic"
+    assert provider.calls == 1
+    assert not llm_factory._probe_in_cooldown("structured")
+
+
+def test_timeout_does_not_open_provider_reachability_cooldown(
+    isolated_factory,
+    monkeypatch,
+):
+    provider = _install_providers(
+        monkeypatch,
+        _StubProvider(
+            "structured",
+            error="OpenCode Zen structured call failed: Request timed out.",
+        ),
+    )[0]
+
+    result = llm_factory.try_complete(_fallback, max_provider_attempts=1)
+
+    assert result == "deterministic"
+    assert provider.calls == 1
+    assert not llm_factory._probe_in_cooldown("structured")
 
 
 def test_get_llm_raises_no_provider_error_when_every_probe_fails(

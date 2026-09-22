@@ -13,12 +13,22 @@ not compound, while every measured candidate remains available to the user.
 
 | Worst metric | Likely cause | Tweak |
 |---|---|---|
-| `shape_fidelity` low | wrong rotation, poor grid placement, or over-simplification | Test a bounded rotation/offset candidate and reduce `simplify_tolerance` |
+| `shape_fidelity` or an independent shape cue low | wrong rotation or poor grid placement | Test a bounded rotation/offset candidate while preserving every Directions vertex |
 | `distance_fit` low, route too long | road detour overhead | `scale_factor = target / actual` (bounded to `[0.35, 1.5]`) |
 | `distance_fit` low, route too short | drawing is too small | `scale_factor = target / actual` (bounded to `[0.35, 1.5]`) |
 | `closure` low (closed shape) | loop open over a park/river | Shrink slightly and test a nearby grid offset |
 
 Rules:
+- **Spend the accepted distance allowance on shape.** If the measured street
+  route is within 20% of an explicit distance target, do not scale it merely
+  toward the exact kilometre total. Explore a different grid placement when
+  any independent recognition cue still fails, even if combined fidelity is
+  above its floor. Scale correction starts only outside the allowed band.
+- **Do not starve measured distance correction.** While `distance_fit < exp(-0.6)`
+  (more than 20% from the requested target)
+  on a road-routed result, reserve the final two configured refinement slots
+  for scale correction rather than consuming more preflight placements.
+  Keep untested placements queued and retain the same total iteration budget.
 - **Recover connectivity before quality.** If the initial Directions result has
   `on_roads=false`, try each remaining preflight-ranked placement. Do not apply
   numeric scale or geometry refinement to a straight-line diagnostic; if no

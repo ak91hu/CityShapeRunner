@@ -8,12 +8,49 @@ prevents different surfaces from presenting contradictory route statuses.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .config import get_settings
 from .state import Validation
 
 _USABILITY_THRESHOLD = 0.6
+MAX_DISTANCE_ERROR_RATIO = 0.20
+# ValidationAgent uses exp(-3 * relative_error) for an explicit target.
+DISTANCE_FIT_THRESHOLD = math.exp(-3.0 * MAX_DISTANCE_ERROR_RATIO)
+
+
+def distance_fit_minimum(target_distance_km: float | None) -> float:
+    """Apply the 20% allowance only when a target distance exists."""
+    return DISTANCE_FIT_THRESHOLD if target_distance_km is not None and target_distance_km > 0 else _USABILITY_THRESHOLD
+
+
+def route_quality_rank(validation: Validation, *, closed: bool = True) -> tuple[bool, bool, float, float, float]:
+    """Prefer recognisable drawings within the allowed distance deviation.
+
+    Complete gate passes stay ahead of partial routes. Callers separately
+    prefer connected streets before comparing this rank.
+    Among partial routes, a drawing above the fidelity floor and within 20%
+    of the target outranks an over-tolerance one. Below that floor we do not
+    let a close kilometre total beat a much more recognisable drawing.
+    Fidelity receives twice the weakest-gate weight within each category;
+    independent shape cues still prevent severe local regressions.
+    """
+    passed = passes_quality_gates(validation, closed=closed)
+    bottleneck = quality_bottleneck(validation, closed=closed)
+    workflow = get_settings().workflow
+    distance_minimum = distance_fit_minimum(validation.target_distance_km)
+    recognisable_and_in_range = (
+        validation.shape_fidelity >= workflow.min_shape_fidelity
+        and validation.distance_fit >= distance_minimum
+    )
+    return (
+        passed,
+        recognisable_and_in_range,
+        2.0 * validation.shape_fidelity + bottleneck,
+        bottleneck,
+        validation.score,
+    )
 
 
 def _numeric_gate(
@@ -56,6 +93,7 @@ def quality_gate_report(
     workflow = get_settings().workflow
     shape_threshold = workflow.min_shape_fidelity
     score_threshold = workflow.validation_score_threshold
+    distance_minimum = distance_fit_minimum(validation.target_distance_km)
     shape_identity_applies = (
         candidate_shape is not None and selected_shape is not None
     )
@@ -166,8 +204,10 @@ def quality_gate_report(
             "Target-distance accuracy",
             "usability",
             validation.distance_fit,
-            _USABILITY_THRESHOLD,
-            "The route remains close enough to the requested activity distance.",
+            distance_minimum,
+            "The route stays within 20% of the requested activity distance."
+            if validation.target_distance_km else
+            "The route remains close enough to the activity-distance range.",
         ),
         _numeric_gate(
             "closure",
@@ -179,6 +219,13 @@ def quality_gate_report(
             applies=closed,
         ),
     ]
+    for feature in validation.feature_measurements:
+        gates.append(_numeric_gate(
+            "feature_" + feature["feature_id"], feature["label"], "shape",
+            feature["score"], 0.65,
+            "This authored recognition cue remains covered by the street route.",
+            applies=feature["importance"] >= 4,
+        ))
     required = [gate for gate in gates if gate["applies"]]
     shape_gates = [gate for gate in required if gate["group"] == "shape"]
     failed = [gate["key"] for gate in required if not gate["passed"]]
@@ -193,6 +240,8 @@ def quality_gate_report(
             "overall_score": score_threshold,
             "shape": shape_threshold,
             "usability": _USABILITY_THRESHOLD,
+            "distance_fit": distance_minimum,
+            "max_distance_error_ratio": MAX_DISTANCE_ERROR_RATIO if validation.target_distance_km else None,
         },
     }
 

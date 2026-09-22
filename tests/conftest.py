@@ -7,6 +7,12 @@ import os
 import pytest
 
 os.environ["GEOCODE_OFFLINE"] = "1"  # force: never geocode live network during tests
+os.environ["LLM_USAGE_MODE"] = "balanced"
+# Keep the legacy/full-quality test profile independent from the developer's
+# local cost-saving .env. Individual tests can still override these values.
+os.environ["AI_SHAPE_VERIFIER_ENABLED"] = "true"
+os.environ["AI_SHAPE_MAX_CANDIDATES"] = "4"
+os.environ["AI_ROUTE_VERIFIER_ENABLED"] = "true"
 for secret_name in (
     "ORS_API_KEY",
     "OPENCODE_API_KEY",

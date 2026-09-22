@@ -58,6 +58,10 @@ A candidate is publishable only when all of the following are true:
 - distance fit is at least 0.60; and
 - a closed drawing's closure score is at least 0.60.
 
+Gallery curation deliberately keeps the stricter 0.60 distance-fit floor; the
+generation acceptance gate allows a requested route to differ by up to 20%
+(`distance_fit >= exp(-0.6) ≈ 0.549`).
+
 These thresholds are intentionally stricter than accepting an arbitrary
 road-routed preview. The two lower component floors accommodate visible street
 stair-stepping and unavoidable network detours only when the combined likeness,
