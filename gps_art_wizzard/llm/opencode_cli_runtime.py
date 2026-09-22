@@ -19,6 +19,20 @@ from ..config import LLMConfig
 log = logging.getLogger(__name__)
 
 
+def _log_unavailable(config: LLMConfig, reason: str, *, exc_info: bool = False) -> None:
+    """Record a degraded AI runtime without taking down the web service."""
+
+    log.error(
+        "OpenCode free-model server unavailable; using deterministic fallback",
+        extra={
+            "event": "llm.opencode.server.unavailable",
+            "model": config.opencode_model,
+            "reason": reason,
+        },
+        exc_info=exc_info,
+    )
+
+
 def _opencode_executable(*, platform_name: str | None = None) -> str | None:
     executable = shutil.which("opencode")
     if executable is None or (platform_name or os.name) != "nt":
@@ -56,44 +70,61 @@ def managed_opencode_server(config: LLMConfig) -> Iterator[None]:
     if config.opencode_transport != "cli" or not config.opencode_key:
         yield
         return
-    if _healthy(config.opencode_server_url):
-        yield
-        return
 
     parsed = urlparse(config.opencode_server_url)
+    try:
+        server_port = parsed.port
+    except ValueError:
+        server_port = None
     if (
         parsed.scheme != "http"
         or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
-        or parsed.port is None
+        or server_port is None
     ):
-        raise RuntimeError(
-            "OPENCODE_SERVER_URL must be a loopback HTTP URL with an explicit port"
+        _log_unavailable(
+            config,
+            "OPENCODE_SERVER_URL must be a loopback HTTP URL with an explicit port",
         )
+        yield
+        return
+    if _healthy(config.opencode_server_url):
+        yield
+        return
     executable = _opencode_executable()
     if executable is None:
-        raise RuntimeError(
-            "OPENCODE_TRANSPORT=cli requires the OpenCode executable"
+        _log_unavailable(
+            config,
+            "OPENCODE_TRANSPORT=cli requires the OpenCode executable",
         )
+        yield
+        return
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    process = subprocess.Popen(
-        [
-            executable,
-            "serve",
-            "--hostname",
-            parsed.hostname,
-            "--port",
-            str(parsed.port),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-        creationflags=creationflags,
-    )
+    try:
+        process = subprocess.Popen(
+            [
+                executable,
+                "serve",
+                "--hostname",
+                parsed.hostname,
+                "--port",
+                str(server_port),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+    except OSError as error:
+        _log_unavailable(config, str(error), exc_info=True)
+        yield
+        return
     try:
         deadline = time.monotonic() + 20.0
+        startup_error = "OpenCode headless server did not become ready"
         while time.monotonic() < deadline:
             if process.poll() is not None:
-                raise RuntimeError("OpenCode headless server stopped during startup")
+                startup_error = "OpenCode headless server stopped during startup"
+                break
             if _healthy(config.opencode_server_url):
                 log.info(
                     "OpenCode free-model server ready",
@@ -102,10 +133,11 @@ def managed_opencode_server(config: LLMConfig) -> Iterator[None]:
                         "model": config.opencode_model,
                     },
                 )
+                startup_error = ""
                 break
             time.sleep(0.2)
-        else:
-            raise RuntimeError("OpenCode headless server did not become ready")
+        if startup_error:
+            _log_unavailable(config, startup_error)
         yield
     finally:
         if process.poll() is None:

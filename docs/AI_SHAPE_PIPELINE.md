@@ -168,4 +168,7 @@ The free model does not receive rendered images. Set
 `AI_SHAPE_VERIFIER_ENABLED=false`, `AI_ROUTE_VERIFIER_ENABLED=false`, and
 `AI_SHAPE_MAX_CANDIDATES=1` for this profile. If the configured free catalogue
 entry disappears or times out, the validated deterministic scaffold keeps the
-request functional instead of falling through to a paid provider.
+request functional instead of falling through to a paid provider. The web
+service also starts when the embedded OpenCode process cannot start: it records
+`llm.opencode.server.unavailable`, exposes the normal health endpoint, and uses
+the same deterministic path until the next deployment can restore AI.
