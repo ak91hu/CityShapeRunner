@@ -18,6 +18,6 @@ tags: [llm, json, discipline]
 - Distances are always in **kilometres**. Sports are `"run"` or `"bike"` only.
 - Coordinates are **[lat, lon]** in decimal degrees, or **[x, y]** in unit space
   — the prompt will say which. Never mix the two.
-- Keep responses small. For a custom shape, emit exactly the two alternatives
-  requested by the schema and 20–48 meaningful control points per alternative;
+- Keep responses small. For a custom shape, emit exactly the requested candidate
+  count (one to four) and 12–36 meaningful drawing commands per candidate;
   smoothing and bounded guide-point sampling happen later.

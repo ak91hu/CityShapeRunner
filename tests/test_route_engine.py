@@ -27,7 +27,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _reference_shape_payload,
     _validated_paths,
 )
-from gps_art_wizzard.agents.snap_agent import SnapAgent, _simplify_road_geometry
+from gps_art_wizzard.agents.snap_agent import SnapAgent
 from gps_art_wizzard.agents.validation_agent import ValidationAgent
 from gps_art_wizzard.api.routes import (
     EditedRouteRequest,
@@ -1099,35 +1099,6 @@ def test_subsample_adds_guidance_along_sparse_long_edges_and_keeps_corners():
     ) <= 400.0
 
 
-def test_road_geometry_simplification_uses_same_metre_tolerance_at_high_latitude():
-    metre_shape = [
-        (0.0, 0.0),
-        (40.0, 2.0),
-        (80.0, 0.0),
-        (120.0, 14.0),
-        (160.0, 0.0),
-        (200.0, 0.0),
-    ]
-
-    simplified_counts = []
-    for latitude in (0.0, 70.0):
-        route = [
-            geo.unit_to_latlon(x, y, latitude, 19.0, 1.0)
-            for x, y in metre_shape
-        ]
-        simplified = _simplify_road_geometry(route, 5.0)
-        simplified_counts.append(len(simplified))
-        projected = [
-            geo.latlon_to_unit(lat, lon, latitude, 19.0, 1.0)
-            for lat, lon in simplified
-        ]
-
-        assert simplified[0] == route[0]
-        assert simplified[-1] == route[-1]
-        assert LineString(projected).is_simple
-
-    assert simplified_counts[0] == simplified_counts[1]
-
 
 def test_tree_is_a_single_closed_route_without_transfer_stroke():
     name, paths, closed = shape_library.tree()
@@ -1235,6 +1206,7 @@ class _FakeResponse:
             "features": [
                 {
                     "geometry": {
+                        "type": "LineString",
                         "coordinates": [
                             [19.0, 47.0],
                             [19.001, 47.0],
@@ -1286,6 +1258,37 @@ def test_ors_request_uses_boolean_and_sums_all_segment_distances():
         "waytype",
         "suitability",
     ]
+
+
+@pytest.mark.parametrize("signal", ["warning", "metadata"])
+def test_ors_request_rejects_any_skipped_unrouted_segment(signal):
+    class SkippedResponse(_FakeResponse):
+        def json(self):
+            payload = super().json()
+            if signal == "warning":
+                payload["features"][0]["properties"]["warnings"] = [
+                    {"code": 3, "message": "Segment was skipped"}
+                ]
+            else:
+                payload["metadata"] = {"query": {"skip_segments": [1]}}
+            return payload
+
+    class SkippedClient:
+        def post(self, *_args, **_kwargs):
+            return SkippedResponse()
+
+    result = ors_client._ors_request(
+        "https://example.test/route",
+        {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0]],
+        preference="recommended",
+        continue_straight=False,
+        radius=120,
+        client=SkippedClient(),
+    )
+
+    assert isinstance(result, ors_client._ORSFailure)
+    assert "skipped, unrouted segments" in result.message
 
 
 def test_ors_request_applies_supported_route_preferences():
@@ -1392,6 +1395,7 @@ class _ReadinessResponse:
             "features": [
                 {
                     "geometry": {
+                        "type": "LineString",
                         "coordinates": [
                             [19.0, 47.0, 100.0],
                             [19.001, 47.0, 104.0],
@@ -2141,7 +2145,12 @@ def test_preflight_shortlist_prefers_a_diverse_high_quality_alternative():
     assert [result.candidate_index for result in selected] == [0, 2]
 
 
-def test_refinement_consumes_ranked_placement_before_local_heuristics():
+@pytest.mark.parametrize("iteration,distance_fit,corrected", [
+    (0, 0.4, False), (4, 0.4, False), (5, 0.4, True), (6, 0.4, True), (5, 0.8, False),
+])
+def test_refinement_reserves_final_slots_for_failed_distance(monkeypatch, iteration, distance_fit, corrected):
+    from gps_art_wizzard.config import get_settings
+    monkeypatch.setattr(get_settings().workflow, "max_refinement_iterations", 6)
     current = RouteDraft(
         47.5,
         19.0,
@@ -2173,13 +2182,21 @@ def test_refinement_consumes_ranked_placement_before_local_heuristics():
         shape=Shape("heart", shape_library.heart()[1], True),
         route_draft=current,
         snapped=SnappedRoute(current.waypoints, 12_000.0, snapped=True),
-        validation=Validation(0.5, 1.0, 0.4, 0.45, on_roads=True),
+        validation=Validation(0.5, 1.0, distance_fit, 0.45, on_roads=True),
         placement_candidates=[shortlisted],
+        iterations=iteration,
     )
 
     RefinementAgent().run(state)
 
     assert state.route_draft is not shortlisted
+    assert state.iterations == iteration  # the orchestrator owns the budget
+    if corrected:
+        assert state.route_draft.scale_m == pytest.approx(1000 * 8 / 12)
+        assert state.route_draft.rotation_deg == 0.0
+        assert state.placement_candidates == [shortlisted]
+        assert "measured distance" in state.history[-1]["note"]
+        return
     assert state.route_draft.rotation_deg == 60.0
     assert state.route_draft.lat_offset_m == 1_200.0
     assert state.placement_candidates == []
@@ -2418,6 +2435,43 @@ def test_refinement_shrinks_a_measured_route_that_is_over_target():
     assert draft.scale_m == pytest.approx(1_000.0 * 8.0 / 10.65)
     assert draft.scale_m < 1_000.0
     assert "shrink" in state.history[-1]["note"]
+
+
+def test_refinement_prioritises_failed_shape_cue_within_twenty_percent_distance():
+    points = [(46.25, 20.15), (46.26, 20.16), (46.25, 20.15)]
+    draft = RouteDraft(
+        center_lat=46.25,
+        center_lon=20.15,
+        scale_m=1_000.0,
+        rotation_deg=0.0,
+        lat_offset_m=0.0,
+        lon_offset_m=0.0,
+        simplify_tolerance=0.8,
+        waypoints=points,
+        closed=True,
+        target_distance_km=10.0,
+    )
+    state = WorkflowState(
+        prompt="heart in Szeged, 10 km",
+        intent=Intent("heart", None, "Szeged", "run", 10.0, None),
+        shape=Shape("heart", shape_library.heart()[1], True),
+        route_draft=draft,
+        snapped=SnappedRoute(points, 8_500.0, snapped=True),
+        validation=Validation(
+            score=0.75, closure=1.0, distance_fit=math.exp(-0.45),
+            shape_fidelity=0.8, on_roads=True,
+            spatial_similarity=0.8, coverage_similarity=0.8,
+            turning_similarity=0.6, landmark_similarity=0.8,
+            reversal_similarity=0.8, length_similarity=0.8,
+            extent_similarity=0.8,
+        ),
+    )
+
+    RefinementAgent().run(state)
+
+    assert draft.scale_m == 1_000.0
+    assert draft.lon_offset_m < 0
+    assert "west grid" in state.history[-1]["note"]
 
 
 def test_refinement_preserves_promising_grid_alignment_during_large_scale_fix():
@@ -3285,7 +3339,7 @@ def test_custom_shape_generation_requests_provider_enforced_schema(monkeypatch):
         "preferred_variant",
     }
     variants = schema["properties"]["variants"]
-    assert variants["minItems"] == 2
+    assert variants["minItems"] == 1
     assert variants["maxItems"] == 4
     assert variants["items"]["additionalProperties"] is False
     program = variants["items"]["properties"]["program"]
@@ -3345,7 +3399,40 @@ def test_custom_shape_uses_valid_alternative_when_ai_preference_crosses_itself(m
     assert state.errors == []
 
 
-def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
+def _semantic_review_response(feature_ids: list[str]) -> LLMResponse:
+    score = 0.9
+    return LLMResponse(
+        text=json.dumps(
+            {
+                "reviews": [
+                    {
+                        "candidate_index": 0,
+                        "score": score,
+                        "subject_match": score,
+                        "silhouette_quality": score,
+                        "route_readability": score,
+                        "cue_results": [
+                            {
+                                "feature_id": feature_id,
+                                "present": True,
+                                "score": score,
+                                "reason": "large and visible",
+                            }
+                            for feature_id in feature_ids
+                        ],
+                        "missing_features": [],
+                        "wrong_relations": [],
+                        "repair_instructions": [],
+                    }
+                ],
+                "recommended_candidate": 0,
+            }
+        ),
+        provider="reviewer",
+    )
+
+
+def test_invalid_custom_geometry_retains_validated_semantic_scaffold(monkeypatch):
     _clear_custom_shape_cache()
     responses = iter(
         [
@@ -3361,17 +3448,8 @@ def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
                 ),
                 provider="test-provider",
             ),
-            LLMResponse(
-                text=json.dumps(
-                    {
-                        "name": "platypus",
-                        "paths": [
-                            [[0, 0], [1, 0], [1.1, 0.4], [0.8, 1], [0, 1], [-0.2, 0.4], [0, 0]]
-                        ],
-                        "closed": True,
-                    }
-                ),
-                provider="test-provider",
+            _semantic_review_response(
+                ["overall_silhouette", "main_body_mass", "distinctive_feature"]
             ),
         ]
     )
@@ -3395,9 +3473,10 @@ def test_invalid_custom_geometry_gets_one_bounded_repair(monkeypatch):
     assert state.shape is not None
     assert state.shape.name == "platypus"
     assert state.shape.source == "llm"
+    assert state.shape.generation_strategy == "platypus ShapeSpec scaffold"
 
 
-def test_custom_shape_that_duplicates_catalog_gets_one_distinctive_repair(monkeypatch):
+def test_catalog_duplicate_custom_geometry_uses_distinct_semantic_scaffold(monkeypatch):
     _clear_custom_shape_cache()
     _, star_paths, star_closed = shape_library.star()
     responses = iter(
@@ -3412,18 +3491,8 @@ def test_custom_shape_that_duplicates_catalog_gets_one_distinctive_repair(monkey
                 ),
                 provider="test-provider",
             ),
-            LLMResponse(
-                text=json.dumps(
-                    {
-                        "name": "crowned platypus",
-                        "paths": [[
-                            [0, 0], [1, 0], [1.2, 0.4], [0.8, 1],
-                            [0.3, 0.8], [0, 1], [-0.3, 0.4], [0, 0],
-                        ]],
-                        "closed": True,
-                    }
-                ),
-                provider="test-provider",
+            _semantic_review_response(
+                ["overall_silhouette", "main_body_mass", "distinctive_feature"]
             ),
         ]
     )
@@ -3443,16 +3512,17 @@ def test_custom_shape_that_duplicates_catalog_gets_one_distinctive_repair(monkey
     ShapeAgent().run(state)
 
     assert len(prompts) == 2
-    assert "duplicates the built-in" in prompts[1]
+    assert "strict visual critic" in prompts[1]
     assert state.shape is not None
     assert state.shape.source == "llm"
+    assert state.shape.generation_strategy == "platypus ShapeSpec scaffold"
     assert (
         shape_uniqueness.nearest_catalog_shape(state.shape.paths).distance
         > shape_uniqueness.DUPLICATE_DISTANCE_THRESHOLD
     )
 
 
-def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(monkeypatch):
+def test_far_apart_custom_strokes_use_connected_semantic_scaffold(monkeypatch):
     _clear_custom_shape_cache()
     responses = iter(
         [
@@ -3469,18 +3539,8 @@ def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(mon
                 ),
                 provider="test-provider",
             ),
-            LLMResponse(
-                text=json.dumps(
-                    {
-                        "name": "platypus",
-                        "paths": [[
-                            [0, 0], [1, 0], [1.1, 0.4], [0.8, 1],
-                            [0, 1], [-0.2, 0.4], [0, 0],
-                        ]],
-                        "closed": True,
-                    }
-                ),
-                provider="test-provider",
+            _semantic_review_response(
+                ["overall_silhouette", "main_body_mass", "distinctive_feature"]
             ),
         ]
     )
@@ -3500,9 +3560,10 @@ def test_far_apart_custom_strokes_are_repaired_to_avoid_route_transfer_lines(mon
     ShapeAgent().run(state)
 
     assert len(prompts) == 2
-    assert "artificial route transfer" in prompts[1]
+    assert "strict visual critic" in prompts[1]
     assert state.shape is not None
     assert len(state.shape.paths) == 1
+    assert state.shape.generation_strategy == "platypus ShapeSpec scaffold"
 
 
 def test_custom_shape_prompt_requires_semantic_cues_and_non_stock_contours():
@@ -3661,7 +3722,8 @@ def test_candidate_download_keeps_full_geometry_beyond_the_map_preview():
 
     response = _state_to_response(state)
 
-    assert len(response["candidates"][0]["points_preview"]) == 500
+    assert response["candidates"][0]["points_preview"] == [list(point) for point in points]
+    assert response["points_preview"] == [list(point) for point in points]
     assert response["candidates"][0]["gpx"].count("<trkpt") == 600
     candidate_readiness = response["candidates"][0]["details"]["readiness"]
     assert candidate_readiness["elevation_gain_m"] == 42.0

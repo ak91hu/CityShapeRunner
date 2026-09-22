@@ -6,7 +6,7 @@ import os
 
 from ..quality import quality_gate_report
 from ..state import WorkflowState
-from ..tools import gpx_writer
+from ..tools import gpx_writer, route_safety
 from .base import BaseAgent
 
 
@@ -27,6 +27,17 @@ class ExportAgent(BaseAgent):
             return state
         if state.validation is None:
             state.errors.append("export: route validation is unavailable")
+            state.export = None
+            return state
+        if (
+            not state.validation.on_roads
+            or not route_safety.is_provider_routed_geometry(
+                snapped.points,
+                snapped.total_distance_m,
+                routed=snapped.snapped,
+            )
+        ):
+            state.errors.append("export: connected street routing is required; preview cannot be exported")
             state.export = None
             return state
         report = quality_gate_report(

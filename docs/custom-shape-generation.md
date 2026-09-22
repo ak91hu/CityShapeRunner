@@ -57,9 +57,10 @@ Several adjacent research areas point to the same engineering pattern:
    recognisability.
 
 The practical conclusion is a staged pipeline with cheap deterministic checks
-around one structured generative call, rather than a chain of unconstrained
-model calls. The single response carries two alternatives so topology failure
-in the preferred drawing does not immediately spend a repair request.
+around two bounded structured stages rather than a chain of unconstrained model
+calls. The first stage creates a semantic `ShapeSpec`; the second returns one to
+four route-native programs under the configured candidate cap. Every valid
+candidate is checked locally before an optional targeted repair is considered.
 
 ## Implemented decision pipeline
 
@@ -87,8 +88,10 @@ inference rather than an aggressive local guess.
 Known templates and text remain fully local. A locally parsed custom request
 also uses deterministic city planning because curated placement context already
 provides the rotation, offset, and difficulty prior. The usual custom request
-therefore needs one model call—the shape scaffold—not separate intent, planning,
-and shape calls.
+therefore needs two model calls—one semantic `ShapeSpec` and one geometry
+proposal—not separate intent or planning calls. The zero-cost production profile
+requests one model candidate and constructs an additional deterministic semantic
+scaffold locally without another provider call.
 
 ### 3. Treat the description as untrusted data
 
@@ -98,13 +101,16 @@ schema. The server never executes generated SVG, XML, Python, or JavaScript.
 
 ### 4. Generate route-oriented control geometry
 
-The model first emits three to six identifying silhouette cues, including
-modifiers and relationships, then creates two meaningfully different route
-scaffolds and marks the one it expects to remain clearest at thumbnail size.
-Each alternative uses 20–48 meaningful control points, normally as one closed
-outer silhouette. ShapeAgent tries the preferred alternative first and then
-the other one, but accepts either only after the same executable geometry
-checks. This separates a semantic preference from authoritative topology.
+The first model stage emits a typed part hierarchy and three to six identifying
+silhouette cues, including modifiers and relationships. The geometry stage then
+creates the requested one to four meaningfully different route programs and
+marks the one it expects to remain clearest at thumbnail size. Complexity and
+ambiguity normally request two to four candidates; `AI_SHAPE_MAX_CANDIDATES`
+sets the hard cap and the zero-cost production profile sets it to one. Each
+program uses compact `move`, `line`, cubic `curve`, and `close` commands,
+normally for one closed outer silhouette. ShapeAgent compiles and validates all
+returned candidates under the same executable checks. This separates semantic
+preference from authoritative topology.
 
 When a compound request contains a catalogued base subject—such as “a robot
 holding an umbrella”—the prompt also receives a compact trusted copy of that
@@ -119,21 +125,23 @@ shading, texture, and other details that would require disconnected transfer
 lines. Point density is reserved for meaningful curvature changes rather than
 tiny interpolated steps.
 
-The same point-list contract is also passed to capable providers as a JSON
-schema. OpenAI uses strict `json_schema`, OpenCode Zen sends this job to its
-configured GPT-5.4 mini Responses model with strict `text.format`, local Ollama
-uses its schema-valued `format`, and documented Claude 4.5+ families use
-Anthropic's structured-output configuration. Older or custom models retain
-portable JSON mode plus the full local validator, because silently assuming a
-model feature would turn compatibility errors into needless fallback routes.
+The same program contract is also passed to capable providers as a JSON schema.
+OpenAI uses strict `json_schema`; the optional direct OpenCode transport uses
+its configured structured Responses model with strict `text.format`; local
+Ollama uses its schema-valued `format`; and documented Claude 4.5+ families use
+Anthropic's structured-output configuration. The zero-cost OpenCode CLI
+transport embeds the requested schema in the text prompt and relies on the same
+full local validator. Older or custom models retain portable JSON mode plus
+local validation, because silently assuming a provider feature would turn
+compatibility errors into needless fallback routes.
 
 ### 5. Run executable geometry checks
 
 Before placement, the parser enforces:
 
-- JSON list structure and finite numeric coordinate pairs;
-- a strict response contract of at most eight strokes and 96 points per stroke
-  in each of exactly two alternatives; the defensive legacy parser remains
+- JSON object/list structure and finite numeric coordinates;
+- a strict response contract of one to four candidates, at most eight strokes
+  and 96 commands per stroke; the defensive legacy point-list parser remains
   capped at 240 points per stroke and 800 points in total;
 - exact closure when the response declares a closed drawing;
 - at least six control points for generated geometry;
@@ -151,12 +159,13 @@ not a useful city-scale scaffold.
 
 ### 6. Repair once, then stop
 
-If the preferred alternative is invalid, ShapeAgent tries the second one from
-the same response before making another network call. If both are malformed,
-collapsed, extremely stretched, duplicated, or self-crossing, it sends one
-low-temperature repair request containing both validation reasons. A fixed
-single retry prevents accidental latency and cost loops. If the repair also
-fails, deterministic fallback takes over.
+ShapeAgent compiles every returned candidate and retains each valid, distinct
+result. If the selected candidate is malformed, collapsed, extremely stretched,
+duplicated, self-crossing, missing required cues, or receives a below-threshold
+rendered review, it can send one low-temperature repair request with typed
+diagnostics. A fixed single repair prevents accidental latency and cost loops.
+If generation and repair remain unusable, the validated deterministic semantic
+scaffold or explicit text fallback takes over.
 
 ### 7. Smooth without erasing identity or changing topology
 
@@ -206,23 +215,24 @@ credit merely because its JSON was valid.
 |---|---|---|
 | Text-to-raster image, then vector tracing | Can use strong image generators and visual conditioning | Adds another provider, raster artefacts, tracing ambiguity, more latency, and far too many vertices for street routing. |
 | Full SVG generation | Bézier paths are compact and expressive | Safely parsing every SVG feature is a much larger attack and compatibility surface; most SVG semantics are irrelevant to a one-line route. |
-| Three or more generated candidates on every request | Better chance of one strong silhouette | Output and validation cost rises quickly. Two alternatives in one structured response cover the common topology-failure case without tripling inference output. |
+| Four generated candidates on every request | Better chance of one strong silhouette | Output and validation cost rises quickly. Complexity selects two to four candidates, while the free profile requests one plus a local deterministic scaffold. |
 | Always substitute the nearest catalog shape | Fast and deterministic | Violates the named request and fails precisely where custom support matters. It remains only an explicitly disclosed last-resort route option. |
-| Treat the model's preferred alternative as proof | Cheap semantic opinion | It is not independent evidence. The preference only controls trial order; executable geometry checks and routed measurements remain authoritative. |
+| Treat the model's preferred alternative as proof | Cheap semantic opinion | The preference is only a tie-breaker after rendered review and executable geometry checks; routed measurements remain authoritative. |
 
 ## Remaining limitations and next experiments
 
-Geometry validation cannot prove that a silhouette looks like the requested
-object. The next meaningful quality step is an offline labelled evaluation set:
+Rendered candidate review now supplies cue-level semantic evidence before
+routing. A different provider is preferred; a same-provider critic is disclosed
+as non-independent and must not be presented as human-calibrated truth. The next
+meaningful quality step is still an offline labelled evaluation set:
 common objects, composite objects, abstract symbols, multilingual descriptions,
 prompt-injection attempts, and deliberately impossible route ideas. Human raters
 should score the intended outline before routing and the final line after
 routing separately.
 
-If that evaluation shows semantic generation is still the main bottleneck,
-test a vision-language verifier on rendered outline thumbnails before routing.
-The current two-scaffold response improves resilience and recognisability but
-must not be described as a guarantee without labelled human agreement data.
+The current adaptive multi-candidate response and rendered verifier improve
+resilience and recognisability but must not be described as a guarantee without
+labelled human agreement data.
 
 User-supplied sketches or images are a separate feature. They require file
 validation, foreground extraction, vectorisation, topology repair, and explicit

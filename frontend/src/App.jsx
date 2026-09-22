@@ -643,7 +643,7 @@ const GATE_COPY = {
   },
   distance_fit: {
     label: "Requested distance",
-    description: "The route is close to the distance you asked for.",
+    description: "For a requested distance, the route stays within 20% of the target.",
   },
   closure: {
     label: "Returns to the start",
@@ -3383,13 +3383,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         details: response.route_details,
         below_recommended:
           response.below_recommended ??
-          !(
-            response.snapped &&
-            response.validation?.score >= 0.72 &&
-            response.validation?.shape_fidelity >= 0.7 &&
-            response.validation?.distance_fit >= 0.6 &&
-            response.validation?.closure >= 0.6
-          ),
+          !response.route_verification?.passed,
         gpx: response.gpx,
         tcx: response.tcx,
         allow_gallery_share: false,
@@ -3889,9 +3883,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 {result.shape?.generated_candidate_count || "several"} different versions
                 and kept the strongest route-friendly one.
               </p>
-              {aiDrawingReview?.independent && aiDrawingReview.score != null ? (
+              {aiDrawingReview?.method?.startsWith("rendered-image") &&
+              aiDrawingReview.score != null ? (
                 <p>
-                  A separate visual check scored it {formatPercent(aiDrawingReview.score)}
+                  {aiDrawingReview.independent
+                    ? "A separate visual check"
+                    : "A disclosed AI self-check"}{" "}
+                  scored it {formatPercent(aiDrawingReview.score)}
                   {Number.isFinite(aiDrawingCueCount)
                     ? ` and found ${aiDrawingCueCount} of ${aiDrawingReview.cue_results.length} defining features`
                     : ""}.
@@ -3909,8 +3907,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             <details className="route-facts ai-recognition-card">
               <summary>Drawing recognition details</summary>
               <p className="route-facts-intro">
-                A separate visual check looks for the defining features in the finished
-                outline, not just in the AI description.
+                {aiDrawingReview.independent
+                  ? "A separate visual check looks"
+                  : "A disclosed AI self-check looks"}{" "}
+                for the defining features in the finished outline, not just in the AI
+                description.
               </p>
               <ul className="gate-list">
                 {aiDrawingReview.cue_results.map((cue) => (
@@ -4004,6 +4005,32 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 Street detour is the extra distance added by the road network. Average drift is
                 the difference between the route and drawing.
               </p>
+              {validation?.routed_semantic_review && (
+                <section aria-label="Visual drawing review" className="score-explainer">
+                  <strong>AI visual review</strong>
+                  <p>Looks like: {validation.routed_semantic_review.recognized_subject}</p>
+                  <p>{validation.routed_semantic_review.reason}</p>
+                  {validation.routed_semantic_review.missing_features?.length > 0 && (
+                    <p>Details to check: {validation.routed_semantic_review.missing_features.join(", ")}</p>
+                  )}
+                  <small>
+                    An automated opinion of this route’s outline. Check whether you recognise
+                    the drawing yourself.
+                  </small>
+                </section>
+              )}
+              {validation?.feature_measurements?.length > 0 && (
+                <section aria-label="Drawing detail preservation" className="score-explainer">
+                  <strong>Drawing details</strong>
+                  <ul>
+                    {validation.feature_measurements.map((feature) => (
+                      <li key={feature.feature_id}>
+                        {feature.label}: {feature.preserved ? "preserved" : "needs a closer look"}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               <dl>
                 <div>
                   <dt>Route quality score</dt>

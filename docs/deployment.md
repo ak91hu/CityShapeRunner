@@ -56,10 +56,12 @@ The final public URL is displayed in the service header and ends in
 `.code.run`. The application also accepts a platform-provided `PORT` variable
 if Northflank supplies one; otherwise it listens on `0.0.0.0:8000`.
 
-The standard Docker build includes the OpenCode/OpenAI-compatible SDK because
-OpenCode is the default hosted LLM provider. Set the Docker build argument
-`INSTALL_EXTRAS=all` only when Anthropic support is also required. Use an empty
-`INSTALL_EXTRAS` value for a smaller deterministic-only image.
+The standard Docker build pins and embeds the OpenCode CLI, then runs its HTTP
+server only on the container loopback interface. This is required because
+OpenCode's zero-cost models are available through OpenCode itself rather than
+the direct Zen API. No second service, volume, or paid model is needed. Set the
+Docker build argument `INSTALL_EXTRAS=all` only when Anthropic support is also
+required.
 
 ### Runtime variables and secrets
 
@@ -77,7 +79,15 @@ EXPORT_DIR=
 CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode
-OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini
+LLM_USAGE_MODE=essential
+OPENCODE_TRANSPORT=cli
+OPENCODE_SERVER_URL=http://127.0.0.1:4097
+OPENCODE_MODEL=muse-spark-1.3-contributor-free
+OPENCODE_DISABLE_AUTOUPDATE=true
+AI_SHAPE_VERIFIER_ENABLED=false
+AI_SHAPE_MAX_CANDIDATES=1
+AI_ROUTE_VERIFIER_ENABLED=false
+WORKFLOW_MAX_LLM_CALLS=-1
 NOMINATIM_EMAIL=operations@example.com
 ORS_BASE_URL=https://api.heigit.org/openrouteservice
 ORS_CONTINUE_STRAIGHT=false
@@ -93,14 +103,26 @@ to enable the anonymous map-screenshot gallery. Never expose it to Vite or any
 
 `ORS_BASE_URL` uses HeiGIT's current public endpoint. The legacy
 `https://api.openrouteservice.org` host is scheduled to shut down on
-2026-08-24; existing overrides remain recognised during migration, but new
+2026-09-28; since August 27 it has only 10% of the normal quota. Existing
+overrides remain recognised during migration, but new
 deployments must use the value above. See the
-[openrouteservice announcement](https://ask.openrouteservice.org/t/deprecating-api-openrouteservice-org-in-favour-of-api-heigit-org/7912).
+[updated openrouteservice announcement](https://ask.openrouteservice.org/t/reducing-the-quota-of-deprecated-api-api-openrouteservice-org/8013).
+The dashboard shows the new host's quota, not the legacy host's quota. Check
+the effective environment override as well as the application default.
 
-`OPENCODE_STRUCTURED_MODEL` is intentionally separate from `LLM_MODEL`.
-Schema-bound tasks use Zen's Responses endpoint and strict JSON Schema, while
-general chat-compatible work can keep the configured `/chat/completions`
-model.
+This free profile does not spend model calls on intent extraction, planning,
+image review, route review, or known catalog/text shapes. An unknown custom
+subject normally uses one semantic shape-specification call and one geometry
+proposal, but `WORKFLOW_MAX_LLM_CALLS=-1` imposes no global call-count quota:
+bounded repair or retry stages may make as many calls as their quality logic
+requires. A deterministic semantic scaffold and geometry checks remain
+available when the model is unreachable. If OpenCode retires the named free
+model, change only `OPENCODE_MODEL`.
+
+The free-model catalogue is a service policy and can change. Verify the model
+name before deployment rather than silently replacing it with a paid model.
+`OPENCODE_STRUCTURED_MODEL` applies only to the optional `api` transport and is
+intentionally absent from this zero-cost Northflank profile.
 
 Create a Northflank secret group or enter masked runtime secrets for:
 
@@ -184,9 +206,10 @@ docker run --rm --name gps-art-wizzard \
   gps-art-wizzard:0.1.0
 ```
 
-The default image contains the OpenAI-compatible SDK used by the default
-OpenCode provider. Build a smaller deterministic-only image by overriding the
-default build argument with an empty value:
+The default image contains the pinned OpenCode executable and the
+OpenAI-compatible Python SDK used by the optional direct transport. To omit the
+Python provider SDKs, override the build argument with an empty value (the
+embedded CLI remains available):
 
 ```bash
 docker build --build-arg INSTALL_EXTRAS= --tag gps-art-wizzard:0.1.0-deterministic .
@@ -194,8 +217,8 @@ docker build --build-arg INSTALL_EXTRAS= --tag gps-art-wizzard:0.1.0-determinist
 
 Use `INSTALL_EXTRAS=anthropic` for Anthropic or `INSTALL_EXTRAS=all` for both
 hosted-provider SDKs. The local Ollama integration uses the base HTTP client and
-does not require an additional Python SDK. Keeping the default image
-provider-free reduces image size, installation time, and dependency count.
+does not require an additional Python SDK. A completely deterministic runtime
+also works when no model key is configured.
 Set `OLLAMA_BASE_URL` only when an Ollama service is reachable from the
 container; `localhost` refers to the container itself, not its host.
 
@@ -273,6 +296,11 @@ Without `ORS_API_KEY`, the internal workflow deliberately marks its diagnostic
 fallback `snapped=false`, but the public API returns HTTP 503 and exposes no
 GPX/TCX. Production route generation therefore requires a working key and
 outbound access to `ORS_BASE_URL`.
+The same fail-closed rule applies to every auxiliary workflow that can return a
+GPS file: Recognition Repair, Community GPS Mural and Art Rescue first route
+their entire proposed output through Directions. A missing key, unavailable
+service, invalid/zero-length geometry, or response with skipped segments yields
+HTTP 503 and no download; there is no raw-point or straight-line export fallback.
 Road-matched candidates below the recommended score, fidelity, or distance
 targets are also retained instead of deleted. Without an LLM key,
 deterministic planning remains available; route refinement is always
@@ -295,6 +323,8 @@ Structured events identify fail-closed routing and export incidents:
 - `route.edit.street_routing.unavailable` — edited control points could not be
   re-routed, so no GPS file was created;
 - `route.edit.street_routing.error` — the edit router failed unexpectedly;
+- auxiliary route endpoints return HTTP 503 without a GPS document when their
+  complete geometry cannot be proven by Directions;
 - `generation.response.failed` — the street route was valid, but its public
   response could not be prepared;
 - `route.edit.validation.failed` and `route.edit.export.failed` — validation or

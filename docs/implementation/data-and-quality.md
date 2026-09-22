@@ -169,6 +169,9 @@ distance_fit   = exp(-3 × relative_error)
 ```
 
 When no target exists, distance scores `1.0` inside the sport bounds and decays exponentially outside them.
+For a requested target, the automatic distance gate allows at most 20% relative
+error: `distance_fit >= exp(-3 × 0.20) ≈ 0.549`. This is independent of the
+closed-loop gap threshold of `0.60`.
 
 ### Shape fidelity
 
@@ -197,7 +200,7 @@ If `snapped=False`, fidelity is capped at `0.3` and overall score at `0.4`. If f
 
 ## Authoritative hard gates
 
-`quality.py::quality_gate_report()` is shared by orchestration, API ranking, editing, exporting, and UI evidence. Defaults come from configuration (`0.72` overall, `0.70` shape, `0.60` usability).
+`quality.py::quality_gate_report()` is shared by orchestration, API ranking, editing, exporting, and UI evidence. Defaults are `0.72` overall, `0.70` for shape cues, `exp(-0.6) ≈ 0.549` for target distance, and `0.60` for loop closure.
 
 | Group | Gate | Default minimum | Why independent? |
 | --- | --- | ---: | --- |
@@ -212,7 +215,7 @@ If `snapped=False`, fidelity is capped at `0.3` and overall score at `0.4`. If f
 | Shape | No unintended backtracking | `0.70` | Rejects graph-induced scribbles |
 | Shape | Detour control | `0.70` | Rejects misleading extra strokes |
 | Shape | Width/height preservation | `0.70` | Rejects collapsed proportions |
-| Usability | Target distance | `0.60` | Keeps activity length meaningful |
+| Usability | Target distance | `exp(-0.6) ≈ 0.549` | Allows up to 20% error around the requested length |
 | Usability | Loop closure | `0.60` when closed | Keeps closed art operationally closed |
 
 ```mermaid
@@ -256,7 +259,7 @@ This ordering prevents a `0.90` average with one failed landmark gate from outra
 | Internal evidence | Public handling |
 | --- | --- |
 | All `EvaluatedCandidate` objects | Selected-shape + connected candidates enter `candidates`; every attempt enters compact `candidate_audit` |
-| Full ORS polylines | Preview sampled to ≤500 points; GPX/TCX keeps complete geometry |
+| Full ORS polylines | Map preview and GPX/TCX keep complete geometry; only the ideal diagnostic guide may be sampled to ≤500 points |
 | Straight-line fallback | May appear in internal validation/history; never selectable/exported |
 | Preflight transforms | Compact diagnostics and up to 12 Street Canvas locations |
 | Shape spec/provider usage | Included as drawing evidence without API keys or raw provider payloads |
@@ -281,7 +284,7 @@ Missing readiness data does not turn a connected street route into an unrouted r
 
 `ExportAgent` prepares GPX and attempts TCX from the best measured geometry. It appends an `export-warning` when automatic gates fail and writes server-side files only when `EXPORT_DIR` is set **and** every gate passes.
 
-The final safety boundary is later: `_state_to_response()` emits top-level GPX/TCX only for a connected primary route. Per-candidate exports are generated only after the same geometry validator passes. The React client then requires either all automatic checks or explicit acceptance before download.
+The final safety boundary is later: `_state_to_response()` emits top-level GPX/TCX only for a connected primary route. Per-candidate exports are generated only after the same geometry validator passes. A shared `route_safety.is_provider_routed_geometry()` invariant requires provider routing evidence, at least two distinct finite in-range coordinates, and a positive finite routed distance. Recognition Repair, Community GPS Mural and Art Rescue route every prospective download through Directions and apply that same invariant before serialisation; failure returns HTTP 503 and no file. The React client then requires either all automatic checks or explicit acceptance before download.
 
 This layered model intentionally uses defense in depth:
 
@@ -298,4 +301,8 @@ flowchart LR
     class ORS,Validation,Quality,Serializer,UI,Decision,Download layer;
 ```
 
-No single boolean is trusted across every layer.
+No single boolean is trusted across every layer. A straight connector, uploaded
+track, interpolated drawing or independent nearest-edge snap may be useful as an
+internal diagnostic or routing input, but it can never be GPX/TCX output until
+Directions has returned the complete connected geometry. ORS responses that
+report skipped segments are rejected rather than patched with direct lines.

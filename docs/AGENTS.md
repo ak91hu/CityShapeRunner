@@ -82,13 +82,27 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   is selected from 145 deterministic templates or normalised (centroid → origin,
   max side = 1.0). Text supports every A–Z
   letter and 0–9 digit, including short multi-character labels.
-- **Custom geometry:** one strict response contains an explicit 3–6 feature
-  brief and two silhouette alternatives. Compound requests use the earliest
-  related catalog subject as a compact structure/proportion anchor. The model's
-  preferred valid alternative wins; otherwise the second is tried before one
-  bounded repair. Output is checked for finite coordinates, usable extent,
+- **Custom geometry:** a strict `ShapeSpec` contains an explicit 3–6 feature
+  brief, followed by one to four route-native candidates as allowed by the
+  configured cap. The zero-cost production profile requests one model candidate
+  and adds a deterministic semantic scaffold locally. Compound requests use the
+  earliest related catalog subject as a compact structure/proportion anchor.
+  Output is checked for finite coordinates, usable extent,
   aspect ratio, self-intersection, excessive multi-stroke transfer, and
-  placement-invariant catalog duplication.
+  placement-invariant catalog duplication. Valid candidates are ranked by cue
+  coverage, rendered evidence when enabled, and local geometry rather than by
+  the model's preferred index alone.
+  A cubic-control loop receives one deterministic endpoint-linearisation check.
+  A still-crossed single closed linear outline receives a bounded 2-opt edge
+  untangling that retains its endpoints and complete feature-id set. Every
+  corrected contour must pass the normal geometry, ShapeSpec and uniqueness
+  checks; unsupported or still-crossed paths are rejected.
+  Every valid candidate is rendered and reviewed cue by cue. A different
+  provider is tried first; if none is available, one bounded temperature-zero
+  call to the generator acts as a disclosed visual self-review. Its score may
+  rank valid candidates and target the single repair, but metadata keeps
+  `independent=false`. If no visual call succeeds, local geometry evidence is
+  used without inventing a semantic score.
   Route-length-centred normalisation is insensitive to uneven control density;
   bounded multi-stroke requests receive globally minimal connector ordering.
   Centripetal, corner-protecting smoothing cannot introduce a crossing. Only
@@ -110,10 +124,11 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 - **Input:** `Intent` + `Shape` + the initial `RouteDraft` + city bbox.
 - **Output:** the highest-ranked `RouteDraft` and
   `WorkflowState.placement_candidates`, a bounded full-routing shortlist.
-- **Logic:** deterministically generate up to 180 placements across a 3×3
-  city-wide grid, six rotations, and three scales. Subsample each outline to
-  up to 18 curvature-preserving guides and send every guide point in one ORS
-  snapping request. Rank independent snaps
+- **Logic:** share a 180-placement budget between a diverse city-wide coarse
+  search and two measured neighbourhood refinements. Subsample each outline to
+  up to 18 curvature-preserving guides, with at most three ORS Snap batches.
+  A bounded local graph proxy can add directed connectivity and detour evidence.
+  Rank independent snaps
   using coverage, snapped distance, distinct-point ratio, perceptual fidelity,
   characteristic-turn preservation, and route-length preservation. Retain
   every proxy result, then greedily balance quality and transform diversity
@@ -126,11 +141,29 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### SnapAgent
 - **Input:** `RouteDraft`.
 - **Output:** `SnappedRoute` — road-following polyline + distance + `snapped`.
-- **Provider:** OpenRouteService directions through the waypoints. No key →
+- **Provider:** optional bounded shape-aware OSM graph search proposes better
+  guides; OpenRouteService Directions remains the final route authority. Failed
+  graph proposals fall back to the original guide. Successful proposals expose
+  one pending original-guide challenger, measured by the orchestrator; both
+  street routes are validated and retained. Graph proposals can retain up to
+  50 Directions guides; original drawing challengers retain the 24-guide
+  default. Street-based detour repairs also use 50 guides. Pending budgets
+  are consumed with their guides and cleared in independent candidate shells.
+  Guide budgets have separate cache entries. No key →
   internal great-circle diagnostic (`snapped=False`). It is useful for tests
-  and issue reporting only and is not an exportable route. Simplifies real road
-  geometry by `simplify_tolerance` in a local metre projection (never the
-  straight-line diagnostic), preserving endpoints and simple-line topology.
+  and issue reporting only and is not an exportable route. Every Directions
+  vertex is preserved: `simplify_tolerance` remains a legacy draft field but
+  cannot alter street geometry. Non-LineString, zero-length and skipped-segment
+  provider responses are rejected.
+  Graph guide selection can use a common weakly connected component within
+  the existing 150 m radius when nearby isolated paths crowd out alternatives.
+  Directed edges and turn restrictions remain authoritative. The cheap
+  preflight connectivity proxy keeps its closest-street selection.
+  At a turn-restricted intermediate guide, search retains up to two arrivals
+  with different legal exits. A cheap arrival leading only into a dead end
+  therefore does not automatically eliminate another viable approach.
+  Unrestricted guides retain their single-arrival behavior and search budgets
+  remain unchanged.
 
 ### ValidationAgent
 - **Input:** `SnappedRoute` + `RouteDraft` (the placed drawing as reference).
@@ -141,14 +174,25 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
   drawn vs snapped), `distance_fit`, `closure` (closed shapes). Threshold 0.72
   gates the loop. Below the 0.70 fidelity floor, the score cap remains
   monotonic to preserve candidate ordering. See `skill-validation-metrics.md`.
+- **Closed-loop alignment:** compare both travel directions and up to two
+  cyclic phases per direction. Whole-contour phase matching disambiguates
+  repeated visits to a crossing; it never reorders strokes or edits geometry.
+- **Semantic cues:** authored feature geometry shares the drawing's transforms.
+  Coverage and metre deviation are measured per feature; important cues have
+  independent gates. Up to two refinement slots target lost cues. Final street
+  image review is advisory and cached, never road-connectivity evidence.
 
 ### RefinementAgent
 - **Input:** `Validation` + `RouteDraft`.
 - **Output:** mutates `RouteDraft` (scale_factor, rotation_delta, offsets,
   simplify_tolerance).
 - **Logic:** deterministic, measurement-driven candidate generation. It first
-  consumes the remaining preflight-ranked placements. Once that shortlist is
-  exhausted, it tests `target / actual`; because road distance is
+  consumes the remaining preflight-ranked placements, but reserves the last two
+  configured iteration slots for measured correction while distance exceeds
+  the 20% target tolerance.
+  Untested placements remain queued; the total iteration budget does not grow.
+  Once the shortlist is exhausted or distance correction is due, it tests
+  `target / actual`; because road distance is
   discontinuous, a lower-scoring full correction is followed by a damped
   square-root bracket. Candidate signatures prevent identical
   scale/rotation/offset drafts from being sent twice. It performs no LLM call
@@ -158,8 +202,8 @@ To add a skill: drop a `docs/skill-*.md` with frontmatter
 ### ExportAgent
 - **Input:** best `SnappedRoute`.
 - **Output:** `Export` — in-memory GPX (+ TCX) for the selected candidate.
-  The internal workflow can still hold diagnostic serialisation for offline
-  tests, but the API filters every `snapped=False` candidate and removes its
+  Unrouted diagnostics are blocked before serialisation, including offline
+  runs. The API also filters every `snapped=False` candidate and removes its
   GPX/TCX/file paths. Passing all gates enables an immediate automatic-check
   download; below-target **road-routed** results require explicit user
   acceptance in the UI. Persistent server-side files are written only for
@@ -179,9 +223,77 @@ if route is not connected:
 while any export quality gate fails and iter < max:
     restore best → next preflight placement (then measured tweak) → snap → validate
     skip already-tested draft signatures
-    rank the weakest normalised gate; discard regressions
+    prefer recognizable in-tolerance drawings, then give fidelity twice the weakest-gate weight
+screen up to 16 local transforms around the best routed placement
+measure at most four shortlisted local candidates; retain the best
+if a measured loser improves a failed shape cue: graph-screen eight nearby placements and measure one challenger
+if excess reversals remain: measure one graph alternative penalizing reused edges
+reroute at most two local guide omissions to improve weak contour sections
+reroute at most two alternatives guided by the original contour section
+if characteristic turns still fail: route at most three high-proxy, reference-guided local turn repairs directly through Directions
+if turning or detour length still fails: graph-screen reconnect windows (and high-error turning windows when needed); measure bounded sequential challengers
+rerun one omission and one reference-guided reconnect candidate on the repaired incumbent
 ```
-The configured maximum is eight refinement passes after the first full route.
+Complete quality-gate passes always rank ahead of partial results. Requested
+distance may differ by up to 20% (`distance_fit >= exp(-0.6)`); closed-loop
+closure still uses `0.60`. The same
+selection rule is used in the API. Displayed metrics and gates are unchanged.
+Local polishing is controlled by `SHAPE_POLISH_CANDIDATES` (0–4), respects the
+deadline, and adds at most one Snap batch beyond initial preflight. The normal
+16-placement/four-route search is preserved. If one of those fully routed
+losers improves a still-failing spatial, coverage, turning, landmark, length,
+extent or reversal cue by at least 0.02, eight nearby rotation, translation and
+scale transforms are screened locally and at most one extra challenger receives
+Directions validation. Scale moves by 10%, 20% or 25% in the direction suggested
+by that candidate's measured distance relative to the target. This
+second screen makes no additional Snap request, requires usable distance and
+closure, keeps the original drawing reference, and cannot displace the normal
+four measurements. Each
+successful graph route may receive one additional original-guide measurement.
+After detour repair, contour reconnection screens bounded local guide omissions,
+then sends at most two proposals through Directions with a 50-guide budget.
+The omitted section's straight chord is only an optimistic search proxy; it
+never supplies road evidence or export geometry. The original drawing stays
+unchanged, every returned candidate is retained, and regressions roll back.
+A second bounded pass can insert one or two original-contour guides in a weak
+section. It respects forward/reverse traversal, avoids spending both proposals
+on heavily overlapping windows, and adds at most two Directions measurements.
+Both passes keep the incumbent's endpoints and use the same final quality gates.
+If turning still fails after both passes, up to three high-proxy local turning
+windows are sent directly to Directions with the original drawing unchanged.
+This search bypasses the local graph because a graph proposal can return to the
+same incumbent streets despite a better reference guide. Every result must be
+connected and outrank the incumbent; a worse route rolls back. Fixed start
+constraints and the shared deadline skip the attempt.
+If turning or detour length still fails, the graph search screens reconnection
+windows; when turning fails it additionally screens at most 18 local candidates
+around six separated, equal-arc turning-error phases. Each phase candidate
+keeps the incumbent outside one window and uses
+three points from the unchanged reference contour as speculative graph guides.
+Physical 300/335 m windows avoid dependence on provider vertex density. Their
+reference points use nearest-coordinate matching where it gives valid forward
+progress, then fall back to the selected direction and whole-contour cyclic
+phase so nearby arms and crossings do not silently jump to a different stroke.
+The incumbent street endpoints and all geometry outside the chosen window remain
+fixed. One graph winner per round receives a 50-guide Directions measurement;
+accepted repairs can trigger at most two recomputed follow-ups while turning or
+detour length still fails. Each proposal must improve the weakest recognition
+component while retaining at least 98% of fidelity, coverage, landmarks, extent,
+and reversal quality. Rejection, success, or the shared deadline stops the
+stage, and fixed start constraints skip it. The graph path is never export
+evidence, and a worse routed result rolls back.
+Because direct-turn and graph repairs can expose a new local detour after the
+initial reconnect screens, the final incumbent receives one last omission and
+one last reference-guided reconnect candidate. Both use the same 50-guide
+Directions authority and quality ranking; no broad window set is reopened.
+Before the local repair passes, a failed reversal gate can trigger one additional graph
+proposal with a cost for edges already used in earlier contour layers. Its
+50-guide Directions route is measured against the same drawing and competes
+under the existing quality ranking; a worse route is retained for comparison
+but cannot replace the incumbent. This attempt respects graph enablement and
+the deadline, and is skipped for an explicit start anchor or fixed start bearing.
+The default graph cost remains unchanged for all ordinary candidates.
+The configured maximum is eight main refinement passes after the first full route.
 Preflight screens up to 180 placements but sends only seven diverse choices to
 full Directions routing. Proxy results live in `state.preflight_candidates`;
 every measured street route lives in `state.candidates`, including candidates

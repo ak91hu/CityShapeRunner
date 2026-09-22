@@ -15,10 +15,12 @@ The overall `score` is a weighted blend. Closed shapes: `0.5·fidelity + 0.3·di
   route-length preservation, and width/height preservation. The dominant
   metric.
   - `< 0.7` → the shape is below the recommended recognisability target; correct any
-    large distance error, then test rotation/offset or tighten simplification.
+    large distance error, then test a different bounded rotation/offset.
 - **distance_fit** (0–1): how well total distance matches the target (or the
   sport's bounds when no target is given).
-  - `< 0.6` and route too long → shrink scale; too short → grow scale.
+  - with an explicit target, `< exp(-0.6) ≈ 0.549` means more than 20%
+    deviation: shrink scale when too long or grow it when too short. Without an
+    explicit target, the sport-bound gate remains `0.60`.
 - **closure** (0–1, closed shapes only): 1.0 minus the normalised gap between
   the first and last snapped points.
   - `< 0.6` → the loop didn't close; shrink scale slightly or nudge an offset
@@ -33,13 +35,15 @@ The overall `score` is a weighted blend. Closed shapes: `0.5·fidelity + 0.3·di
   meaningless (~1.0, the drawing compared to itself), so the overall score is
   **capped at 0.4** — the route cannot pass the threshold and is flagged
   `below_threshold=true`. Verify `ORS_API_KEY` and provider reachability, then
-  move, rotate, simplify, or shorten the guide if its points still cannot be
+  move, rotate, or shorten the guide if its points still cannot be
   connected.
 - **Quality gates** control refinement and automatic verification independently: selected
   shape identity, road matching, score ≥ 0.72, combined fidelity ≥ 0.70,
   and each spatial, coverage, turning, landmark, length, and extent component
-  ≥ 0.70. Distance fit must be ≥ 0.60; closure must be ≥ 0.60 for a
-  closed shape. The loop continues while any applicable gate fails.
+  ≥ 0.70. Distance fit must be at least `exp(-0.6) ≈ 0.549` for an
+  explicit target (at most 20% error), or `0.60` for sport bounds when no target
+  was supplied; closure must be ≥ 0.60 for a closed shape. The loop continues
+  while any applicable gate fails.
 - **Candidate ordering:** normalise every numeric gate by its minimum, then
   rank the weakest gate first after partitioning gate-passing candidates ahead
   of failed candidates. This prevents an aggregate score or near-perfect

@@ -73,6 +73,8 @@ class WorkflowTrace:
     deterministic_fallbacks: int = 0
     provider_attempts: dict[str, int] = field(default_factory=dict)
     llm_usage: dict[str, int] = field(default_factory=dict)
+    routing_requests: dict[str, int] = field(default_factory=dict)
+    routing_failures: dict[str, int] = field(default_factory=dict)
     degraded_reasons: list[str] = field(default_factory=list)
     events: list[WorkflowEvent] = field(default_factory=list)
     dropped_events: int = 0
@@ -117,6 +119,8 @@ class WorkflowTrace:
                 "usage": dict(self.llm_usage),
             },
             "degraded_reasons": list(self.degraded_reasons),
+            "routing_requests": dict(self.routing_requests),
+            "routing_failures": dict(self.routing_failures),
             "error_category": self.error_category,
         }
 
@@ -191,7 +195,9 @@ class WorkflowRuntime:
             status=WorkflowStatus.RUNNING,
             started_at=self._wall_clock().isoformat(),
             max_duration_seconds=max(1.0, float(max_duration_seconds)),
-            max_llm_calls=max(0, int(max_llm_calls)),
+            # -1 is the explicit unlimited sentinel used by cost-zero models.
+            # Zero remains useful for deterministic-only runs and tests.
+            max_llm_calls=max(-1, int(max_llm_calls)),
         )
         state.workflow = self.trace
         log.info(
@@ -212,6 +218,15 @@ class WorkflowRuntime:
             stage: _InstrumentedNode(stage, node, self)
             for stage, node in nodes.items()
         }
+
+    def record_routing_request(self, endpoint: str) -> None:
+        with self._lock:
+            self.trace.routing_requests[endpoint] = self.trace.routing_requests.get(endpoint, 0) + 1
+
+    def record_routing_failure(self, endpoint: str, category: str) -> None:
+        key = f"{endpoint}.{category}"
+        with self._lock:
+            self.trace.routing_failures[key] = self.trace.routing_failures.get(key, 0) + 1
 
     @contextmanager
     def activate(self):
@@ -301,7 +316,10 @@ class WorkflowRuntime:
             self._note_deadline_if_needed()
             return False, "deadline_exceeded"
         with self._lock:
-            exhausted = self.trace.llm_attempts >= self.trace.max_llm_calls
+            exhausted = (
+                self.trace.max_llm_calls >= 0
+                and self.trace.llm_attempts >= self.trace.max_llm_calls
+            )
         if exhausted:
             self._degrade("llm_call_budget_exhausted")
             return False, "call_budget_exhausted"
@@ -318,6 +336,15 @@ class WorkflowRuntime:
             self.trace.provider_attempts[provider] = (
                 self.trace.provider_attempts.get(provider, 0) + 1
             )
+
+    def reserve_llm_attempt(self, provider: str) -> tuple[bool, str | None]:
+        """Atomically reserve one call across concurrent candidate workers."""
+        with self._lock:
+            allowed, reason = self.llm_budget_status()
+            if not allowed:
+                return False, reason
+            self.record_llm_attempt(provider)
+            return True, None
 
     def record_llm_success(self, usage: Mapping[str, Any] | None) -> None:
         with self._lock:
@@ -455,3 +482,17 @@ def trace_asdict(trace: WorkflowTrace) -> dict[str, Any]:
     """Full internal representation for diagnostics and tests."""
 
     return asdict(trace)
+
+
+def record_routing_request(endpoint: str) -> None:
+    """Count actual attempts, including retries, without recording credentials."""
+    runtime = _ACTIVE_RUNTIME.get()
+    if runtime is not None:
+        runtime.record_routing_request(endpoint)
+
+
+def record_routing_failure(endpoint: str, category: str) -> None:
+    """Record fixed operational categories, never provider bodies or secrets."""
+    runtime = _ACTIVE_RUNTIME.get()
+    if runtime is not None:
+        runtime.record_routing_failure(endpoint, category)

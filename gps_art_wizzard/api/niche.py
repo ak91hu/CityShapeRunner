@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
-from ..state import RoutePreferences
+from ..state import RoutePreferences, RouteReadiness
 from ..tools import (
     accessibility_readiness,
     art_rescue,
@@ -21,11 +21,50 @@ from ..tools import (
     occasions,
     ors_client,
     route_landmarks,
+    route_safety,
     shape_similarity,
 )
 from ..tools.timed_readiness import time_readiness
 
 router = APIRouter(tags=["GPS Art Intelligence"])
+
+
+def _route_or_fail(
+    points: list[tuple[float, float]],
+    *,
+    sport: str,
+    closed: bool,
+    route_preferences: RoutePreferences | None = None,
+) -> tuple[list[tuple[float, float]], float, RouteReadiness]:
+    """Require Directions evidence before any derived GPS file is created."""
+
+    try:
+        routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
+            points,
+            sport=sport,
+            closed=closed,
+            route_preferences=route_preferences,
+        )
+    except Exception as error:  # noqa: BLE001 - external routing boundary
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Connected street routing is unavailable, so no GPS file was created."
+            ),
+        ) from error
+    if not route_safety.is_provider_routed_geometry(
+        routed,
+        distance_m,
+        routed=snapped,
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The route could not be matched completely to the road/path network, "
+                "so no GPS file was created."
+            ),
+        )
+    return routed, distance_m, readiness
 
 
 def _points(value: list[list[float]]) -> list[tuple[float, float]]:
@@ -84,7 +123,12 @@ def _split_by_distance(
 
 @router.post("/mural-plan")
 def mural_plan(request: MuralPlanRequest) -> dict:
-    points = _points(request.points)
+    guides = _points(request.points)
+    points, routed_distance_m, readiness = _route_or_fail(
+        guides,
+        sport=request.sport,
+        closed=guides[0] == guides[-1],
+    )
     pieces = _split_by_distance(points, request.participants)
     if len(pieces) != request.participants:
         raise HTTPException(
@@ -111,7 +155,9 @@ def mural_plan(request: MuralPlanRequest) -> dict:
     return {
         "name": request.name,
         "participant_count": len(sections),
-        "total_distance_km": geo.path_distance_m(points) / 1000,
+        "total_distance_km": routed_distance_m / 1000,
+        "snapped": True,
+        "readiness": asdict(readiness),
         "sections": sections,
     }
 
@@ -321,16 +367,37 @@ class ArtRescueRequest(BaseModel):
 
 @router.post("/art-rescue")
 def rescue_recordings(request: ArtRescueRequest) -> dict:
-    """Merge completed sessions without false strokes and isolate missing ink."""
+    """Merge sessions and isolate missing ink only on provider-routed geometry."""
 
     try:
         recordings = [
             art_rescue.parse_recording(recording.name, recording.gpx)
             for recording in request.recordings
         ]
-        return art_rescue.rescue_analysis(
+        segment_count = sum(len(recording.segments) for recording in recordings)
+        if segment_count > 48:
+            raise ValueError("The recordings contain more than 48 track segments.")
+        routed_plan, _, _ = _route_or_fail(
             _points(request.planned_points),
-            recordings,
+            sport=request.sport,
+            closed=request.planned_points[0] == request.planned_points[-1],
+        )
+        routed_recordings = []
+        for recording in recordings:
+            routed_segments = [
+                _route_or_fail(
+                    segment,
+                    sport=request.sport,
+                    closed=segment[0] == segment[-1],
+                )[0]
+                for segment in recording.segments
+            ]
+            routed_recordings.append(
+                art_rescue.Recording(recording.name, routed_segments)
+            )
+        return art_rescue.rescue_analysis(
+            routed_plan,
+            routed_recordings,
             tolerance_m=request.tolerance_m,
             name=request.name,
             sport=request.sport,
@@ -375,25 +442,18 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
     route_preferences = (
         RoutePreferences(**preference_values) if any(preference_values.values()) else None
     )
-    if route_preferences is None:
-        routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-            deduped,
-            sport=request.sport,
-            closed=request.closed,
-        )
-    else:
-        routed, distance_m, snapped, readiness = ors_client.snap_route_detailed(
-            deduped,
-            sport=request.sport,
-            closed=request.closed,
-            route_preferences=route_preferences,
-        )
+    routed, distance_m, readiness = _route_or_fail(
+        deduped,
+        sport=request.sport,
+        closed=request.closed,
+        route_preferences=route_preferences,
+    )
     fidelity = shape_similarity.fidelity_between_routes(guide, routed, n=96)
     return {
         "points_preview": [[lat, lon] for lat, lon in routed],
         "guide_points": [[lat, lon] for lat, lon in deduped],
         "distance_km": distance_m / 1000,
-        "snapped": snapped,
+        "snapped": True,
         "recognition_score": fidelity,
         "readiness": asdict(readiness),
         "gpx": gpx_writer.to_gpx(

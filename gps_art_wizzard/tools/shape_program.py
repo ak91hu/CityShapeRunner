@@ -23,6 +23,7 @@ class CompiledShapeProgram:
     closed: bool
     feature_coverage: dict[str, float] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    feature_paths: dict[str, list[geo.Path]] = field(default_factory=dict)
 
 
 def compile_shape_program(
@@ -43,6 +44,7 @@ def compile_shape_program(
 
     paths: list[geo.Path] = []
     feature_lengths: dict[str, float] = {}
+    feature_paths: dict[str, list[geo.Path]] = {}
     total_commands = 0
     for stroke_index, raw_stroke in enumerate(raw_strokes):
         if not isinstance(raw_stroke, dict) or not isinstance(raw_stroke.get("commands"), list):
@@ -88,9 +90,14 @@ def compile_shape_program(
                     path.append(point)
             if feature_id:
                 feature_lengths[feature_id] = feature_lengths.get(feature_id, 0.0) + _path_length(segment)
+                feature_paths.setdefault(feature_id, []).append(segment)
         if len(path) < 3:
             raise ValueError("each stroke needs at least three compiled points")
-        if closed and path[0] != path[-1]:
+        # ``closed`` describes the complete drawing, not every auxiliary
+        # stroke.  Auto-close only the primary outer contour; secondary
+        # strokes stay open unless they contain an explicit ``close`` command.
+        # This is essential for readable limbs, waves, spokes and spiral arms.
+        if closed and stroke_index == 0 and path[0] != path[-1]:
             path.append(path[0])
         paths.append(path)
 
@@ -114,7 +121,7 @@ def compile_shape_program(
     )
     if tiny:
         warnings.append("features too small for routing: " + ", ".join(tiny))
-    return CompiledShapeProgram(paths, closed, coverage, warnings)
+    return CompiledShapeProgram(paths, closed, coverage, warnings, feature_paths)
 
 
 def local_program_score(program: CompiledShapeProgram, required_feature_ids: set[str]) -> float:

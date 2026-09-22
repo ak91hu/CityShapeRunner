@@ -108,7 +108,12 @@ class ShapeCueVerification:
 
 @dataclass
 class ShapeVerification:
-    """Independent rendered-image review of an AI-generated candidate."""
+    """Rendered-image or deterministic review of an AI-generated candidate.
+
+    ``independent`` is true only when the critic provider differs from the
+    generator.  ``method`` distinguishes that evidence from a disclosed visual
+    self-review and from geometry-only checks.
+    """
 
     score: float | None
     subject_match: float | None
@@ -139,6 +144,9 @@ class Shape:
     generator_usage: dict[str, int] = field(default_factory=dict)
     generated_candidate_count: int = 0
     selected_candidate: int | None = None
+    generation_strategy: str | None = None
+    # Geometry of semantic cues in the same coordinate frame as paths.
+    feature_paths: dict[str, list[list[tuple[float, float]]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -169,6 +177,8 @@ class RouteDraft:
     preflight_snap_distance_m: float | None = None
     anchored_start: LatLon | None = None
     preferred_start_direction_deg: float | None = None
+    feature_repair: str | None = None
+    feature_repair_variant: int = 0
 
 
 @dataclass
@@ -244,6 +254,9 @@ class Validation:
     target_distance_km: float | None = None
     route_point_count: int = 0
     guide_point_count: int = 0
+    feature_measurements: list[dict[str, Any]] = field(default_factory=list)
+    feature_preservation: float | None = None
+    routed_semantic_review: dict[str, Any] | None = None
 
 
 @dataclass
@@ -299,6 +312,9 @@ class WorkflowState:
     shape: Shape | None = None
     route_draft: RouteDraft | None = None
     snapped: SnappedRoute | None = None
+    # One direct-guide challenger for a successfully routed graph proposal.
+    pending_direct_guides: list[LatLon] | None = None
+    pending_direct_guide_budget: int | None = None
     validation: Validation | None = None
     export: Export | None = None
     iterations: int = 0

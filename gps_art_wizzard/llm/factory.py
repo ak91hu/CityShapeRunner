@@ -52,17 +52,27 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
     def add(name: str):
         try:
             if name == "opencode" and cfg.opencode_key:
-                from .opencode_provider import OpenCodeProvider
-                candidates.append(
-                    OpenCodeProvider(
-                        cfg.opencode_key,
-                        cfg.opencode_base_url,
-                        model_for("opencode"),
-                        cfg.temperature,
-                        cfg.max_tokens,
-                        structured_model=cfg.opencode_structured_model,
+                if cfg.opencode_transport == "cli":
+                    from .opencode_cli_provider import OpenCodeCLIProvider
+                    candidates.append(
+                        OpenCodeCLIProvider(
+                            cfg.opencode_server_url,
+                            model_for("opencode"),
+                            cfg.max_tokens,
+                        )
                     )
-                )
+                else:
+                    from .opencode_provider import OpenCodeProvider
+                    candidates.append(
+                        OpenCodeProvider(
+                            cfg.opencode_key,
+                            cfg.opencode_base_url,
+                            model_for("opencode"),
+                            cfg.temperature,
+                            cfg.max_tokens,
+                            structured_model=cfg.opencode_structured_model,
+                        )
+                    )
             elif name == "openai" and cfg.openai_key:
                 from .openai_provider import OpenAIProvider
                 candidates.append(OpenAIProvider(cfg.openai_key, model_for("openai"), cfg.temperature, cfg.max_tokens))
@@ -169,9 +179,11 @@ def try_complete(
         if not provider.is_available():
             _UNAVAILABLE_UNTIL[provider.name] = time.monotonic() + _PROBE_COOLDOWN_S
             continue
-        attempted += 1
         if runtime is not None:
-            runtime.record_llm_attempt(provider.name)
+            allowed, budget_reason = runtime.reserve_llm_attempt(provider.name)
+            if not allowed:
+                break
+        attempted += 1
         try:
             resp = provider.complete(**kwargs)
             if runtime is not None:
@@ -181,7 +193,19 @@ def try_complete(
             return resp
         except LLMError as e:
             last_err = e
-            _UNAVAILABLE_UNTIL[provider.name] = time.monotonic() + _PROBE_COOLDOWN_S
+            # Structured truncation and a single request timeout both prove
+            # that provider discovery succeeded. The adapter already performs
+            # one bounded same-call retry; do not poison unrelated subsequent
+            # stages with a reachability cooldown for these response-level
+            # failures.
+            error_text = str(e).casefold()
+            response_level_failure = (
+                "incomplete: max_output_tokens" in error_text
+                or "timed out" in error_text
+                or "timeout" in error_text
+            )
+            if not response_level_failure:
+                _UNAVAILABLE_UNTIL[provider.name] = time.monotonic() + _PROBE_COOLDOWN_S
             log.warning("provider %s failed (%s); trying next", provider.name, e)
             continue
 

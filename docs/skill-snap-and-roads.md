@@ -1,6 +1,6 @@
 ---
 name: snap-and-roads
-description: What snap-to-road does to a drawing, and how to use the simplify knob.
+description: What activity-specific Directions routing does to a drawing.
 applies_to: [snap, refinement, planning]
 tags: [ors, roads, simplify]
 ---
@@ -33,11 +33,11 @@ tags: [ors, roads, simplify]
   first Directions request fails, try the remaining preflight-ranked drafts in
   order. Stop at the first `snapped=True` result; if the bounded shortlist is
   exhausted, fail closed instead of drawing guide segments over the basemap.
-- The `simplify_tolerance` (metres) denoises real road geometry. **Lower =
-  more detail (better fidelity, longer GPX); higher = smoother (worse
-  fidelity, smaller GPX).** It is evaluated in a local metre projection and
-  must retain endpoints and simple-line topology. Never simplify the
-  straight-line fallback — it only discards drawn vertices.
+- Every vertex returned by Directions is preserved in validation, map previews,
+  GPX and TCX. `simplify_tolerance` remains in legacy draft state for backward
+  compatibility but must not alter provider-routed street geometry. Shape
+  improvement comes from better guides, placement and measured re-routing, not
+  from cutting corners out of the returned polyline.
 - If a waypoint lands in a park/river with no nearby road, ORS routes around
   it, creating a spike. The RefinementAgent should nudge an offset, not rescale.
 - Keep `continue_straight=false` for GPS art. Hearts, lettering, and other

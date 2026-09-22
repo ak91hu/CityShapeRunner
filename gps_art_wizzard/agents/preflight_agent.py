@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 import math
+import time
+from dataclasses import replace
 
 from ..config import get_settings
 from ..state import RouteDraft, WorkflowState
@@ -31,6 +33,12 @@ class PreflightAgent(BaseAgent):
             return state
 
         drafts = self._candidate_drafts(state)
+        adaptive = getattr(workflow, "preflight_adaptive", False)
+        if adaptive and len(drafts) > 12:
+            # Sample the whole transform space, rather than truncating the
+            # scale-major enumeration and losing its later orientations.
+            count = max(12, int(workflow.preflight_max_placements * 0.55))
+            drafts = self._spread_drafts(drafts, min(count, len(drafts)))
         results = ors_client.preflight_route_candidates(
             [draft.waypoints for draft in drafts],
             sport=state.intent.sport,
@@ -44,6 +52,45 @@ class PreflightAgent(BaseAgent):
         if not results:
             self._record(state, "preflight found no snappable placement")
             return state
+
+        results = self._valid_results(results, len(drafts))
+        # Graph evidence complements independent point snaps. A local snapshot
+        # can improve ranking without changing the export authority.
+        from ..tools.street_graph import graph_for_state
+        graph = graph_for_state(state) if hasattr(get_settings(), "routing") else None
+        results = self._network_rank(results, drafts, graph)
+        if adaptive:
+            for round_index in (1, 2):
+                remaining = max(0, workflow.preflight_max_placements - len(drafts))
+                budget = remaining if round_index == 2 else (remaining + 1) // 2
+                seeds = self._diverse_shortlist(results, drafts, 4)
+                fine = self._refined_drafts(state, drafts, seeds, budget, round_index)
+                if not fine:
+                    break
+                measured = ors_client.preflight_route_candidates(
+                    [draft.waypoints for draft in fine],
+                    sport=state.intent.sport,
+                    closed=state.shape.closed,
+                    max_guide_points=workflow.preflight_guide_points,
+                )
+                state.preflight_count += len(fine)
+                if measured is None:
+                    # Preserve the measured coarse results if the next batch
+                    # is unavailable; no repeated provider retry here.
+                    self._record(state, "adaptive preflight unavailable; retaining measured placements")
+                    break
+                offset = len(drafts)
+                drafts.extend(fine)
+                measured = self._network_rank(self._valid_results(measured, len(fine)), fine, graph)
+                results.extend(
+                    replace(result, candidate_index=offset + result.candidate_index)
+                    for result in self._valid_results(measured, len(fine))
+                )
+                results = self._valid_results(results, len(drafts))
+                state.history.append({
+                    "agent": "preflight", "adaptive_round": round_index,
+                    "placements": len(fine), "best_score": results[0].score if results else None,
+                })
 
         shortlist_size = min(
             max(1, workflow.preflight_shortlist),
@@ -64,6 +111,8 @@ class PreflightAgent(BaseAgent):
                     "landmark_proxy": result.landmark_similarity,
                     "length_proxy": result.length_similarity,
                     "route_length_ratio": result.route_length_ratio,
+                    "network_connectivity": result.network_connectivity,
+                    "network_detour_ratio": result.network_detour_ratio,
                     "rotation_deg": draft.rotation_deg,
                     "scale_m": draft.scale_m,
                     "lat_offset_m": draft.lat_offset_m,
@@ -115,6 +164,90 @@ class PreflightAgent(BaseAgent):
             f"shortlist={len(ranked_drafts)}",
         )
         return state
+
+    @staticmethod
+    def _network_rank(results, drafts, graph):
+        if graph is None:
+            return results
+        from ..tools.street_graph import connectivity_proxy
+        ranked = list(results)
+        deadline = time.monotonic() + 0.4
+        for index, result in enumerate(ranked[:21]):
+            if time.monotonic() > deadline:
+                break
+            guides = ors_client._subsample(drafts[result.candidate_index].waypoints, closed=drafts[result.candidate_index].closed, max_points=6)
+            connected, detour = connectivity_proxy(graph, guides)
+            penalty = 0.08 if connected == 0 else 1 / (1 + max(0, (detour or 1) - 1) * 0.25)
+            ranked[index] = replace(result, score=result.score * penalty,
+                                    network_connectivity=connected, network_detour_ratio=detour)
+        return sorted(ranked, key=lambda result: (-result.score, result.candidate_index))
+
+    @staticmethod
+    def _valid_results(results, count):
+        return sorted(
+            (r for r in results if 0 <= r.candidate_index < count and math.isfinite(r.score)),
+            key=lambda r: (-r.score, r.candidate_index),
+        )
+
+    @classmethod
+    def _spread_drafts(cls, drafts: list[RouteDraft], count: int) -> list[RouteDraft]:
+        if count >= len(drafts):
+            return drafts
+        chosen = [drafts[0]]
+        available = list(drafts[1:])
+        distances = [cls._draft_diversity(d, chosen[0]) for d in available]
+        while available and len(chosen) < count:
+            index = max(range(len(available)), key=lambda i: distances[i])
+            selected = available.pop(index)
+            distances.pop(index)
+            chosen.append(selected)
+            distances = [min(old, cls._draft_diversity(d, selected))
+                         for d, old in zip(available, distances, strict=True)]
+        return chosen
+
+    @staticmethod
+    def _signature(draft: RouteDraft) -> tuple[float, ...]:
+        return (round(draft.scale_m, 1), round(draft.rotation_deg % 360, 1),
+                round(draft.lat_offset_m, 1), round(draft.lon_offset_m, 1))
+
+    def _refined_drafts(self, state, drafts, seeds, budget, round_index):
+        if not seeds or budget <= 0 or state.shape is None:
+            return []
+        seen = {self._signature(draft) for draft in drafts}
+        proposed = []
+        projector = PlacementAgent()
+        # Round-robin over seeds prevents the best neighbourhood consuming
+        # every fine sample before alternative neighbourhoods are examined.
+        variants = ((0, 0, 1, 0), (0, 0, -1, 0), (0, 0, 0, 1), (0, 0, 0, -1),
+                    (1, 0, 0, 0), (-1, 0, 0, 0), (0, 1, 0, 0), (0, -1, 0, 0),
+                    (0, 0, 1, 1), (0, 0, -1, -1), (1, 1, 0, 0), (-1, -1, 0, 0),
+                    (1, 0, 1, 0), (-1, 0, -1, 0), (0, 1, 0, 1), (0, -1, 0, -1))
+        for rotation, scale, north, east in variants:
+            for seed in seeds:
+                base = drafts[seed.candidate_index]
+                step = min(450.0, max(60.0, base.scale_m * 0.18)) / round_index
+                draft = copy.copy(base)
+                draft.scale_m = max(25.0, base.scale_m * (1 + scale * 0.075 / round_index))
+                if base.preferred_start_direction_deg is None:
+                    draft.rotation_deg = (base.rotation_deg + rotation * 10 / round_index) % 360
+                if base.anchored_start is None:
+                    draft.lat_offset_m += north * step
+                    draft.lon_offset_m += east * step
+                manual = state.map_placement
+                if manual and math.hypot(draft.lat_offset_m, draft.lon_offset_m) > manual.search_radius_m:
+                    continue
+                draft.waypoints = projector.project(state.shape, draft)
+                bbox = state.plan.city_bbox if state.plan and manual is None else None
+                if bbox and not self._inside_bbox(draft, bbox):
+                    continue
+                signature = self._signature(draft)
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                proposed.append(draft)
+                if len(proposed) >= budget:
+                    return proposed
+        return proposed
 
     @classmethod
     def _diverse_shortlist(

@@ -123,7 +123,8 @@ uses the following evidence-to-design mapping:
 | [Newson and Krumm](https://doi.org/10.1145/1653771.1653818) show that map matching must combine observation distance with plausible network transitions; pedestrian Fréchet work likewise emphasises ordered curve continuity ([Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Treat nearest-edge snapping as non-authoritative and submit every edited guide to the activity profile before recomputing quality; only a successful Directions result is labelled road-routed. | ORS Directions establishes a connected routable result for its graph snapshot, but does not guarantee current legal access, surface quality, or personal safety. |
 
 The resulting funnel is deliberately coarse-to-fine: up to 180 transforms are
-reduced to curvature-preserving 18-point guides for one batched snap request;
+reduced to curvature-preserving 18-point guides across as many as three adaptive
+batched snap rounds that share the same total placement cap;
 a quality-and-diversity rule selects seven full Directions candidates; every
 returned route is then evaluated using coverage, characteristic turns,
 salient curvature landmarks, extra reversal events, proportions, distance, closure, and road-routing
@@ -162,7 +163,8 @@ the [August 2026 algorithm audit](gps-art-algorithm-audit-2026-08.md).
 The graph engine (`orchestrator.py`) wires these into a state machine with:
 - a **planning step** (one strategy commit, read by shape + placement),
 - a **coarse-to-fine placement search** (city-wide grid × six orientations ×
-  three scales → one batched snap → diversity-aware seven-candidate full-route
+  three scales → up to three adaptive snap batches within one shared cap →
+  diversity-aware seven-candidate full-route
   shortlist; all proxy and fully routed attempts remain auditable, while every
   final selected-shape route remains selectable and clearly labelled),
 - a **road-recovery pass** (if the first Directions result is not connected,

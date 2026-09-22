@@ -309,6 +309,8 @@ const RouteMap = forwardRef(function RouteMap({
     }
 
     const line = L.polyline(coordinates, {
+      smoothFactor: 0,
+      className: "street-route-line",
       color: roadRouted ? (accepted ? "#0b6b57" : "#b45309") : "#b45309",
       weight: 5,
       opacity: roadRouted ? 0.95 : 0.8,

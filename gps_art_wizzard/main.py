@@ -147,17 +147,21 @@ def run() -> None:
     """Console-script entrypoint: ``gps-art-wizzard``."""
     import uvicorn
 
+    from .config import get_settings
+    from .llm.opencode_cli_runtime import managed_opencode_server
+
     host = os.getenv("API_HOST", "127.0.0.1")
     port_value = os.getenv("PORT") or os.getenv("API_PORT") or "8000"
     port = int(port_value)
-    uvicorn.run(
-        "gps_art_wizzard.main:app",
-        host=host,
-        port=port,
-        reload=False,
-        log_config=None,
-        access_log=False,
-    )
+    with managed_opencode_server(get_settings().llm):
+        uvicorn.run(
+            "gps_art_wizzard.main:app",
+            host=host,
+            port=port,
+            reload=False,
+            log_config=None,
+            access_log=False,
+        )
 
 
 if __name__ == "__main__":

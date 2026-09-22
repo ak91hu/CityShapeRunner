@@ -1,6 +1,7 @@
-Independently review the supplied images. Judge what is actually visible, not
-what the generator intended. Use the ShapeSpec as the semantic target and obey
-this exact image ordering:
+Review the supplied images as a strict visual critic, separate from the
+geometry-generation step. Judge what is actually visible, not what the
+generator intended. Use the ShapeSpec as the semantic target and obey this
+exact image ordering:
 {image_order}
 
 For every candidate:

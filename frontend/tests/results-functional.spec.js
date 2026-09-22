@@ -58,6 +58,44 @@ test("the result identifies the route and its request ID", async ({ page }) => {
   await expect(page.locator(".route-state")).toContainText("Ready to download");
 });
 
+test("the street map retains every supplied route vertex", async ({ page }) => {
+  const result = buildRouteResult();
+  const points = Array.from({ length: 620 }, (_, index) => [
+    47.53 + 0.001 * Math.sin(index * Math.PI / 310),
+    21.62 + index * 0.000006,
+  ]);
+  result.points_preview = points;
+  result.candidates[0].points_preview = points;
+  await openGeneratedRoute(page, result);
+  const line = page.locator(".route-map .street-route-line");
+  await expect(line).toBeVisible();
+  await expect.poll(async () => {
+    const path = await line.getAttribute("d");
+    return (path?.match(/[ML]/g) ?? []).length;
+  }).toBe(points.length);
+});
+
+test("final street review and feature evidence belong to the selected candidate", async ({ page }) => {
+  const result = buildRouteResult();
+  result.candidates[0].validation.routed_semantic_review = {
+    recognized_subject: "star with an uneven tip",
+    reason: "One tip blends into a nearby street.",
+    missing_features: ["upper tip"],
+    calibrated: false,
+  };
+  result.candidates[0].validation.feature_measurements = [
+    { feature_id: "tip", label: "Upper tip", preserved: false },
+  ];
+  await openGeneratedRoute(page, result);
+  await page.getByText("Route details", { exact: true }).click();
+  await expect(page.getByRole("region", { name: "Visual drawing review" })).toContainText("star with an uneven tip");
+  await expect(page.getByRole("region", { name: "Drawing detail preservation" })).toContainText("Upper tip: needs a closer look");
+  await page.locator(".route-facts").screenshot({ path: test.info().outputPath("route-review.png") });
+  await page.locator(".candidate-card").nth(1).click();
+  await expect(page.getByRole("region", { name: "Visual drawing review" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Drawing detail preservation" })).toHaveCount(0);
+});
+
 test("the result leads with the interpreted request and offers a correction path", async ({ page }) => {
   await openGeneratedRoute(page);
 
@@ -516,6 +554,7 @@ test("an independently reviewed AI drawing shows its semantic result", async ({ 
       semantic_verification: {
         score: 0.86,
         independent: true,
+        method: "rendered-image-independent",
         cue_results: [
           { feature_id: "head", present: true },
           { feature_id: "arm", present: true },
@@ -543,4 +582,39 @@ test("an independently reviewed AI drawing shows its semantic result", async ({ 
   await expect(audit).toContainText("Head");
   await expect(audit).toContainText("Legs");
   await expect(audit).toContainText("Missing");
+});
+
+test("a same-provider AI drawing review is disclosed as a self-check", async ({ page }) => {
+  const result = buildRouteResult({
+    shape: {
+      name: "walking robot",
+      closed: true,
+      source: "llm",
+      n_paths: 1,
+      generated_candidate_count: 2,
+      semantic_verification: {
+        score: 0.78,
+        independent: false,
+        method: "rendered-image-self-review",
+        cue_results: [
+          { feature_id: "antenna", present: true, score: 0.8 },
+          { feature_id: "walking_pose", present: false, score: 0.4 },
+        ],
+      },
+    },
+  });
+  result.candidates = result.candidates.map((candidate) => ({
+    ...candidate,
+    shape_name: "walking robot",
+    shape_source: "llm",
+  }));
+
+  await openGeneratedRoute(page, result);
+
+  const notice = page.locator(".notice--info").filter({ hasText: "Made from your idea" });
+  await expect(notice).toContainText("A disclosed AI self-check scored it 78%");
+  await page.getByText("Drawing recognition details", { exact: true }).click();
+  await expect(page.locator(".ai-recognition-card")).toContainText(
+    "A disclosed AI self-check looks",
+  );
 });

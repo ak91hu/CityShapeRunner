@@ -18,7 +18,7 @@ from ..agents.validation_agent import ValidationAgent
 from ..config import get_settings
 from ..logging_config import current_request_id
 from ..orchestrator import generate
-from ..quality import quality_bottleneck, quality_gate_report
+from ..quality import quality_gate_report, route_quality_rank
 from ..state import (
     EvaluatedCandidate,
     Intent,
@@ -36,6 +36,7 @@ from ..tools import (
     gpx_writer,
     image_reference,
     ors_client,
+    route_safety,
     shape_library,
     shape_similarity,
 )
@@ -168,7 +169,7 @@ class GenerateRequest(BaseModel):
 
 class WorkflowLimitsResponse(BaseModel):
     max_duration_seconds: float = Field(ge=1)
-    max_llm_calls: int = Field(ge=0)
+    max_llm_calls: int = Field(ge=-1)
 
 
 class WorkflowStepsResponse(BaseModel):
@@ -351,7 +352,7 @@ def _even_sample(points: list, n: int) -> list:
 def _candidate_response_rank(
     candidate: EvaluatedCandidate,
     selected_shape: str | None,
-) -> tuple[bool, bool, bool, float, float, float]:
+) -> tuple[bool, bool, bool, bool, float, float, float]:
     """Rank routes by the same independent gates shown to the user.
 
     Aggregate score is intentionally only a late tie-breaker. Otherwise a
@@ -373,9 +374,7 @@ def _candidate_response_rank(
         selected_shape_match,
         bool(report["passed"]),
         bool(candidate.validation.on_roads),
-        quality_bottleneck(candidate.validation, closed=candidate.closed),
-        candidate.validation.score,
-        candidate.validation.shape_fidelity,
+        *route_quality_rank(candidate.validation, closed=candidate.closed)[1:],
     )
 
 
@@ -440,30 +439,11 @@ def _is_connected_route_geometry(
 ) -> bool:
     """Validate the minimum public contract for a street-routed polyline."""
 
-    if not snapped or not isinstance(points, list | tuple) or len(points) < 2:
-        return False
-    if isinstance(total_distance_m, bool) or not isinstance(
-        total_distance_m, int | float
-    ):
-        return False
-    distance = float(total_distance_m)
-    if not math.isfinite(distance) or distance <= 0:
-        return False
-    for point in points:
-        if not isinstance(point, list | tuple) or len(point) < 2:
-            return False
-        try:
-            lat, lon = float(point[0]), float(point[1])
-        except (TypeError, ValueError):
-            return False
-        if (
-            not math.isfinite(lat)
-            or not math.isfinite(lon)
-            or not -90 <= lat <= 90
-            or not -180 <= lon <= 180
-        ):
-            return False
-    return True
+    return route_safety.is_provider_routed_geometry(
+        points,
+        total_distance_m,
+        routed=snapped,
+    )
 
 
 def _has_connected_route(route: object | None) -> bool:
@@ -481,7 +461,9 @@ def _state_to_response(state) -> dict:
     export = state.export
     primary_street_routed = _has_connected_route(snapped)
     all_pts = snapped.points if snapped else []
-    preview = [[p[0], p[1]] for p in _even_sample(all_pts, _MAX_PREVIEW_POINTS)]
+    # The map must show the same street geometry as the download. Sampling
+    # vertices would create artificial straight shortcuts through corners.
+    preview = [[p[0], p[1]] for p in all_pts]
     ideal_points = state.route_draft.waypoints if state.route_draft else []
     ideal_preview = [
         [point[0], point[1]]
@@ -671,7 +653,7 @@ def _state_to_response(state) -> dict:
                 "shape_source": candidate.shape_source,
                 "points_preview": [
                     [point[0], point[1]]
-                    for point in _even_sample(candidate.points, _MAX_PREVIEW_POINTS)
+                    for point in candidate.points
                 ],
                 "ideal_preview": [
                     [point[0], point[1]]
@@ -1503,7 +1485,7 @@ def edit_route(req: EditedRouteRequest) -> dict:
         "request_id": temporary.request_id,
         "points_preview": [
             [point[0], point[1]]
-            for point in _even_sample(points, _MAX_PREVIEW_POINTS)
+            for point in points
         ],
         "distance_km": distance_m / 1000.0,
         "snapped": snapped,

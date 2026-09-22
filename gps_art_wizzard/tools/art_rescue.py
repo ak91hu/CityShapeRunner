@@ -345,6 +345,6 @@ def rescue_analysis(
             if not missing_segments
             else f"{len(missing_segments)} separate repair mission(s) can complete the drawing."
         ),
-        "authenticity": "The combined GPX contains recorded points only; repair routes are separate and untimed.",
+        "authenticity": "Every exported segment is a Directions-verified road/path route; repair routes are separate and untimed.",
         "privacy": "Files were analysed in memory and were not stored.",
     }

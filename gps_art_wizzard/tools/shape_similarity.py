@@ -16,6 +16,7 @@ import numpy as np
 from . import geo
 
 LatLon = tuple[float, float]
+METRIC_REVISION = "closed-phase-v2"
 
 
 @dataclass(frozen=True)
@@ -516,8 +517,23 @@ def _candidate_orientations(reference: np.ndarray, candidate: np.ndarray) -> tup
     variants: list[np.ndarray] = []
     for oriented in (core, core[::-1]):
         start = int(np.argmin(np.linalg.norm(oriented - reference[0], axis=1)))
-        aligned = np.roll(oriented, -start, axis=0)
-        variants.append(np.vstack((aligned, aligned[0])))
+        starts = [start]
+        if len(core) == len(reference) - 1:
+            # A crossing can visit the same coordinate several times. The
+            # nearest first point alone cannot tell which visit corresponds
+            # to the reference's start. Compare complete cyclic phases using
+            # a bounded coarse sample, then let the unchanged full metrics
+            # judge both this alignment and the nearest-start alignment.
+            indices = np.linspace(0, len(core) - 1, min(64, len(core)), dtype=int)
+            shifts = np.arange(len(core))[:, None]
+            delta = oriented[(shifts + indices) % len(core)] - reference[indices]
+            phase_error = np.einsum("ijk,ijk->i", delta, delta)
+            phase_start = int(np.argmin(phase_error))
+            if phase_start != start:
+                starts.append(phase_start)
+        for aligned_start in starts:
+            aligned = np.roll(oriented, -aligned_start, axis=0)
+            variants.append(np.vstack((aligned, aligned[0])))
     return tuple(variants)
 
 

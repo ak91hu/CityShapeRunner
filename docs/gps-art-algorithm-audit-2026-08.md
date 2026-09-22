@@ -1,5 +1,9 @@
 # GPS-art algorithm audit — 2026-08
 
+This is the historical August audit. The subsequent graph-search, adaptive
+placement, semantic feature and routed-image review implementation is documented
+in [Generation improvements (September 2026)](generation-development.md).
+
 ## Scope and conclusion
 
 This audit follows one request from free text to exported route and reviews the
@@ -103,9 +107,12 @@ and smoothing/normalisation remain local. Exact multi-stroke optimisation is
 safe because the custom schema permits at most eight strokes; it deliberately
 falls back to a deterministic heuristic for unexpectedly large text geometry.
 
-These checks prove geometric suitability, not semantic truth. A valid outline
-can still be a poor depiction of a rare noun. The application labels a provider
-fallback honestly and keeps routed recognition gates and manual editing visible.
+These checks prove geometric suitability, not semantic truth. Rendered
+candidate review adds cue-level evidence: a different provider is preferred;
+when only the generator is available its separate critic pass is retained as
+`independent=false`. A valid outline can still be a poor depiction of a rare
+noun. The application labels provider fallback honestly and keeps routed
+recognition gates and manual editing visible.
 
 ## Deliberately deferred methods
 
@@ -113,14 +120,10 @@ fallback honestly and keeps routed recognition gates and manual editing visible.
    quality gain, but it requires a self-hosted routable graph and per-edge cost,
    legality, turn, and activity handling. The public ORS API does not expose the
    required GPS-art objective.
-2. **Vision-language semantic verification.** This should be tested only after
-   a labelled multilingual outline/final-route benchmark exists. Asking the
-   same generator to approve itself is not independent evidence.
-3. **Multiple generated scaffolds by default.** It could improve semantic hit
-   rate but multiplies inference and routing cost. It should be enabled only if
-   benchmark data shows semantic generation, rather than street distortion, is
-   the dominant failure.
-4. **User image/sketch tracing.** This needs a separate file-security, privacy,
+2. **Human-calibrated semantic thresholds.** Rendered visual review is now
+   implemented, but same-provider self-review is not independent evidence and
+   neither review mode is calibrated to human recognition rates.
+3. **User image/sketch tracing.** This needs a separate file-security, privacy,
    foreground extraction, vectorisation, and topology-repair design.
 
 ## Regression evidence
