@@ -56,12 +56,13 @@ The final public URL is displayed in the service header and ends in
 `.code.run`. The application also accepts a platform-provided `PORT` variable
 if Northflank supplies one; otherwise it listens on `0.0.0.0:8000`.
 
-The standard Docker build pins and embeds the OpenCode CLI, then runs its HTTP
-server only on the container loopback interface. This is required because
-OpenCode's zero-cost models are available through OpenCode itself rather than
-the direct Zen API. No second service, volume, or paid model is needed. Set the
-Docker build argument `INSTALL_EXTRAS=all` only when Anthropic support is also
-required.
+The standard Docker build pins and embeds the OpenCode CLI. The 256 MB Sandbox
+profile does not autostart its resident HTTP process: measurements showed that
+the CLI and web process together exhaust the free instance and cause readiness
+failures. The deterministic generator remains the production path. On a larger
+instance, set `OPENCODE_SERVER_AUTOSTART=true` to opt in to the loopback-only
+free-model server. Set the Docker build argument `INSTALL_EXTRAS=all` only when
+Anthropic support is also required.
 
 ### Runtime variables and secrets
 
@@ -82,6 +83,7 @@ LLM_FALLBACK=opencode
 LLM_USAGE_MODE=essential
 OPENCODE_TRANSPORT=cli
 OPENCODE_SERVER_URL=http://127.0.0.1:4097
+OPENCODE_SERVER_AUTOSTART=false
 OPENCODE_MODEL=muse-spark-1.3-contributor-free
 OPENCODE_DISABLE_AUTOUPDATE=true
 AI_SHAPE_VERIFIER_ENABLED=false
@@ -110,17 +112,13 @@ deployments must use the value above. See the
 The dashboard shows the new host's quota, not the legacy host's quota. Check
 the effective environment override as well as the application default.
 
-This free profile does not spend model calls on intent extraction, planning,
-image review, route review, or known catalog/text shapes. An unknown custom
-subject normally uses one semantic shape-specification call and one geometry
-proposal, but `WORKFLOW_MAX_LLM_CALLS=-1` imposes no global call-count quota:
-bounded repair or retry stages may make as many calls as their quality logic
-requires. A deterministic semantic scaffold and geometry checks remain
-available when the model is unreachable. Failure to start the loopback OpenCode
-process is deliberately fail-open for the web service: `/health`, deterministic
-generation, road validation, and export remain available while AI calls are
-skipped. The runtime logs `llm.opencode.server.unavailable` for diagnosis. If
-OpenCode retires the named free model, change only `OPENCODE_MODEL`.
+This 256 MB profile does not start the embedded model process and therefore
+makes no AI calls. Intent extraction, planning, shape construction, image and
+route review, road validation, and export use their deterministic paths. On a
+larger instance, enabling `OPENCODE_SERVER_AUTOSTART` activates the named free
+model with no global call-count quota. If that child cannot become healthy, it
+is stopped before Uvicorn starts and the runtime logs one warning rather than
+leaving a CPU- or memory-consuming process behind.
 
 The free-model catalogue is a service policy and can change. Verify the model
 name before deployment rather than silently replacing it with a paid model.

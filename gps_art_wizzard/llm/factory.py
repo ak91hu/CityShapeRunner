@@ -53,6 +53,8 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
         try:
             if name == "opencode" and cfg.opencode_key:
                 if cfg.opencode_transport == "cli":
+                    if not cfg.opencode_server_autostart:
+                        return
                     from .opencode_cli_provider import OpenCodeCLIProvider
                     candidates.append(
                         OpenCodeCLIProvider(

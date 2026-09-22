@@ -212,6 +212,10 @@ When every bounded attempt fails, the function returns a diagnostic connector wi
 
 If the first full Directions candidate is disconnected, `_recover_unroutable_placement()` consumes the remaining preflight-ranked drafts in order. Each candidate receives a fresh snap and validation pass. Runtime/value/type failures are recorded in history with transform metadata but do not abort the bounded recovery loop.
 
+Directions memoization never crosses a workflow boundary. Repeated identical
+guides inside one generation may share their measured response, while every new
+generation gets a distinct cache scope and must request ORS evidence again.
+
 The original unrouted draft is restored only when every shortlisted placement fails. The API then returns `503`; it does not expose the best-looking straight line.
 
 ## Validation and measured refinement

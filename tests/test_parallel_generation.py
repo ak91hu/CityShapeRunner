@@ -144,6 +144,11 @@ def routing_stub(monkeypatch):
     monkeypatch.setattr(
         ors_client, "get_settings", lambda: SimpleNamespace(routing=routing)
     )
+    monkeypatch.setattr(
+        ors_client,
+        "active_workflow_runtime",
+        lambda: SimpleNamespace(trace=SimpleNamespace(run_id="test-workflow")),
+    )
     return routing
 
 
@@ -239,6 +244,40 @@ def test_directions_cache_honours_ttl_and_manual_clear(routing_stub, monkeypatch
     ors_client.clear_directions_cache()
     ors_client.snap_route_detailed(waypoints)
     assert len(counter.calls) == 3
+
+
+def test_directions_cache_is_scoped_to_one_workflow(routing_stub, monkeypatch):
+    counter = RequestCounter()
+    monkeypatch.setattr(
+        ors_client, "_ors_request", counter.responder([(47.5, 19.0), (47.51, 19.01)])
+    )
+    active = SimpleNamespace(trace=SimpleNamespace(run_id="workflow-a"))
+    monkeypatch.setattr(ors_client, "active_workflow_runtime", lambda: active)
+    waypoints = [(47.5, 19.0), (47.51, 19.01)]
+
+    ors_client.snap_route_detailed(waypoints)
+    ors_client.snap_route_detailed(waypoints)
+    active.trace.run_id = "workflow-b"
+    ors_client.snap_route_detailed(waypoints)
+
+    assert len(counter.calls) == 2
+
+
+def test_directions_without_workflow_scope_always_requests_ors(
+    routing_stub,
+    monkeypatch,
+):
+    counter = RequestCounter()
+    monkeypatch.setattr(
+        ors_client, "_ors_request", counter.responder([(47.5, 19.0), (47.51, 19.01)])
+    )
+    monkeypatch.setattr(ors_client, "active_workflow_runtime", lambda: None)
+    waypoints = [(47.5, 19.0), (47.51, 19.01)]
+
+    ors_client.snap_route_detailed(waypoints)
+    ors_client.snap_route_detailed(waypoints)
+
+    assert len(counter.calls) == 2
 
 
 def test_directions_cache_evicts_least_recently_used_entries(routing_stub):
