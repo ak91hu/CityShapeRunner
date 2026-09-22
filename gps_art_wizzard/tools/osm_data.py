@@ -253,15 +253,10 @@ def fetch_accessibility_ways(bbox: tuple[float, float, float, float]) -> list[di
     """Highways with wheelchair, surface, or steps evidence inside the box."""
 
     clause = _bbox_clause(bbox)
-    query = (
-        "[out:json][timeout:25];"
-        "("
-        f'way["highway"]["wheelchair"]{clause};'
-        f'way["highway"]["surface"]{clause};'
-        f'way["highway"="steps"]{clause};'
-        ");"
-        "out tags geom;"
-    )
+    # The combined wheelchair/surface tag filters repeatedly time out on the
+    # public Overpass instance. A bbox-scoped highway lookup is much cheaper;
+    # discard ways without accessibility evidence before retaining geometry.
+    query = f'[out:json][timeout:25];way["highway"]{clause};out tags geom;'
     cache_key = "accessibility:" + ":".join(f"{value:.4f}" for value in bbox)
     elements = overpass_query(query, cache_key=cache_key)
     ways: list[dict] = []
@@ -272,6 +267,12 @@ def fetch_accessibility_ways(bbox: tuple[float, float, float, float]) -> list[di
             continue
         tags = element.get("tags") or {}
         if not tags.get("highway"):
+            continue
+        if (
+            "wheelchair" not in tags
+            and "surface" not in tags
+            and tags["highway"] != "steps"
+        ):
             continue
         geometry = element.get("geometry") or []
         points = [

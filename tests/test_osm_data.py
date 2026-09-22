@@ -55,3 +55,29 @@ def test_overpass_all_failures_remain_unavailable_and_uncached(monkeypatch) -> N
         with pytest.raises(osm_data.OsmUnavailable, match="temporarily unavailable"):
             osm_data.overpass_query("out;", cache_key="failure-test")
     assert len(calls) == 4
+
+
+def test_accessibility_uses_bbox_highways_and_filters_locally(monkeypatch) -> None:
+    queries: list[str] = []
+    geometry = [{"lat": 47.5, "lon": 19.04}, {"lat": 47.501, "lon": 19.041}]
+
+    def query(statement: str, *, cache_key: str) -> list[dict]:
+        assert cache_key.startswith("accessibility:")
+        queries.append(statement)
+        return [
+            {"id": 1, "tags": {"highway": "residential"}, "geometry": geometry},
+            {
+                "id": 2,
+                "tags": {"highway": "footway", "surface": "asphalt"},
+                "geometry": geometry,
+            },
+            {"id": 3, "tags": {"highway": "steps"}, "geometry": geometry},
+        ]
+
+    monkeypatch.setattr(osm_data, "overpass_query", query)
+    ways = osm_data.fetch_accessibility_ways((47.49, 19.03, 47.51, 19.05))
+
+    assert len(queries) == 1
+    assert 'way["highway"](' in queries[0]
+    assert '["wheelchair"]' not in queries[0]
+    assert [way["class"] for way in ways] == ["paved", "steps"]
