@@ -4593,6 +4593,10 @@ export default function App() {
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
+  const setPromptRef = useCallback((node) => {
+    promptRef.current = node;
+    node?.focus({ preventScroll: true });
+  }, []);
   const promptSubmitPointerRef = useRef(false);
   const suggestCityRef = useRef(null);
   const suggestActivityRef = useRef(null);
@@ -5163,8 +5167,11 @@ export default function App() {
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
-            <span className="studio-eyebrow">A little imagination. A real adventure.</span>
-            <h1 id="designer-title">Create GPS art on real streets</h1>
+            <h1 id="designer-title" className="planner-brand-title">
+              <span className="planner-brand-name">Paceasso</span>
+              <span className="planner-brand-subtitle">GPS Art Wizzard</span>
+            </h1>
+            <p className="planner-tagline">Create GPS art on real streets.</p>
             <p className="planner-intro-copy">
               Describe a drawing and a place. We’ll fit it to connected streets, compare the
               strongest routes, and prepare the one you can actually follow.
@@ -5238,7 +5245,7 @@ export default function App() {
               <div className="textarea-wrap">
                 <textarea
                   id="route-prompt"
-                  ref={promptRef}
+                  ref={setPromptRef}
                   value={prompt}
                   onChange={(event) => {
                     const nextPrompt = event.target.value;
@@ -5272,7 +5279,6 @@ export default function App() {
                   aria-invalid={Boolean(promptError)}
                   aria-errormessage={promptError ? "prompt-error" : undefined}
                   disabled={loading}
-                  autoFocus
                   required
                 />
                 <span id="prompt-count" className="character-count">
