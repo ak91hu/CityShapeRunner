@@ -1,6 +1,10 @@
 # Budapest heart route preview
 
-Unmodified, locally bundled route-preview image from this project's public gallery.
+Locally bundled route-preview image from this project's public gallery. The
+homepage uses `budapest-heart-route-4bdf5a785149.webp`, a WebP-encoded copy
+(quality 85) of the original PNG without cropping or changing the route. The
+original is retained alongside it. The filename includes the content hash so
+it can be cached immutably; update the filename and references if the image changes.
 
 - Gallery asset: `gps-art-gallery/6fec4aa502a5496da373bbf2f22840ff`
 - Source: https://res.cloudinary.com/lflihp6z/image/upload/v1788432861/gps-art-gallery/6fec4aa502a5496da373bbf2f22840ff.png

@@ -145,11 +145,14 @@ test("compact results keep decision text readable and provide a download shortcu
     element.getBoundingClientRect().top)).toBeLessThan(page.viewportSize().height);
 });
 
-test("optional route tools are grouped after the decision and download cards", async ({ page }) => {
+test("optional route tools sit directly below Route details", async ({ page }) => {
   await openGeneratedRoute(page);
 
   const lastPrimaryCard = page.locator(".route-output .route-facts");
-  const lab = page.locator(".route-lab");
+  const lab = page.locator(".route-output > .route-lab");
+  await expect(lab).toHaveCount(1);
+  expect(await lab.evaluate((tools) =>
+    tools.previousElementSibling?.matches(".route-facts"))).toBe(true);
   const [primaryBox, labBox] = await Promise.all([
     lastPrimaryCard.boundingBox(),
     lab.boundingBox(),
@@ -159,9 +162,9 @@ test("optional route tools are grouped after the decision and download cards", a
   expect(labBox).not.toBeNull();
   expect(primaryBox.y + primaryBox.height).toBeLessThanOrEqual(labBox.y + 1);
   await expect(lab).toContainText("More tools for this route");
-  if (!(await lab.locator(".street-canvas-card").isVisible())) {
-    await lab.locator("summary").click();
-  }
+  await expect(lab).not.toHaveAttribute("open", "");
+  await lab.locator("summary").click();
+  await expect(lab).toHaveAttribute("open", "");
   await expect(lab.locator(".street-canvas-card")).toBeVisible();
   await expect(lab.locator(".recognition-repair-card")).toBeVisible();
 });
@@ -256,7 +259,7 @@ test("selecting a review candidate updates all headline metrics", async ({ page 
 
 test("route-check details reveal every automatic gate and explanation", async ({ page }) => {
   await openGeneratedRoute(page);
-  await page.locator(".verification-heading").click();
+  await page.locator(".route-review-box > summary").click();
 
   await expect(page.locator(".gate-list > li")).toHaveCount(13);
   await expect(page.getByText("Line order", { exact: true })).toBeVisible();
@@ -488,12 +491,27 @@ test("route issues are deduplicated in the route issues disclosure", async ({ pa
       errors: ["Avoid the construction zone.", "Check seasonal access.", "Avoid the construction zone."],
     }),
   );
-  await page.getByText("Route issues").click();
+  const review = page.locator(".route-review-box");
+  await expect(review.locator(".route-issues")).toBeHidden();
+  await review.locator(":scope > summary").click();
 
-  const details = page.locator(".detail-card").filter({ hasText: "Route issues" });
-  await expect(details.locator("li")).toHaveCount(2);
-  await expect(details).toContainText("Avoid the construction zone.");
-  await expect(details).toContainText("Check seasonal access.");
+  const issues = review.locator(".route-issues");
+  await expect(issues.locator("li")).toHaveCount(2);
+  await expect(issues).toContainText("Avoid the construction zone.");
+  await expect(issues).toContainText("Check seasonal access.");
+  await expect(review.locator(".verification-card")).toContainText("Checks passed");
+});
+
+test("failed checks share the separate route review disclosure with issues", async ({ page }) => {
+  await openGeneratedRoute(page, buildRouteResult({ errors: ["Check seasonal access."] }));
+  await page.locator(".candidate-card").nth(1).click();
+
+  const review = page.locator(".route-review-box");
+  await expect(review).toBeVisible();
+  await review.locator(":scope > summary").click();
+  await expect(review.locator(".route-issues")).toContainText("Check seasonal access.");
+  await expect(review.locator(".verification-card")).toContainText("items to check");
+  await expect(review.locator(".gate-list li").first()).toBeVisible();
 });
 
 test("suggested generations explain which shape the planner selected", async ({ page }) => {

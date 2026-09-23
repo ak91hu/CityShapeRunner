@@ -459,12 +459,14 @@ test("quick idea generation sends the prompt and renders a usable routed result"
     "true",
   );
   await expect(page.locator(".candidate-card")).toHaveCount(2);
-  await expect(page.getByText("Checks passed")).toBeVisible();
-  await expect(page.locator(".verification-heading")).toContainText("12 of 12 passed · show details");
+  const review = page.locator(".route-review-box");
+  await expect(review.locator(".verification-heading")).toBeHidden();
   await expect(
     page.locator(".gate-list").getByText("Line order", { exact: true }),
   ).toBeHidden();
-  await page.locator(".verification-heading").click();
+  await review.locator(":scope > summary").click();
+  await expect(review.getByText("Checks passed")).toBeVisible();
+  await expect(review.locator(".verification-heading")).toContainText("12 of 12 passed");
   await expect(
     page.locator(".gate-list").getByText("Line order", { exact: true }),
   ).toBeVisible();
@@ -645,7 +647,8 @@ test("a straight-line preview cannot be accepted or exported", async ({
   ).toBeVisible();
   await expect(page.getByText("Preview only. Not matched to streets")).toBeVisible();
   await expect(page.getByText("Review this route")).toBeVisible();
-  await expect(page.getByText(/items? to check/)).toBeVisible();
+  await page.locator(".route-review-box > summary").click();
+  await expect(page.locator(".route-review-box .verification-title")).toContainText(/items? to check/);
   await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Street route unavailable" })).toBeVisible();
   await expect(page.getByText(/No GPS file was created/)).toBeVisible();
