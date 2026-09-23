@@ -7,7 +7,9 @@ import os
 import re
 import time
 import uuid
+from collections.abc import MutableMapping
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,7 +60,7 @@ _HASHED_PUBLIC_ASSET = re.compile(r"^[^/]+-[0-9a-f]{12}\.[^/]+$")
 class CachedSPAStaticFiles(StaticFiles):
     """Cache fingerprinted bundles long-term without pinning the SPA entry point."""
 
-    async def get_response(self, path: str, scope: dict):
+    async def get_response(self, path: str, scope: MutableMapping[str, Any]):
         response = await super().get_response(path, scope)
         if response.status_code != 200:
             return response
