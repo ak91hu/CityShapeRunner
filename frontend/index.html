@@ -56,7 +56,10 @@
         color: #18201e;
         font-family: ui-sans-serif, system-ui, sans-serif;
       }
-      .static-app-shell h1 { max-width: 16ch; margin: 0; font-size: clamp(2.4rem, 7vw, 5rem); line-height: 0.98; }
+      .static-app-shell h1 { display: grid; gap: 0.3rem; max-width: 100%; margin: 0; }
+      .static-brand-name { color: #0b6b57; font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.1rem, 9vw, 5rem); font-style: italic; font-weight: 700; letter-spacing: -0.075em; line-height: 1; }
+      .static-brand-subtitle { color: #18201e; font-size: clamp(1rem, 2.8vw, 1.4rem); font-weight: 850; letter-spacing: 0.12em; line-height: 1.25; text-transform: uppercase; }
+      .static-tagline { margin: 1.4rem 0 0 !important; color: #07483c !important; font-size: clamp(1.2rem, 2.5vw, 1.5rem) !important; font-weight: 800; }
       .static-app-shell > p { max-width: 45rem; margin: 1.25rem 0; color: #3f4c47; font-size: 1.1rem; line-height: 1.6; }
       .static-app-shell ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; padding: 0; list-style: none; }
       .static-app-shell li { padding: 1rem; border: 1px solid #d9ddd6; border-radius: 1rem; background: #fffdf8; }
@@ -71,7 +74,8 @@
     </noscript>
     <div id="root">
       <main class="static-app-shell" id="route-designer">
-        <h1>Find the best GPS art route on real streets</h1>
+        <h1><span class="static-brand-name">Paceasso</span><span class="static-brand-subtitle">GPS Art Wizzard</span></h1>
+        <p class="static-tagline">Create GPS art on real streets.</p>
         <p>
           Paceasso does more than snap one drawing to roads. It screens many placements,
           measures connected running or cycling routes, compares their quality, and prepares the
