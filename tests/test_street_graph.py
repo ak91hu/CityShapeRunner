@@ -1,5 +1,11 @@
 """Graph identity, activity access, ordered shapes, turns and bounded fallback."""
-from gps_art_wizzard.tools.street_graph import build_graph, connectivity_proxy, shape_route
+from gps_art_wizzard.tools import street_graph
+from gps_art_wizzard.tools.street_graph import (
+    StreetGraph,
+    build_graph,
+    connectivity_proxy,
+    shape_route,
+)
 
 
 def node(identifier, x, y):
@@ -42,6 +48,24 @@ def test_nearby_isolated_nodes_do_not_hide_connected_guide_alternative():
     # The cheap placement proxy still measures the closest streets. The full
     # search can explore connected alternatives without changing its ranking.
     assert connectivity_proxy(graph, guides) == (0, None)
+
+
+def test_nearest_sorts_only_nodes_inside_search_radius(monkeypatch):
+    center = (47.5, 19.0)
+    nodes = {index: (47.5 + index * 0.001, 19.0) for index in range(1, 1001)}
+    nodes[1001] = center
+    nodes[1002] = (47.5001, 19.0)
+    graph = StreetGraph(nodes, {})
+    original_argsort = street_graph.np.argsort
+    sorted_lengths = []
+
+    def count_argsort(values, *args, **kwargs):
+        sorted_lengths.append(len(values))
+        return original_argsort(values, *args, **kwargs)
+
+    monkeypatch.setattr(street_graph.np, "argsort", count_argsort)
+    assert graph.nearest([center], radius=30) == [[1001, 1002]]
+    assert sorted_lengths == [2]
 
 
 def test_component_filter_keeps_radius_and_directed_constraints():

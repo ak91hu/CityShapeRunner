@@ -6,10 +6,15 @@ import logging
 import math
 import re
 import unicodedata
+from collections.abc import Callable, Iterator
+from contextvars import copy_context
 from dataclasses import asdict, replace
-from typing import Literal
+from queue import SimpleQueue
+from threading import Thread
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..agents.intent_agent import IntentAgent
@@ -172,11 +177,17 @@ class WorkflowLimitsResponse(BaseModel):
     max_llm_calls: int = Field(ge=-1)
 
 
+class WorkflowStepMetricResponse(BaseModel):
+    duration_ms: int = Field(ge=0)
+    routing_requests: dict[str, int] = Field(default_factory=dict)
+
+
 class WorkflowStepsResponse(BaseModel):
     attempts: dict[str, int] = Field(default_factory=dict)
     completed: list[str] = Field(default_factory=list)
     failures: int = Field(ge=0)
     dropped_events: int = Field(ge=0)
+    metrics: dict[str, WorkflowStepMetricResponse] = Field(default_factory=dict)
 
 
 class WorkflowAIResponse(BaseModel):
@@ -1145,7 +1156,58 @@ def record_route_acceptance(req: RouteAcceptanceRequest) -> dict:
 
 
 @router.post("/generate", response_model=GenerateResponse)
-def generate_route(req: GenerateRequest) -> dict:
+def generate_route(req: GenerateRequest, request: Request) -> dict | StreamingResponse:
+    if "application/x-ndjson" in request.headers.get("accept", ""):
+        return _stream_generation(req)
+    return _generate_route_sync(req)
+
+
+def _stream_generation(req: GenerateRequest) -> StreamingResponse:
+    """Stream bounded, prompt-free progress beside one ordinary generation run."""
+    messages: SimpleQueue[dict[str, Any]] = SimpleQueue()
+    context = copy_context()
+
+    def work() -> None:
+        try:
+            result = _generate_route_sync(
+                req,
+                event_sink=lambda data: messages.put({"type": "progress", **data}),
+                preview_sink=lambda data: messages.put({"type": "preview", **data}),
+            )
+            validated = GenerateResponse.model_validate(result)
+            messages.put({"type": "result", "data": validated.model_dump(mode="json")})
+        except HTTPException as exc:
+            messages.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
+        except Exception:  # noqa: BLE001 - streamed responses cannot change HTTP status
+            log.exception("streamed generation failed")
+            messages.put({"type": "error", "status": 500, "detail": "Route generation failed."})
+        finally:
+            messages.put({"type": "end"})
+
+    def stream() -> Iterator[str]:
+        import json
+
+        worker = Thread(target=lambda: context.run(work), name="gps-art-stream", daemon=True)
+        worker.start()
+        while True:
+            message = messages.get()
+            if message["type"] == "end":
+                return
+            yield json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+def _generate_route_sync(
+    req: GenerateRequest,
+    *,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
+    preview_sink: Callable[[dict[str, Any]], None] | None = None,
+) -> dict:
     log.info(
         "Route generation requested",
         extra={
@@ -1187,9 +1249,15 @@ def generate_route(req: GenerateRequest) -> dict:
         start_point = (resolved.lat, resolved.lon)
         start_label = resolved.name
     try:
+        callbacks = (
+            {"event_sink": event_sink, "preview_sink": preview_sink}
+            if event_sink is not None or preview_sink is not None
+            else {}
+        )
         has_preferences = any(req.route_preferences.model_dump().values())
         if (
-            intent_override is None
+            not callbacks
+            and intent_override is None
             and start_point is None
             and req.start_direction_deg is None
             and not has_preferences
@@ -1216,6 +1284,7 @@ def generate_route(req: GenerateRequest) -> dict:
                 reference_name=(imported_reference.name if imported_reference else None),
                 reference_kind=(imported_reference.kind if imported_reference else None),
                 map_placement=map_placement,
+                **callbacks,
             )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

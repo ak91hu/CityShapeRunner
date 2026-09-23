@@ -63,8 +63,11 @@ class StreetGraph:
         for point in points:
             xy = geo.latlon_to_unit(*point, *center, 1)
             distances = np.hypot(coordinates[:, 0] - xy[0], coordinates[:, 1] - xy[1])
-            order = np.argsort(distances)
-            indices = order[distances[order] <= radius].tolist()
+            # Only in-radius nodes can be candidates. Sorting the whole city
+            # for every guide is expensive during bounded graph polish; this
+            # preserves the same distance ordering for eligible nodes.
+            eligible = np.flatnonzero(distances <= radius)
+            indices = eligible[np.argsort(distances[eligible])].tolist()
             ranked.append(indices)
             nearest_components: dict[int, float] = {}
             if common_component and self.components:

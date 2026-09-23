@@ -16,9 +16,54 @@ export class ApiError extends Error {
   }
 }
 
+async function readGenerationStream(response, onUpdate) {
+  if (!response.body) {
+    throw new ApiError("The route planner did not send progress or a result.", response.status, {
+      category: "response",
+    });
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let result = null;
+  const handleLine = (line) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.type === "progress" || event.type === "preview") onUpdate?.(event);
+    if (event.type === "result") result = event.data;
+    if (event.type === "error") {
+      throw new ApiError(event.detail || "Route generation failed.", event.status ?? 500, {
+        category: "service",
+      });
+    }
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+      let newline = pending.indexOf("\n");
+      while (newline !== -1) {
+        handleLine(pending.slice(0, newline));
+        pending = pending.slice(newline + 1);
+        newline = pending.indexOf("\n");
+      }
+      if (done) break;
+    }
+    if (pending.trim()) handleLine(pending);
+  } finally {
+    reader.releaseLock();
+  }
+  if (result == null) {
+    throw new ApiError("The route planner stopped before returning a route.", response.status, {
+      category: "response",
+    });
+  }
+  return result;
+}
+
 async function request(
   path,
-  { signal, timeoutMs = 15_000, timeoutMessage, ...options } = {},
+  { signal, timeoutMs = 15_000, timeoutMessage, onUpdate, ...options } = {},
 ) {
   const controller = new AbortController();
   let timedOut = false;
@@ -43,11 +88,14 @@ async function request(
       ...options,
       signal: controller.signal,
       headers: {
-        Accept: "application/json",
+        Accept: onUpdate ? "application/x-ndjson, application/json" : "application/json",
         ...options.headers,
       },
     });
-    const data = await response.json().catch(() => null);
+    const streaming = response.ok && response.headers.get("Content-Type")?.includes("application/x-ndjson");
+    const data = streaming
+      ? await readGenerationStream(response, onUpdate)
+      : await response.json().catch(() => null);
     const requestId = response.headers.get("X-Request-ID");
     const retryAfter = response.headers.get("Retry-After");
 
@@ -112,13 +160,12 @@ export function interpretRoute(prompt, options = {}) {
 
 export function generate(prompt, options = {}) {
   const { payload = {}, ...requestOptions } = options;
-  const usesImage = Boolean(payload.reference_image_url);
   return request("/generate", {
     ...requestOptions,
-    timeoutMs: usesImage ? 120_000 : 180_000,
-    timeoutMessage: usesImage
-      ? "The image route took too long. Try a simpler image or retry; the planner has stopped safely."
-      : "Route planning took too long. Try a simpler drawing or a shorter distance.",
+    // The 175-second workflow budget is advisory: the last in-flight ORS
+    // request and response serialisation can finish slightly later.
+    timeoutMs: 240_000,
+    timeoutMessage: "Route planning took too long. Try a simpler drawing or a shorter distance.",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt, ...payload }),

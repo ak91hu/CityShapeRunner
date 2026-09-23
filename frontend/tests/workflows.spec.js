@@ -287,17 +287,14 @@ test("cancelling an in-flight generation restores the designer without an error"
   await expect(page.locator(".loading-card--journey")).toBeFocused();
   await expect(page.getByText("Live route lab")).toHaveCount(0);
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
-  await expect(page.getByText("Timing is illustrative")).toBeVisible();
-  await expect(page.getByRole("list", { name: "Typical planning stages" })).toBeVisible();
+  await expect(page.getByText("Waiting for the first update")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Route planning stages" })).toBeVisible();
   await expect(page.locator(".gps-route-animation")).toBeVisible();
   if ((await page.viewportSize()).width > 768) {
     await expect(page.getByText("Quality checks stay on")).toBeVisible();
   }
-  await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
-  await page.waitForTimeout(5_100);
-  await expect(page.getByText("Asking nearby streets to cooperate nicely.")).toBeVisible();
-  await expect(page.getByRole("listitem").filter({ hasText: "Street fit" })).toHaveAttribute("aria-current", "step");
-  await expect(page.getByLabel(/seconds elapsed/)).toHaveText("5s");
+  await expect(page.getByText("Connecting to the route planner. The streets are warming up.")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Street fit" })).not.toHaveAttribute("aria-current", "step");
   if ((await page.viewportSize()).width <= 768) {
     const waitingBox = await page.locator(".loading-card--journey").boundingBox();
     const cancelBox = await page.getByRole("button", { name: "Cancel" }).boundingBox();
@@ -312,6 +309,78 @@ test("cancelling an in-flight generation restores the designer without an error"
   await expect(page.getByRole("button", { name: "Find routes" })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.locator(".result")).toHaveCount(0);
+});
+
+test("live route events reveal real work and a non-exportable early street map", async ({ page }) => {
+  await installEmptyGallery(page);
+  await page.addInitScript(({ finalResult, points }) => {
+    const realFetch = window.fetch.bind(window);
+    window.fetch = (input, options) => {
+      if (new URL(input, window.location.href).pathname !== "/generate") {
+        return realFetch(input, options);
+      }
+      const encoder = new TextEncoder();
+      const event = (data) => encoder.encode(`${JSON.stringify(data)}\n`);
+      return Promise.resolve(new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(event({
+            type: "progress", stage: "preflight", status: "running",
+            preflight_count: 12, routing_requests: { snap: 1 },
+          }));
+          window.setTimeout(() => {
+            controller.enqueue(event({
+              type: "preview", status: "checking", points,
+              distance_km: 8.1, shape_name: "star",
+            }));
+            controller.enqueue(event({
+              type: "progress", stage: "polish.shape", status: "running",
+              preflight_count: 16, routing_requests: { snap: 2, directions: 3 },
+            }));
+          }, 150);
+          window.setTimeout(() => {
+            controller.enqueue(event({ type: "result", data: finalResult }));
+            controller.close();
+          }, 2_000);
+        },
+      }), { headers: { "Content-Type": "application/x-ndjson" } }));
+    };
+  }, { finalResult: buildResult(), points: routePoints });
+  await page.goto("/");
+
+  await findRoutes(page);
+  await expect(page.getByText("Live from the route planner")).toBeVisible();
+  await expect(page.getByText("16 placements screened")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Final polish" })).toHaveAttribute("aria-current", "step");
+  await expect(page.locator(".loading-preview .route-map")).toBeVisible();
+  await expect(page.locator(".loading-preview")).toContainText("No GPX is available until the checks finish");
+  await expect(page.getByRole("button", { name: /Download GPX/ })).toHaveCount(0);
+  await expect(page.locator(".result")).toBeVisible();
+});
+
+test("a streamed routing failure does not turn its HTTP 200 into a route", async ({ page }) => {
+  await installEmptyGallery(page);
+  await page.addInitScript(() => {
+    const realFetch = window.fetch.bind(window);
+    window.fetch = (input, options) => {
+      if (new URL(input, window.location.href).pathname !== "/generate") {
+        return realFetch(input, options);
+      }
+      const lines = [
+        { type: "progress", stage: "snap", status: "running", routing_requests: { directions: 1 } },
+        { type: "error", status: 503, detail: "No connected street route could be created." },
+      ];
+      const body = `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`;
+      return Promise.resolve(new Response(body, {
+        status: 200, headers: { "Content-Type": "application/x-ndjson" },
+      }));
+    };
+  });
+  await page.goto("/");
+
+  await findRoutes(page);
+  await expect(page.getByRole("alert")).toContainText("No connected street route could be created.");
+  await expect(page.locator(".result")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
 test("an aborted older response cannot overwrite a newer route", async ({ page }) => {
@@ -380,7 +449,7 @@ test("reduced motion keeps route generation informative without moving graphics"
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
-  await expect(page.getByText("Sketching the outline without colouring outside the city.")).toBeVisible();
+  await expect(page.getByText("Connecting to the route planner. The streets are warming up.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible();
 
   const animationNames = await page.locator([

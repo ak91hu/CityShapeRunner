@@ -2614,21 +2614,40 @@ function InkproofCard({ points, overlayType, onOverlayChange }) {
   );
 }
 
-const ROUTE_LOADING_MESSAGES = [
-  "Sketching the outline without colouring outside the city.",
-  "Asking nearby streets to cooperate nicely.",
-  "Untangling one suspiciously spaghetti-shaped junction.",
-  "Checking that the route looks intentional, not like a lost pigeon.",
-  "Measuring the final line and polishing its corners.",
-];
+function loadingStageIndex(stage) {
+  if (stage?.startsWith("polish.") || ["route_review", "export"].includes(stage)) return 3;
+  if (["snap", "validation", "refinement"].includes(stage)) return 2;
+  if (["placement", "preflight"].includes(stage)) return 1;
+  return 0;
+}
 
-const IMAGE_LOADING_MESSAGES = [
-  "Looking at the whole image, not just the first letter. Promise.",
-  "Turning pixels into a route-sized silhouette.",
-  "Negotiating with streets that refuse to curve artistically.",
-  "Keeping the useful details and evicting the tiny squiggles.",
-  "Giving the GPS art one last recognisability check.",
-];
+function loadingStageMessage(stage) {
+  if (stage?.startsWith("polish.")) {
+    const subject = {
+      "polish.shape": "the outline",
+      "polish.reversals": "unnecessary backtracking",
+      "polish.detours": "street detours",
+      "polish.contour": "the route contour",
+      "polish.reference_contour": "recognisable details",
+      "polish.turns": "distinctive turns",
+      "polish.graph": "the street graph",
+      "polish.distance": "the requested distance",
+    }[stage] ?? "a final street alternative";
+    return `Checking ${subject}. The streets have opinions; the route checks have the last word.`;
+  }
+  return {
+    intent: "Reading your idea and its route constraints.",
+    planning: "Planning a drawing that could fit the city.",
+    shape: "Preparing the outline and its recognisable details.",
+    placement: "Placing the drawing near real streets.",
+    preflight: "Screening placements before full street routing.",
+    snap: "Asking the routing provider for a connected street route.",
+    validation: "Measuring likeness, distance, and closure.",
+    refinement: "Trying another measured placement.",
+    route_review: "Reviewing the strongest street-routed candidates.",
+    export: "Preparing the final checked route.",
+  }[stage] ?? "Working through the route checks.";
+}
 
 const ROUTE_LOADING_STAGES = [
   ["Outline", "Reading the idea and shaping the line."],
@@ -2649,21 +2668,18 @@ const LOADING_FACTS = [
   "Corners and distinctive turns matter more for recognition than lots of tiny detail.",
   "The first plausible route is not automatically the winner; alternatives are measured too.",
   "A route can look good as a sketch and still need a different rotation to fit the city.",
+  "A convincing heart needs both lobes; a convincing route needs connected streets.",
+  "An elegant shortcut on a drawing may be a wall, river, or railway on the ground.",
+  "The map gets a vote. It is surprisingly opinionated about sharp corners.",
+  "Rotating a drawing a few degrees can turn a dead end into a usable street sequence.",
+  "Distance and recognisability are checked separately; neither gets a free pass.",
+  "A route preview is not a GPX certificate. The final checks still matter.",
 ];
 
-function LoadingState({ onCancel, kind = "route", focusRef }) {
+function LoadingState({ onCancel, kind = "route", focusRef, progress, preview }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const messages = kind === "image" ? IMAGE_LOADING_MESSAGES : ROUTE_LOADING_MESSAGES;
   const stages = kind === "image" ? IMAGE_LOADING_STAGES : ROUTE_LOADING_STAGES;
-  const stageThresholds = kind === "image" ? [0, 10, 25, 45] : [0, 5, 15, 28];
-  const messageIndex = Math.min(
-    messages.length - 1,
-    Math.floor(elapsedSeconds / 5),
-  );
-  const currentStage = stageThresholds.reduce(
-    (latest, threshold, index) => (elapsedSeconds >= threshold ? index : latest),
-    0,
-  );
+  const currentStage = progress?.stageIndex ?? -1;
   const factIndex = Math.floor(elapsedSeconds / 9) % LOADING_FACTS.length;
 
   useEffect(() => {
@@ -2683,7 +2699,24 @@ function LoadingState({ onCancel, kind = "route", focusRef }) {
       aria-busy="true"
       tabIndex="-1"
     >
-      <div className="loading-visual" aria-hidden="true">
+      {preview ? (
+        <div className="loading-preview">
+          <div className="loading-preview-heading">
+            <strong>First street-connected candidate</strong>
+            <span>{preview.distance_km} km · still being checked</span>
+          </div>
+          <Suspense fallback={<p>Loading the early street map…</p>}>
+            <RouteMap
+              points={preview.points}
+              idealPoints={[]}
+              shapeName={preview.shape_name ?? "Route"}
+              roadRouted
+              accepted={false}
+            />
+          </Suspense>
+          <small>This is an early ORS-routed candidate, not the final route. No GPX is available until the checks finish.</small>
+        </div>
+      ) : <div className="loading-visual" aria-hidden="true">
         <svg className="gps-route-animation" viewBox="0 0 360 190">
           <defs>
             <pattern id="loading-map-grid" width="28" height="28" patternUnits="userSpaceOnUse">
@@ -2715,7 +2748,7 @@ function LoadingState({ onCancel, kind = "route", focusRef }) {
           <span>{kind === "image" ? "Pixels → path → streets" : "Sketch → streets → route"}</span>
           <b>Quality checks stay on</b>
         </div>
-      </div>
+      </div>}
 
       <div className="loading-content">
         <div className="loading-heading-row">
@@ -2734,7 +2767,7 @@ function LoadingState({ onCancel, kind = "route", focusRef }) {
           <span />
         </div>
         <p id="loading-message" className="loading-message" role="status" aria-live="polite">
-          {messages[messageIndex]}
+          {progress ? loadingStageMessage(progress.stage) : "Connecting to the route planner. The streets are warming up."}
         </p>
         <p id="loading-expectation" className="loading-expectation">
           {kind === "image"
@@ -2743,10 +2776,10 @@ function LoadingState({ onCancel, kind = "route", focusRef }) {
         </p>
 
         <div className="loading-stages-heading">
-          <strong>Typical planning flow</strong>
-          <span>Timing is illustrative</span>
+          <strong>Planning flow</strong>
+          <span>{progress ? "Live from the route planner" : "Waiting for the first update"}</span>
         </div>
-        <ol className="loading-stages" aria-label="Typical planning stages">
+        <ol className="loading-stages" aria-label="Route planning stages">
           {stages.map(([title, detail], index) => {
             const status = index < currentStage
               ? "complete"
@@ -2768,6 +2801,13 @@ function LoadingState({ onCancel, kind = "route", focusRef }) {
             );
           })}
         </ol>
+
+        {progress && (
+          <p className="loading-measured-work" role="status">
+            {progress.preflight_count > 0 && `${progress.preflight_count} placements screened · `}
+            {progress.routing_requests?.directions ?? 0} full street route requests so far
+          </p>
+        )}
 
         <p className="loading-fact">
           <span>While you wait</span>
@@ -4460,6 +4500,8 @@ export default function App() {
   const [ideaCatalogOpen, setIdeaCatalogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingKind, setLoadingKind] = useState("route");
+  const [generationProgress, setGenerationProgress] = useState(null);
+  const [generationPreview, setGenerationPreview] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [imageCity, setImageCity] = useState(SUGGEST_CITIES[0]);
   const [imageSport, setImageSport] = useState("run");
@@ -4719,6 +4761,8 @@ export default function App() {
     lastGenerationRef.current = { prompt: cleanPrompt, payload: extraPayload };
     setLoadingKind(extraPayload.reference_image_url ? "image" : "route");
     setLoading(true);
+    setGenerationProgress(null);
+    setGenerationPreview(null);
     setError(null);
     setResult(null);
 
@@ -4726,6 +4770,17 @@ export default function App() {
       const response = await generateRoute(cleanPrompt, {
         signal: controller.signal,
         payload: extraPayload,
+        onUpdate: (update) => {
+          if (requestRef.current !== controller) return;
+          if (update.type === "preview") {
+            setGenerationPreview(update);
+          } else if (update.type === "progress") {
+            setGenerationProgress((previous) => ({
+              ...update,
+              stageIndex: Math.max(previous?.stageIndex ?? -1, loadingStageIndex(update.stage)),
+            }));
+          }
+        },
       });
       setResult(response);
       setPlannerStep("result");
@@ -5807,6 +5862,8 @@ export default function App() {
             onCancel={cancelGeneration}
             kind={loadingKind}
             focusRef={loadingRef}
+            progress={generationProgress}
+            preview={generationPreview}
           />
         )}
 

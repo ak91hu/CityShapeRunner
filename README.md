@@ -113,12 +113,16 @@ an explicitly requested drawing misses a recommended target, the planner
 measures simpler city-aware templates and recommends the strongest result
 without removing the original.
 
-Generation remains a synchronous, quality-preserving search, so complex shapes
-can take time. While it runs, the web app shows an elapsed timer, an animated
-GPS-art route, rotating route-specific messages and facts, four illustrative
-planning stages, and a cancel action. The stages communicate what normally
-happens without claiming server-side percentage progress; reduced-motion
-preferences disable the nonessential animation.
+Generation remains a quality-preserving search, so complex shapes can take
+time. The web app receives live workflow events and shows the actual stage,
+screened-placement count, full Directions-request count, elapsed time, and
+rotating route facts. Once ORS supplies a connected candidate, an early map
+appears as a provisional preview; it has no download action until final checks
+finish. Reduced-motion preferences disable nonessential animation. API clients
+can request the same progress via `Accept: application/x-ndjson`; ordinary JSON
+responses remain available. Final workflow metrics expose the duration and ORS
+call count of each polish pass, and unchanged geometry skips redundant late
+reconnection attempts without relaxing the route-quality gates.
 
 ## GPS Art Intelligence
 

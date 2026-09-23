@@ -3925,6 +3925,38 @@ footer {
   isolation: isolate;
 }
 
+.loading-preview {
+  min-width: 0;
+  grid-row: 1 / -1;
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+}
+
+.loading-preview-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem 0.8rem;
+  color: var(--ink);
+}
+
+.loading-preview-heading span,
+.loading-preview small {
+  color: var(--muted);
+}
+
+.loading-preview .route-map {
+  height: 20rem;
+  min-height: 16rem;
+}
+
+.loading-measured-work {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
 .loading-visual::after {
   position: absolute;
   right: -4rem;
@@ -4251,6 +4283,10 @@ footer {
 
   .loading-visual {
     min-height: 13rem;
+    grid-row: auto;
+  }
+
+  .loading-preview {
     grid-row: auto;
   }
 

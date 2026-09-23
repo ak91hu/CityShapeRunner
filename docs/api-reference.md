@@ -145,7 +145,7 @@ The response is intentionally rich because the client must explain and compare r
 | Group | Important fields | Meaning |
 | --- | --- | --- |
 | Identity | `request_id`, `prompt`, `intent` | Correlation and normalized request |
-| Workflow | `workflow` | Run ID/status/mode, duration, limits, step attempts, AI/fallback counters, and safe reason codes |
+| Workflow | `workflow` | Run ID/status/mode, duration, per-step timing and routing-call counts, AI/fallback counters, and safe reason codes |
 | Drawing | `shape`, `requested_shape`, `suggested_shape`, `fit_decision` | Selected contour and any substitution decision |
 | Result | `distance_km`, `snapped`, `points_preview`, `ideal_preview`, `landmark_preview` | Routable geometry and reference geometry |
 | Quality | `validation`, `route_verification`, `route_details`, `below_threshold` | Similarity, distance, closure, readiness, quality gates |
@@ -161,6 +161,27 @@ does not contain prompts, raw model responses, exception messages, detailed
 lifecycle events, or route geometry. `status=needs_review` describes the quality
 outcome; `mode=deterministic` can also be the intentional fast path for a known
 template or text shape.
+
+#### Live progress on the same endpoint
+
+Send `Accept: application/x-ndjson` to receive newline-delimited JSON while
+the route is generated. The default `Accept: application/json` behavior and
+request body remain unchanged. Stream messages have a `type` field:
+
+- `progress`: actual workflow stage, attempt, status, elapsed milliseconds,
+  screened placement count, and cumulative routing-request counts. The final
+  `workflow.steps.metrics` also reports time and ORS calls per stage, including
+  each `polish.*` pass.
+- `preview`: the first Directions-routed, connected candidate's full street
+  polyline and measured distance, marked `status=checking`. It is not a final
+  selection and never contains GPX, TCX, or an export capability.
+- `result`: the same validated `GenerateResponse` object as the JSON endpoint.
+- `error`: a safe public `status` and `detail` if generation fails after the
+  stream has begun. Streaming HTTP headers may already be `200`, so clients
+  must handle this message instead of treating the status alone as success.
+
+The stream uses `Cache-Control: no-store`; progress events never contain the
+user's prompt, provider credentials, or unsnapped diagnostic geometry.
 
 ## Edit a route
 

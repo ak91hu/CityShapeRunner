@@ -40,6 +40,26 @@ def _distance_repair_state() -> WorkflowState:
     )
 
 
+def test_post_graph_reconnect_runs_only_when_late_repairs_changed_its_inputs(monkeypatch):
+    state = _distance_repair_state()
+    orchestrator = Orchestrator()
+    calls = []
+    monkeypatch.setattr(
+        orchestrator, "_reconnect_contour",
+        lambda _state, _nodes, _runtime, **options: calls.append(options),
+    )
+    runtime = SimpleNamespace(run_step=lambda _stage, operation: operation())
+    before = orchestrator._contour_inputs(state)
+
+    orchestrator._post_graph_reconnect_if_changed(state, {}, runtime, before)
+    assert not calls
+
+    state.snapped.points = [*state.snapped.points[:-1], (46.2501, 20.1501)]
+    orchestrator._post_graph_reconnect_if_changed(state, {}, runtime, before)
+    assert calls == [
+        {"limit": 1, "stage": "post_graph"},
+        {"reference_guided": True, "limit": 1, "stage": "post_graph"},
+    ]
 def test_final_distance_repair_accepts_measured_on_road_route_without_losing_shape(monkeypatch):
     state = _distance_repair_state()
     measured = []

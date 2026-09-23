@@ -19,9 +19,9 @@ import contextvars
 import copy
 import logging
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
+from typing import Any, Protocol
 
 from .config import get_settings
 from .graph import build_nodes
@@ -183,6 +183,8 @@ class Orchestrator:
         reference_name: str | None = None,
         reference_kind: str | None = None,
         map_placement: MapPlacement | None = None,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
+        preview_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> WorkflowState:
         if not isinstance(prompt, str):
             raise TypeError("prompt must be a string")
@@ -211,6 +213,8 @@ class Orchestrator:
             max_duration_seconds=cfg.max_duration_seconds,
             max_llm_calls=cfg.max_llm_calls,
             max_events=cfg.max_trace_events,
+            event_sink=event_sink,
+            preview_sink=preview_sink,
         )
         n = runtime.instrument_nodes(self.nodes)
 
@@ -333,28 +337,24 @@ class Orchestrator:
         state.route_draft = best_draft
         state.errors = list(best_errors)
 
-        with runtime.activate():
-            self._polish_shape(state, n, runtime)
-            self._repair_reversals(state, n, runtime)
-            self._repair_detours(state, n, runtime)
-            self._reconnect_contour(state, n, runtime)
-            self._reconnect_contour(state, n, runtime, reference_guided=True)
-            self._repair_turns_directly(state, n, runtime)
-            self._repair_contour_with_graph(state, n, runtime)
+        if best_v.on_roads:
+            runtime.run_step("polish.shape", lambda: self._polish_shape(state, n, runtime))
+            runtime.run_step("polish.reversals", lambda: self._repair_reversals(state, n, runtime))
+            runtime.run_step("polish.detours", lambda: self._repair_detours(state, n, runtime))
+            runtime.run_step("polish.contour", lambda: self._reconnect_contour(state, n, runtime))
+            runtime.run_step(
+                "polish.reference_contour",
+                lambda: self._reconnect_contour(state, n, runtime, reference_guided=True),
+            )
+            contour_inputs_before_late_repairs = self._contour_inputs(state)
+            runtime.run_step("polish.turns", lambda: self._repair_turns_directly(state, n, runtime))
+            runtime.run_step("polish.graph", lambda: self._repair_contour_with_graph(state, n, runtime))
             # Turn and graph repairs change the incumbent after the original
             # reconnect screens were built. One final candidate per reconnect
             # mode can remove a newly exposed detour without reopening the
             # broad search or changing the drawing reference.
-            self._reconnect_contour(state, n, runtime, limit=1, stage="post_graph")
-            self._reconnect_contour(
-                state,
-                n,
-                runtime,
-                reference_guided=True,
-                limit=1,
-                stage="post_graph",
-            )
-            self._repair_distance(state, n, runtime)
+            self._post_graph_reconnect_if_changed(state, n, runtime, contour_inputs_before_late_repairs)
+            runtime.run_step("polish.distance", lambda: self._repair_distance(state, n, runtime))
 
         # If an explicitly requested drawing still fails the recognition
         # gates, route a small city-aware set of simpler shapes.  A replacement
@@ -431,6 +431,34 @@ class Orchestrator:
         except (TypeError, ValueError):
             configured = 1
         return max(1, min(configured, _MAX_MEASUREMENT_WORKERS, max(1, job_count)))
+
+    @staticmethod
+    def _contour_inputs(state: WorkflowState) -> tuple[tuple[LatLon, ...], tuple[LatLon, ...]]:
+        """The only geometry the post-graph reconnect screens depend on."""
+        return (
+            tuple(state.route_draft.waypoints) if state.route_draft else (),
+            tuple(state.snapped.points) if state.snapped else (),
+        )
+
+    def _post_graph_reconnect_if_changed(
+        self,
+        state: WorkflowState,
+        nodes: Mapping[str, WorkflowNode],
+        runtime: WorkflowRuntime,
+        previous: tuple[tuple[LatLon, ...], tuple[LatLon, ...]],
+    ) -> None:
+        if self._contour_inputs(state) == previous:
+            return
+        runtime.run_step(
+            "polish.post_graph_contour",
+            lambda: self._reconnect_contour(state, nodes, runtime, limit=1, stage="post_graph"),
+        )
+        runtime.run_step(
+            "polish.post_graph_reference",
+            lambda: self._reconnect_contour(
+                state, nodes, runtime, reference_guided=True, limit=1, stage="post_graph"
+            ),
+        )
 
     def _measure_candidates(
         self,
@@ -1918,6 +1946,8 @@ def generate(
     reference_name: str | None = None,
     reference_kind: str | None = None,
     map_placement: MapPlacement | None = None,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
+    preview_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> WorkflowState:
     """Convenience entry point used by the API and the demo script."""
     return get_orchestrator().run(
@@ -1932,4 +1962,6 @@ def generate(
         reference_name=reference_name,
         reference_kind=reference_kind,
         map_placement=map_placement,
+        event_sink=event_sink,
+        preview_sink=preview_sink,
     )

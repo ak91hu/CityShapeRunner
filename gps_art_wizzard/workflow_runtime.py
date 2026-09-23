@@ -67,6 +67,7 @@ class WorkflowTrace:
     max_llm_calls: int
     duration_ms: int | None = None
     step_attempts: dict[str, int] = field(default_factory=dict)
+    step_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
     step_failures: int = 0
     llm_attempts: int = 0
     llm_successes: int = 0
@@ -110,6 +111,13 @@ class WorkflowTrace:
                 "completed": completed_stages,
                 "failures": self.step_failures,
                 "dropped_events": self.dropped_events,
+                "metrics": {
+                    stage: {
+                        "duration_ms": metric["duration_ms"],
+                        "routing_requests": dict(metric["routing_requests"]),
+                    }
+                    for stage, metric in self.step_metrics.items()
+                },
             },
             "ai": {
                 "attempts": self.llm_attempts,
@@ -136,24 +144,33 @@ class _InstrumentedNode:
         self._runtime = runtime
 
     def run(self, state: WorkflowState) -> WorkflowState:
-        return self._runtime.run_step(
+        result = self._runtime.run_step(
             self._stage,
             lambda: self._node.run(state),
         )
+        if self._stage == "validation":
+            self._runtime.publish_preview(state)
+        return result
 
     def run_recoverable(self, state: WorkflowState) -> WorkflowState:
         """Record a speculative candidate failure without finalising the run."""
 
-        return self._runtime.run_step(
+        result = self._runtime.run_step(
             self._stage,
             lambda: self._node.run(state),
             recoverable=True,
         )
+        if self._stage == "validation":
+            self._runtime.publish_preview(state)
+        return result
 
 
 _ACTIVE_RUNTIME: ContextVar[WorkflowRuntime | None] = ContextVar(
     "gps_art_workflow_runtime",
     default=None,
+)
+_ACTIVE_STAGES: ContextVar[tuple[str, ...]] = ContextVar(
+    "gps_art_workflow_stages", default=()
 )
 
 
@@ -175,6 +192,8 @@ class WorkflowRuntime:
         max_events: int = 256,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] | None = None,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
+        preview_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._state = state
         self._clock = clock
@@ -188,6 +207,9 @@ class WorkflowRuntime:
         self._sequence = 0
         self._deadline_noted = False
         self._finished = False
+        self._event_sink = event_sink
+        self._preview_sink = preview_sink
+        self._preview_sent = False
         # A caller may reuse its request ID; memoised routing must never cross
         # the boundary between two distinct workflow executions.
         self.cache_scope = uuid.uuid4().hex
@@ -225,11 +247,46 @@ class WorkflowRuntime:
     def record_routing_request(self, endpoint: str) -> None:
         with self._lock:
             self.trace.routing_requests[endpoint] = self.trace.routing_requests.get(endpoint, 0) + 1
+            for stage in _ACTIVE_STAGES.get():
+                metric = self.trace.step_metrics.setdefault(
+                    stage, {"duration_ms": 0, "routing_requests": {}}
+                )
+                requests = metric["routing_requests"]
+                requests[endpoint] = requests.get(endpoint, 0) + 1
 
     def record_routing_failure(self, endpoint: str, category: str) -> None:
         key = f"{endpoint}.{category}"
         with self._lock:
             self.trace.routing_failures[key] = self.trace.routing_failures.get(key, 0) + 1
+
+    def publish_preview(self, state: WorkflowState) -> None:
+        """Show only the first provider-routed, connected candidate; never expose an export."""
+        if self._preview_sink is None:
+            return
+        snapped = state.snapped
+        validation = state.validation
+        if not snapped or not validation or not validation.on_roads or not snapped.snapped:
+            return
+        from .tools import route_safety
+
+        if not route_safety.is_provider_routed_geometry(
+            snapped.points, snapped.total_distance_m, routed=True
+        ):
+            return
+        with self._lock:
+            if self._preview_sent:
+                return
+            self._preview_sent = True
+        payload = {
+            "points": [[lat, lon] for lat, lon in snapped.points],
+            "distance_km": round(snapped.total_distance_m / 1000, 2),
+            "shape_name": state.shape.name if state.shape else None,
+            "status": "checking",
+        }
+        try:
+            self._preview_sink(payload)
+        except Exception:  # noqa: BLE001 - preview delivery must not stop route generation
+            log.warning("Workflow preview listener failed", exc_info=True)
 
     @contextmanager
     def activate(self):
@@ -264,12 +321,17 @@ class WorkflowRuntime:
         )
         try:
             with self.activate():
-                result = operation()
+                token = _ACTIVE_STAGES.set((*_ACTIVE_STAGES.get(), stage))
+                try:
+                    result = operation()
+                finally:
+                    _ACTIVE_STAGES.reset(token)
         except Exception as exc:
             duration_ms = self._milliseconds(self._clock() - started)
             category = classify_error(exc)
             with self._lock:
                 self.trace.step_failures += 1
+                self._record_step_duration(stage, duration_ms)
             self._emit(
                 stage,
                 attempt,
@@ -295,6 +357,8 @@ class WorkflowRuntime:
             raise
 
         duration_ms = self._milliseconds(self._clock() - started)
+        with self._lock:
+            routing_requests = self._record_step_duration(stage, duration_ms)
         self._emit(
             stage,
             attempt,
@@ -310,9 +374,19 @@ class WorkflowRuntime:
                 "workflow_stage": stage,
                 "workflow_attempt": attempt,
                 "workflow_duration_ms": duration_ms,
+                "workflow_routing_requests": routing_requests,
             },
         )
         return result
+
+    def _record_step_duration(self, stage: str, duration_ms: int) -> dict[str, int]:
+        """Accumulate timings and return a stable copy of the stage's ORS counts."""
+        with self._lock:
+            metric = self.trace.step_metrics.setdefault(
+                stage, {"duration_ms": 0, "routing_requests": {}}
+            )
+            metric["duration_ms"] += duration_ms
+            return dict(metric["routing_requests"])
 
     def llm_budget_status(self) -> tuple[bool, str | None]:
         if self._elapsed() >= self.trace.max_duration_seconds:
@@ -434,20 +508,35 @@ class WorkflowRuntime:
     ) -> None:
         with self._lock:
             self._sequence += 1
+            event = WorkflowEvent(
+                sequence=self._sequence,
+                stage=stage,
+                attempt=attempt,
+                status=status,
+                elapsed_ms=self._milliseconds(self._elapsed()),
+                duration_ms=duration_ms,
+                error_category=error_category,
+            )
             if len(self.trace.events) >= self._max_events:
                 self.trace.dropped_events += 1
-                return
-            self.trace.events.append(
-                WorkflowEvent(
-                    sequence=self._sequence,
-                    stage=stage,
-                    attempt=attempt,
-                    status=status,
-                    elapsed_ms=self._milliseconds(self._elapsed()),
-                    duration_ms=duration_ms,
-                    error_category=error_category,
-                )
-            )
+            else:
+                self.trace.events.append(event)
+            sink = self._event_sink
+            payload = {
+                "sequence": event.sequence,
+                "stage": event.stage,
+                "attempt": event.attempt,
+                "status": event.status.value,
+                "elapsed_ms": event.elapsed_ms,
+                "duration_ms": event.duration_ms,
+                "routing_requests": dict(self.trace.routing_requests),
+                "preflight_count": self._state.preflight_count,
+            }
+        if sink is not None:
+            try:
+                sink(payload)
+            except Exception:  # noqa: BLE001 - telemetry must not stop route generation
+                log.warning("Workflow progress listener failed", exc_info=True)
 
     def _note_deadline_if_needed(self) -> None:
         with self._lock:
