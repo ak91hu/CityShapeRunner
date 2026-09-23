@@ -38,8 +38,8 @@ test("the hydrated planner leads with a short, explicit creation path", async ({
   );
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Paceasso GPS Art Wizzard" })).toBeVisible();
-  await expect(page.getByText("Create GPS art on real streets.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Create GPS art on real streets." })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Paceasso home" })).toContainText("GPS Art Wizzard");
   const progress = page.getByRole("list", { name: "Route creation progress" });
   await expect(progress).toContainText("Describe your idea");
   await expect(progress).toContainText("Review the request");

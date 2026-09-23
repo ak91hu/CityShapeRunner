@@ -5167,11 +5167,7 @@ export default function App() {
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
-            <h1 id="designer-title" className="planner-brand-title">
-              <span className="planner-brand-name">Paceasso</span>
-              <span className="planner-brand-subtitle">GPS Art Wizzard</span>
-            </h1>
-            <p className="planner-tagline">Create GPS art on real streets.</p>
+            <h1 id="designer-title">Create GPS art on real streets.</h1>
             <p className="planner-intro-copy">
               Describe a drawing and a place. We’ll fit it to connected streets, compare the
               strongest routes, and prepare the one you can actually follow.
@@ -6029,7 +6025,7 @@ export default function App() {
       </main>
 
       <footer>
-        <p>Paceasso · GPS Art Wizzard</p>
+        <p>© Paceasso</p>
       </footer>
       <div className="sr-only" aria-live="polite">
         {downloadNotice}
