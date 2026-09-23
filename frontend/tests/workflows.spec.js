@@ -334,13 +334,21 @@ test("live route events reveal real work and a non-exportable early street map",
             }));
             controller.enqueue(event({
               type: "progress", stage: "polish.shape", status: "running",
+              phase: "polish.shape", phase_routing_requests: {},
               preflight_count: 16, routing_requests: { snap: 2, directions: 3 },
             }));
           }, 150);
           window.setTimeout(() => {
+            controller.enqueue(event({
+              type: "progress", stage: "snap", status: "completed",
+              phase: "polish.shape", phase_routing_requests: { directions: 1 },
+              preflight_count: 16, routing_requests: { snap: 2, directions: 4 },
+            }));
+          }, 300);
+          window.setTimeout(() => {
             controller.enqueue(event({ type: "result", data: finalResult }));
             controller.close();
-          }, 2_000);
+          }, 2_500);
         },
       }), { headers: { "Content-Type": "application/x-ndjson" } }));
     };
@@ -351,6 +359,13 @@ test("live route events reveal real work and a non-exportable early street map",
   await expect(page.getByText("Live from the route planner")).toBeVisible();
   await expect(page.getByText("16 placements screened")).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Final polish" })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByText("Final polish: checking the outline.")).toBeVisible();
+  await expect(page.locator(".loading-polish-detail")).toContainText("1 full route requests in this check");
+  const fonts = await page.locator(".loading-content").evaluate((content) => ({
+    metrics: getComputedStyle(content.querySelector(".loading-measured-work")).fontFamily,
+    message: getComputedStyle(content.querySelector(".loading-message")).fontFamily,
+  }));
+  expect(fonts.metrics).toBe(fonts.message);
   await expect(page.locator(".loading-preview .route-map")).toBeVisible();
   await expect(page.locator(".loading-preview")).toContainText("No GPX is available until the checks finish");
   await expect(page.getByRole("button", { name: /Download GPX/ })).toHaveCount(0);

@@ -517,6 +517,11 @@ class WorkflowRuntime:
                 duration_ms=duration_ms,
                 error_category=error_category,
             )
+            phase = stage if stage.startswith("polish.") else next(
+                (active for active in reversed(_ACTIVE_STAGES.get()) if active.startswith("polish.")),
+                None,
+            )
+            phase_metric = self.trace.step_metrics.get(phase, {}) if phase else {}
             if len(self.trace.events) >= self._max_events:
                 self.trace.dropped_events += 1
             else:
@@ -531,6 +536,8 @@ class WorkflowRuntime:
                 "duration_ms": event.duration_ms,
                 "routing_requests": dict(self.trace.routing_requests),
                 "preflight_count": self._state.preflight_count,
+                "phase": phase,
+                "phase_routing_requests": dict(phase_metric.get("routing_requests", {})),
             }
         if sink is not None:
             try:

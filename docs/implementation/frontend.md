@@ -116,7 +116,7 @@ Every call gets an internal `AbortController`. A caller-supplied signal is forwa
 
 ## Waiting experience
 
-`LoadingState` maintains elapsed seconds, displays real server step events and ORS/preflight counters, supports explicit cancellation, and respects `prefers-reduced-motion`. It never derives stage completion from elapsed time or promises a percentage-complete value. The first provider-routed, connected candidate may appear as an explicitly provisional map; it carries no GPX/TCX or export control while final checks continue. Without stream support the client still accepts the ordinary JSON result and shows an indeterminate waiting state.
+`LoadingState` maintains elapsed seconds, displays real server step events and ORS/preflight counters, supports explicit cancellation, and respects `prefers-reduced-motion`. Nested `snap`/`validation` events retain their enclosing final-polish phase; a separate panel reports the current check, its elapsed time and Directions calls, and completed checks. It never derives stage completion from elapsed time or promises a percentage-complete value. The first provider-routed, connected candidate may appear as an explicitly provisional map; it carries no GPX/TCX or export control while final checks continue. Without stream support the client still accepts the ordinary JSON result and shows an indeterminate waiting state.
 
 This distinction avoids a misleading progress bar while still explaining why route generation takes time: drawing, placement search, street routing, comparison, and export preparation.
 
@@ -236,6 +236,8 @@ The gallery does not screenshot arbitrary page HTML. `RouteMap.capturePng()`:
 8. returns a PNG data URL or an actionable error.
 
 The publish request also requires the server-issued capability token and `confirm_public_location: true`. The returned removal token is stored locally only for that asset. Gallery list state remains useful even if route generation or publication fails.
+
+The planner homepage requests one gallery listing and features one optimized public thumbnail. Browser storage remembers its ID so the next page load selects a different image when at least two are available. The gallery exposes no shape/city metadata, so this card uses a generic, truthful caption; an empty or unavailable gallery gets a text placeholder rather than a fabricated map. The old bundled Budapest example is no longer preloaded.
 
 ## Accessibility implementation
 

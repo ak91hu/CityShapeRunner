@@ -1,7 +1,7 @@
 # Budapest heart route preview
 
-Locally bundled route-preview image from this project's public gallery. The
-homepage uses `budapest-heart-route-4bdf5a785149.webp`, a WebP-encoded copy
+Locally bundled historical route-preview image from this project's public gallery. The
+homepage previously used `budapest-heart-route-4bdf5a785149.webp`, a WebP-encoded copy
 (quality 85) of the original PNG without cropping or changing the route. The
 original is retained alongside it. The filename includes the content hash so
 it can be cached immutably; update the filename and references if the image changes.
@@ -16,5 +16,6 @@ This is a planned route preview, not evidence of a recorded or completed activit
 Keep the entire image visible: do not crop out the attribution, redraw the route,
 smooth its corners, or substitute an invented street network. The dashed coral
 reference drawing is not the street route. Do not claim the preview certifies
-current access, crossing safety, or field verification. The local asset avoids a
-third-party image request on homepage load.
+current access, crossing safety, or field verification. The current homepage
+uses a rotating gallery thumbnail instead; this asset remains for provenance and
+existing links, but is no longer preloaded.

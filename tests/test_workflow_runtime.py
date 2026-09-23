@@ -114,6 +114,26 @@ def test_nested_polish_stage_records_elapsed_time_and_ors_calls() -> None:
     }
 
 
+def test_nested_routing_events_keep_their_visible_polish_phase() -> None:
+    state = WorkflowState(prompt="heart")
+    events = []
+    runtime = WorkflowRuntime(
+        state, max_duration_seconds=10, max_llm_calls=0, event_sink=events.append,
+    )
+
+    def route_candidate() -> None:
+        runtime.record_routing_request("directions")
+
+    runtime.run_step("polish.graph", lambda: runtime.run_step("snap", route_candidate))
+    assert [event["stage"] for event in events] == [
+        "polish.graph", "snap", "snap", "polish.graph",
+    ]
+    assert all(event["phase"] == "polish.graph" for event in events)
+    assert events[2]["phase_routing_requests"] == {"directions": 1}
+    runtime.run_step("route_review", lambda: None)
+    assert events[-1]["phase"] is None
+
+
 def test_live_events_continue_after_trace_cap_and_preview_requires_street_route() -> None:
     events = []
     previews = []
