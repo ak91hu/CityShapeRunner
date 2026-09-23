@@ -3145,7 +3145,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     candidates[0]?.id ?? "best",
   );
   const [requestDetailsOpen, setRequestDetailsOpen] = useState(false);
-  const [routeToolsOpen, setRouteToolsOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [controlPoints, setControlPoints] = useState([]);
   const [editedRoute, setEditedRoute] = useState(null);
@@ -3204,7 +3203,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setLabOverlay(null);
     setSightMarkers([]);
     setRequestDetailsOpen(false);
-    setRouteToolsOpen(false);
   }, [result.request_id, result.prompt]);
 
   const chooseCandidate = useCallback((candidateId) => {
@@ -3946,56 +3944,6 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             </div>
           )}
 
-          {verification?.gates?.length > 0 && (
-            <details
-              className={`verification-card verification-card--${automaticChecksPassed ? "pass" : "fail"}`}
-            >
-              <summary className="verification-heading">
-                <span>
-                  <span className="verification-title">
-                    {automaticChecksPassed
-                      ? "Checks passed"
-                      : `${verification.failed_gates?.length ?? 0} item${verification.failed_gates?.length === 1 ? "" : "s"} to check`}
-                  </span>
-                </span>
-                <span className="verification-count">
-                  {verification.passed_count} of {verification.required_count} passed · show details
-                </span>
-              </summary>
-              <div className="verification-body">
-                <div className="score-explainer">
-                  <strong>What the scores mean</strong>
-                  <p>
-                    Higher scores mean a closer match to the drawing. They do not measure traffic,
-                    access, surface quality, or safety.
-                  </p>
-                </div>
-                <ul className="gate-list">
-                  {verification.gates
-                    .filter((gate) => gate.applies)
-                    .map((gate) => (
-                      <li key={gate.key} className={gate.passed ? "gate--pass" : "gate--fail"}>
-                        <span className="gate-icon" aria-hidden="true">
-                          {gate.passed ? "✓" : "!"}
-                        </span>
-                        <span>
-                          <strong>{GATE_COPY[gate.key]?.label ?? gate.label}</strong>
-                          <small>{GATE_COPY[gate.key]?.description ?? gate.description}</small>
-                          <small className="gate-interpretation">
-                            {explainGateResult(gate)}
-                          </small>
-                        </span>
-                        <span className="gate-value">
-                          {formatGateValue(gate)}
-                          {formatGateMinimum(gate) && <small>{formatGateMinimum(gate)}</small>}
-                        </span>
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            </details>
-          )}
-
         </div>
 
       <div className="route-output">
@@ -4122,6 +4070,92 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   <dd>{formatPercent(placementDetails.preflight_score)}</dd>
                 </div>
               </dl>
+          </details>
+
+          <details
+            className="route-lab"
+            key={result.request_id ?? result.prompt}
+          >
+            <summary className="route-lab-heading">
+              <div>
+                <span className="eyebrow">Optional tools</span>
+                <h3 id="route-lab-title">More tools for this route</h3>
+              </div>
+              <p>Plan the day, improve the drawing, or prepare a group or classroom activity.</p>
+              <span className="route-lab-marker" aria-hidden="true">+</span>
+            </summary>
+            <div className="route-lab-grid">
+              <h4 className="route-lab-group-title">Plan the day</h4>
+              <TimedReadinessCard points={activeRoute.points_preview ?? []} />
+              <NightReadinessCard
+                key={`night-${activeRouteId}`}
+                points={activeRoute.points_preview ?? []}
+                overlayType={labOverlay?.type}
+                onOverlayChange={updateLabOverlay}
+              />
+              <AccessibilityCard
+                key={`accessibility-${activeRouteId}`}
+                points={activeRoute.points_preview ?? []}
+                overlayType={labOverlay?.type}
+                onOverlayChange={updateLabOverlay}
+              />
+              <LandmarksCard
+                key={`landmarks-${activeRouteId}`}
+                points={activeRoute.points_preview ?? []}
+                onMarkersChange={setSightMarkers}
+              />
+
+              <h4 className="route-lab-group-title">Improve the drawing</h4>
+              <StreetCanvasCard candidates={result.street_canvas ?? []} />
+              <InkproofCard
+                key={`inkproof-${activeRouteId}`}
+                points={activeRoute.points_preview ?? []}
+                overlayType={labOverlay?.type}
+                onOverlayChange={updateLabOverlay}
+              />
+              <section className="recognition-repair-card" aria-labelledby="repair-title">
+                <div>
+                  <span className="eyebrow">Drawing improvement</span>
+                  <h3 id="repair-title">Make the outline read more clearly</h3>
+                  <p>Re-route from the shape's strongest visual anchors and compare the result.</p>
+                </div>
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={improveRecognition}
+                  disabled={repairBusy || !(activeRoute.ideal_preview ?? []).length}
+                >
+                  {repairBusy ? "Refining..." : "Find a crisper version"}
+                </button>
+                {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
+              </section>
+
+              <h4 className="route-lab-group-title">Plan with a group</h4>
+              <CommunityMuralCard
+                activeRoute={activeRoute}
+                shapeName={shapeName}
+                city={city}
+                sport={result.intent?.sport}
+              />
+              <ArtRescueCard
+                key={`rescue-${activeRouteId}`}
+                activeRoute={activeRoute}
+                shapeName={shapeName}
+                city={city}
+                sport={result.intent?.sport}
+                overlayType={labOverlay?.type}
+                onOverlayChange={updateLabOverlay}
+              />
+
+              <h4 className="route-lab-group-title">Classroom resources</h4>
+              <LessonPackCard
+                key={`lesson-${activeRouteId}`}
+                activeRoute={activeRoute}
+                shapeName={shapeName}
+                city={city}
+                onOpen={openLessonSheet}
+              />
+            </div>
           </details>
 
           <div className={`export-card export-card--${automaticChecksPassed || userAccepted ? "ready" : "review"}`} id="route-download">
@@ -4312,106 +4346,71 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       </div>
       </div>
 
-      <details
-        className="route-lab"
-        open={routeToolsOpen}
-        onToggle={(event) => setRouteToolsOpen(event.currentTarget.open)}
-      >
-        <summary className="route-lab-heading">
-          <div>
-            <span className="eyebrow">Optional tools</span>
-            <h3 id="route-lab-title">More tools for this route</h3>
+      {(verification?.gates?.length > 0 || issueList.length > 0) && (
+        <details className="detail-card route-review-box">
+          <summary>
+            Route issues &amp; items to check
+            <span>{issueList.length + (verification?.failed_gates?.length ?? 0)}</span>
+          </summary>
+          <div className="route-review-body">
+            <section className="route-issues" aria-labelledby="route-issues-title">
+              <h3 id="route-issues-title">Route issues</h3>
+              {issueList.length > 0 ? (
+                <ul>
+                  {issueList.map((issue) => <li key={issue}>{issue}</li>)}
+                </ul>
+              ) : (
+                <p>No route issues reported.</p>
+              )}
+            </section>
+            {verification?.gates?.length > 0 && (
+              <section
+                className={`verification-card verification-card--${automaticChecksPassed ? "pass" : "fail"}`}
+                aria-labelledby="route-checks-title"
+              >
+                <div className="verification-heading">
+                  <strong className="verification-title" id="route-checks-title">
+                    {automaticChecksPassed
+                      ? "Checks passed"
+                      : `${verification.failed_gates?.length ?? 0} item${verification.failed_gates?.length === 1 ? "" : "s"} to check`}
+                  </strong>
+                  <span className="verification-count">
+                    {verification.passed_count} of {verification.required_count} passed
+                  </span>
+                </div>
+                <div className="verification-body">
+                  <div className="score-explainer">
+                    <strong>What the scores mean</strong>
+                    <p>
+                      Higher scores mean a closer match to the drawing. They do not measure traffic,
+                      access, surface quality, or safety.
+                    </p>
+                  </div>
+                  <ul className="gate-list">
+                    {verification.gates
+                      .filter((gate) => gate.applies)
+                      .map((gate) => (
+                        <li key={gate.key} className={gate.passed ? "gate--pass" : "gate--fail"}>
+                          <span className="gate-icon" aria-hidden="true">
+                            {gate.passed ? "✓" : "!"}
+                          </span>
+                          <span>
+                            <strong>{GATE_COPY[gate.key]?.label ?? gate.label}</strong>
+                            <small>{GATE_COPY[gate.key]?.description ?? gate.description}</small>
+                            <small className="gate-interpretation">{explainGateResult(gate)}</small>
+                          </span>
+                          <span className="gate-value">
+                            {formatGateValue(gate)}
+                            {formatGateMinimum(gate) && <small>{formatGateMinimum(gate)}</small>}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              </section>
+            )}
           </div>
-          <p>Plan the day, improve the drawing, or prepare a group or classroom activity.</p>
-          <span className="route-lab-marker" aria-hidden="true">+</span>
-        </summary>
-        <div className="route-lab-grid">
-          <h4 className="route-lab-group-title">Plan the day</h4>
-          <TimedReadinessCard points={activeRoute.points_preview ?? []} />
-          <NightReadinessCard
-            key={`night-${activeRouteId}`}
-            points={activeRoute.points_preview ?? []}
-            overlayType={labOverlay?.type}
-            onOverlayChange={updateLabOverlay}
-          />
-          <AccessibilityCard
-            key={`accessibility-${activeRouteId}`}
-            points={activeRoute.points_preview ?? []}
-            overlayType={labOverlay?.type}
-            onOverlayChange={updateLabOverlay}
-          />
-          <LandmarksCard
-            key={`landmarks-${activeRouteId}`}
-            points={activeRoute.points_preview ?? []}
-            onMarkersChange={setSightMarkers}
-          />
-
-          <h4 className="route-lab-group-title">Improve the drawing</h4>
-          <StreetCanvasCard candidates={result.street_canvas ?? []} />
-          <InkproofCard
-            key={`inkproof-${activeRouteId}`}
-            points={activeRoute.points_preview ?? []}
-            overlayType={labOverlay?.type}
-            onOverlayChange={updateLabOverlay}
-          />
-          <section className="recognition-repair-card" aria-labelledby="repair-title">
-            <div>
-              <span className="eyebrow">Drawing improvement</span>
-              <h3 id="repair-title">Make the outline read more clearly</h3>
-              <p>Re-route from the shape's strongest visual anchors and compare the result.</p>
-            </div>
-            <button
-              type="button"
-              className="button button--secondary"
-              onClick={improveRecognition}
-              disabled={repairBusy || !(activeRoute.ideal_preview ?? []).length}
-            >
-              {repairBusy ? "Refining..." : "Find a crisper version"}
-            </button>
-            {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
-          </section>
-
-          <h4 className="route-lab-group-title">Plan with a group</h4>
-          <CommunityMuralCard
-            activeRoute={activeRoute}
-            shapeName={shapeName}
-            city={city}
-            sport={result.intent?.sport}
-          />
-          <ArtRescueCard
-            key={`rescue-${activeRouteId}`}
-            activeRoute={activeRoute}
-            shapeName={shapeName}
-            city={city}
-            sport={result.intent?.sport}
-            overlayType={labOverlay?.type}
-            onOverlayChange={updateLabOverlay}
-          />
-
-          <h4 className="route-lab-group-title">Classroom resources</h4>
-          <LessonPackCard
-            key={`lesson-${activeRouteId}`}
-            activeRoute={activeRoute}
-            shapeName={shapeName}
-            city={city}
-            onOpen={openLessonSheet}
-          />
-        </div>
-      </details>
-
-      {issueList.length > 0 && (
-        <div className="details-grid">
-          <details className="detail-card">
-            <summary>
-              Route issues <span>{issueList.length}</span>
-            </summary>
-            <ul>
-              {issueList.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          </details>
-        </div>
+        </details>
       )}
 
       <GiftPosterOverlay
@@ -4458,6 +4457,7 @@ export default function App() {
   const [promptError, setPromptError] = useState("");
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
+  const [ideaCatalogOpen, setIdeaCatalogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingKind, setLoadingKind] = useState("route");
   const [imageUrl, setImageUrl] = useState("");
@@ -5047,8 +5047,8 @@ export default function App() {
                 <span className="studio-eyebrow">Budapest · Planned route</span>
                 <h2 id="studio-example-title">A heart, with a few detours.</h2>
               </div>
-              <a className="studio-map-link" href="/budapest-heart-route.png" target="_blank" rel="noreferrer" aria-label="Open the full Budapest heart route map in a new tab">
-                <img src="/budapest-heart-route.png" width="1084" height="760" alt="A planned heart-shaped route through Budapest streets. The angular green street route differs from the dashed coral heart outline." />
+              <a className="studio-map-link" href="/budapest-heart-route-4bdf5a785149.webp" target="_blank" rel="noreferrer" aria-label="Open the full Budapest heart route map in a new tab">
+                <img src="/budapest-heart-route-4bdf5a785149.webp" width="1084" height="760" fetchPriority="high" alt="A planned heart-shaped route through Budapest streets. The angular green street route differs from the dashed coral heart outline." />
                 <span className="studio-map-expand">Explore the details ↗</span>
               </a>
               <figcaption>
@@ -5184,7 +5184,10 @@ export default function App() {
                 }}
               />
 
-              <details className="idea-catalog">
+              <details
+                className="idea-catalog"
+                onToggle={(event) => setIdeaCatalogOpen(event.currentTarget.open)}
+              >
                 <summary>
                   <span>
                     <strong>More shapes, letters, and numbers</strong>
@@ -5192,7 +5195,7 @@ export default function App() {
                   </span>
                   <b aria-hidden="true">+</b>
                 </summary>
-                <div className="idea-groups">
+                {ideaCatalogOpen && <div className="idea-groups">
                   <div className="idea-filter">
                     <label htmlFor="idea-filter">Filter options</label>
                     <input
@@ -5238,7 +5241,7 @@ export default function App() {
                       Nothing in the catalog? No problem. Type your own idea above.
                     </p>
                   )}
-                </div>
+                </div>}
               </details>
               </div>
 

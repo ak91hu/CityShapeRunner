@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -49,6 +50,26 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+
+_HASHED_ASSET = re.compile(r"^assets/.+-[A-Za-z0-9_-]{8,}\.[^/]+$")
+_HASHED_PUBLIC_ASSET = re.compile(r"^[^/]+-[0-9a-f]{12}\.[^/]+$")
+
+
+class CachedSPAStaticFiles(StaticFiles):
+    """Cache fingerprinted bundles long-term without pinning the SPA entry point."""
+
+    async def get_response(self, path: str, scope: dict):
+        response = await super().get_response(path, scope)
+        if response.status_code != 200:
+            return response
+        normalized_path = scope["path"].lstrip("/")
+        if _HASHED_ASSET.fullmatch(normalized_path) or _HASHED_PUBLIC_ASSET.fullmatch(normalized_path):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif normalized_path.endswith(".html") or normalized_path in {"", "."}:
+            response.headers["Cache-Control"] = "no-cache"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
 
 def create_app() -> FastAPI:
@@ -136,7 +157,7 @@ def create_app() -> FastAPI:
     # above (/health, /generate, /docs) take precedence over this catch-all.
     spa_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     if spa_dir.is_dir():
-        app.mount("/", StaticFiles(directory=str(spa_dir), html=True), name="spa")
+        app.mount("/", CachedSPAStaticFiles(directory=str(spa_dir), html=True), name="spa")
     return app
 
 

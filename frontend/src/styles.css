@@ -5259,6 +5259,11 @@ input,
     grid-row: 3;
   }
 
+  .route-output .route-lab {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+
   .result-sidebar > :not(.metrics) {
     grid-column: 1 / -1;
   }
@@ -5466,6 +5471,44 @@ input,
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: #faf9f4;
+}
+
+.route-output .route-lab {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.route-review-box {
+  margin-top: 1rem;
+}
+
+.route-review-body {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.route-issues h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.9rem;
+}
+
+.route-issues ul,
+.route-issues p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.route-issues ul {
+  padding-left: 1.25rem;
+}
+
+.route-issues li + li {
+  margin-top: 0.35rem;
 }
 
 .route-lab-heading {
@@ -6633,6 +6676,10 @@ textarea {
 
   .route-output .route-facts {
     order: 2;
+  }
+
+  .route-output .route-lab {
+    order: 3;
   }
 
   .result-sidebar {

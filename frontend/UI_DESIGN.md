@@ -3,8 +3,8 @@
 ## September 11 correction: actual cartography and a mischievous identity
 
 This revision supersedes the invented street-grid illustration and W-pin logo
-described in the historical notes below. The homepage now bundles an unmodified
-Budapest heart preview from the project's public gallery. Its source is documented
+described in the historical notes below. The homepage now bundles a WebP-encoded
+Budapest heart preview from the project's public gallery. Its unchanged PNG source is documented
 in `public/budapest-heart-route.source.md`. The entire map, including attribution,
 stays visible at its original aspect ratio and can be opened at full resolution.
 Labels distinguish the planned street route, reference drawing and review sections;

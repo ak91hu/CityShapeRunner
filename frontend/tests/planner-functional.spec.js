@@ -94,10 +94,10 @@ test("the homepage uses an attributed street-route preview, not an invented map"
   await expect(example).toContainText("Review sections");
   await expect(example.locator("svg")).toHaveCount(0);
   const map = example.getByRole("img");
-  await expect(map).toHaveAttribute("src", "/budapest-heart-route.png");
+  await expect(map).toHaveAttribute("src", "/budapest-heart-route-4bdf5a785149.webp");
   await expect.poll(() => map.evaluate((image) => image.complete && image.naturalWidth)).toBe(1084);
   await expect(example.getByRole("link", { name: "© OpenStreetMap contributors" })).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
-  await expect(example.getByRole("link", { name: /Open the full Budapest/ })).toHaveAttribute("href", "/budapest-heart-route.png");
+  await expect(example.getByRole("link", { name: /Open the full Budapest/ })).toHaveAttribute("href", "/budapest-heart-route-4bdf5a785149.webp");
   const skip = page.getByRole("link", { name: "Skip to route planner" });
   await skip.focus();
   await expect(skip).toBeFocused();
@@ -307,6 +307,8 @@ test("choosing a popular idea updates the prompt and selected state", async ({ p
 
 test("the full idea catalogue exposes every category and all 158 options", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator(".idea-catalog .idea-chip")).toHaveCount(0);
+  expect(await page.locator("*").count()).toBeLessThan(1451);
   await page.getByText("More shapes, letters, and numbers").click();
 
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(158);
