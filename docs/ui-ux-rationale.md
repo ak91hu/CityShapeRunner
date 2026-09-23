@@ -1,6 +1,6 @@
 # UI and mobile UX rationale
 
-This document records the research behind the GPS Art Wizard interface refresh
+This document records the research behind the Paceasso interface refresh
 and turns general design guidance into product-specific decisions. The goal is
 not to imitate a fashionable landing page. It is to help a first-time user move
 from an idea to a route they understand and can safely export.

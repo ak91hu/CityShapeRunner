@@ -772,7 +772,7 @@ def test_health_reports_gallery_configuration(monkeypatch, configured: bool) -> 
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "GPS Art Wizard",
+        "service": "Paceasso",
         "version": "0.1.0",
         "gallery": {"configured": configured},
     }

@@ -1,4 +1,4 @@
-"""FastAPI entry point for GPS Art Wizard."""
+"""FastAPI entry point for Paceasso."""
 
 from __future__ import annotations
 
@@ -76,8 +76,8 @@ class CachedSPAStaticFiles(StaticFiles):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="GPS Art Wizard",
-        description="Generate and evaluate GPS-art route candidates from natural-language prompts. "
+        title="Paceasso",
+        description="GPS Art Wizzard: generate and evaluate GPS-art route candidates from natural-language prompts. "
         "Road matching requires a configured routing provider, and every result must be reviewed "
         "for local access, safety, and current conditions before use.",
         version="0.1.0",
@@ -167,7 +167,7 @@ app = create_app()
 
 
 def run() -> None:
-    """Console-script entrypoint: ``gps-art-wizzard``."""
+    """Console-script entrypoint: ``paceasso``."""
     import uvicorn
 
     from .config import get_settings

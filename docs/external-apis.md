@@ -4,7 +4,7 @@
 
 # The services behind a street-valid drawing
 
-GPS Art Wizard keeps its own HTTP contract separate from its provider adapters. The browser talks only to FastAPI; routing, geocoding, model inference, weather, image storage, and remote image import cross independently controlled server-side boundaries.
+Paceasso keeps its own HTTP contract separate from its provider adapters. The browser talks only to FastAPI; routing, geocoding, model inference, weather, image storage, and remote image import cross independently controlled server-side boundaries.
 
 [Internal HTTP API](api-reference.md){ .md-button .md-button--primary }
 [Configuration matrix](configuration-reference.md){ .md-button }
@@ -23,7 +23,7 @@ GPS Art Wizard keeps its own HTTP contract separate from its provider adapters. 
 ## Integration map
 
 <figure class="api-ecosystem-figure">
-  <img src="../assets/api-ecosystem.svg" alt="GPS Art Wizard API ecosystem: FastAPI connects to routing, geocoding, AI, weather, gallery, and public image services while the browser loads OpenStreetMap tiles directly.">
+  <img src="../assets/api-ecosystem.svg" alt="Paceasso API ecosystem: FastAPI connects to routing, geocoding, AI, weather, gallery, and public image services while the browser loads OpenStreetMap tiles directly.">
   <figcaption>The application boundary, external providers, credential paths, and degradation modes at a glance.</figcaption>
 </figure>
 
@@ -292,7 +292,7 @@ flowchart LR
     class Invalid caution;
 ```
 
-The server sends `q`, `format=json`, `limit=1`, `addressdetails=0`, `layer=address`, and—when resolving a city—`featureType=settlement`. It identifies itself with `GPS-Art-Wizard/0.1` and includes `NOMINATIM_EMAIL` when configured. The official [Search API](https://nominatim.org/release-docs/latest/api/Search/) defines these filters.
+The server sends `q`, `format=json`, `limit=1`, `addressdetails=0`, `layer=address`, and—when resolving a city—`featureType=settlement`. It identifies itself with `Paceasso/0.1` and includes `NOMINATIM_EMAIL` when configured. The official [Search API](https://nominatim.org/release-docs/latest/api/Search/) defines these filters.
 
 The public Nominatim service has an absolute maximum of one request per second, requires an identifying `User-Agent`/referer, forbids client-side autocomplete, and asks applications to cache repeated queries. Review the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/) before production use. This project avoids routine lookups through its curated city catalog, but a high-traffic deployment should use a controlled proxy/provider or a self-hosted instance rather than assume the public endpoint is an unlimited backend.
 

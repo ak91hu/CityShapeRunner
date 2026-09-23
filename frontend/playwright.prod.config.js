@@ -2,7 +2,7 @@ import { defineConfig, devices } from "playwright/test";
 
 const PROD_BASE_URL = (
   process.env.PROD_BASE_URL ??
-  "https://p01--cityshaperunner--vnycn2g6bghl.code.run"
+  "https://paceasso.site"
 ).replace(/\/$/, "");
 
 export default defineConfig({

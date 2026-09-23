@@ -107,7 +107,7 @@ class _JsonFormatter(logging.Formatter):
         service = (
             os.getenv("SERVICE_NAME")
             or os.getenv("K_SERVICE")
-            or "gps-art-wizard"
+            or "paceasso"
         )
         environment = os.getenv("APP_ENV", "local")
         request_id = getattr(record, "request_id", "-")
@@ -174,7 +174,7 @@ def configure_logging() -> None:
     # Local runs keep rotating JSONL files unless LOG_FILE is explicitly set.
     environment = os.getenv("APP_ENV", "local").strip().lower()
     default_log_file = (
-        "logs/gps-art-wizard.log"
+        "logs/paceasso.log"
         if environment in {"", "dev", "development", "local", "test"}
         else ""
     )

@@ -1,4 +1,6 @@
-# GPS Art Wizard
+# Paceasso
+
+**GPS Art Wizzard** — routes that turn a run or ride into a drawing on real streets.
 
 [![CI](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ak91hu/CityShapeRunner/actions/workflows/ci.yml)
 [![Technical docs](https://img.shields.io/badge/docs-MkDocs-08705d)](https://ak91hu.github.io/CityShapeRunner/)
@@ -11,7 +13,7 @@
 [![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
 Turn a run or ride into a drawing. Describe an idea—or choose from 158 catalog
-options—and GPS Art Wizard tests the outline against real streets, compares
+options—and Paceasso tests the outline against real streets, compares
 nearby placements and orientations, and shows how recognisable the resulting
 route is. Only a route returned by the connected street router can reach the
 download flow; a road-routed result that misses a quality target requires
@@ -21,6 +23,12 @@ The visual [engineering implementation guide](docs/implementation/index.md)
 documents the backend sequence, data classes, placement-search funnel, ORS
 retry state machine, quality formulas, React/Leaflet state flow, and production
 topology with Mermaid diagrams.
+
+The [algorithmic background](docs/algorithmic-background.md) follows one request
+from shape normalisation through geographic placement, the bounded preflight
+search, street routing, and independent quality gates. It gives the implemented
+distance and closure formulas, explains why a snapped-point proxy cannot prove
+connectivity, and records which evidence is required before GPX/TCX export.
 
 The [external API integration guide](docs/external-apis.md) maps ORS,
 OpenStreetMap/Nominatim, the model-provider adapters, Cloudinary, Open-Meteo,
@@ -159,7 +167,7 @@ geometry, route-choice, and map-matching research. It does not claim to
 reproduce every paper's custom graph algorithm; instead, it maps the findings
 to operations available through the hosted OpenRouteService API.
 
-| Research finding | Consequence in GPS Art Wizard |
+| Research finding | Consequence in Paceasso |
 |---|---|
 | Ordinary waypoint routers can turn off-network drawing points into large detours or visually destructive U-turns; GPS art benefits from a shape-aware graph cost ([Waschk & Krüger, 2019](https://doi.org/10.1007/s41095-019-0146-z)). | Placements are screened before Directions routing, curvature-bearing guide points are preserved, and a separate gate rejects doubled-back strokes absent from the drawing. |
 | Template placement, graph search, candidate comparison, and interactive adjustment are complementary stages rather than one routing call ([Powałka, 2023](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad)). | A city-wide transform search produces several routed alternatives, while the browser editor lets the user correct control points and request a fresh route. |
@@ -220,7 +228,7 @@ geographic tile transform, so a published image keeps the orientation chosen
 in the result viewer.
 
 Structured JSON logs are written to the console and, by default, to the
-rotating `logs/gps-art-wizard.log`. Every HTTP request receives an
+rotating `logs/paceasso.log`. Every HTTP request receives an
 `X-Request-ID`, allowing UI reports, API failures, candidate measurements, and
 provider errors to be correlated without logging API keys or the prompt text.
 

@@ -1,4 +1,4 @@
-# GPS Art Wizard niche review
+# Paceasso niche review
 
 Research date: 12 August 2026
 

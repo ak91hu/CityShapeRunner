@@ -1,6 +1,6 @@
 # GPS Art Intelligence
 
-GPS Art Wizard adds connected, GPS-art-specific layers around route generation.
+Paceasso adds connected, GPS-art-specific layers around route generation.
 
 ## Street Canvas
 
@@ -116,7 +116,7 @@ and [GPX Rescue tools](https://gpxrescue.eu/en/).
 
 The researched mainstream tools already cover waypoint planning, route
 preferences, cue sheets, navigation, generic GPX import/export, route merging,
-and image overlays. GPS Art Wizard does not present those as unique. Its niche
+and image overlays. Paceasso does not present those as unique. Its niche
 is measuring what survives as a recognisable drawing. Inkproof is free,
 accountless, and uses the route data already present in the result page.
 Missing Ink, the mural split, the night-run check, the sightseeing list, and

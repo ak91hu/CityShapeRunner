@@ -2,7 +2,7 @@
 
 The public service is a FastAPI application. Pydantic validates all JSON request bodies before route logic runs. The runtime publishes the authoritative, version-matched OpenAPI schema at `/openapi.json` and interactive Swagger UI at `/docs`.
 
-This page describes the API exposed **by** GPS Art Wizard. For the services called **by the backend**—ORS, Nominatim, model providers, Cloudinary, Open-Meteo, and remote image hosts—see [External API integrations](external-apis.md).
+This page describes the API exposed **by** Paceasso. For the services called **by the backend**—ORS, Nominatim, model providers, Cloudinary, Open-Meteo, and remote image hosts—see [External API integrations](external-apis.md).
 
 ## Cross-cutting behavior
 
@@ -69,7 +69,7 @@ This endpoint does not call external routing or model providers.
 ```json
 {
   "status": "ok",
-  "service": "GPS Art Wizard",
+  "service": "Paceasso",
   "version": "0.1.0",
   "gallery": { "configured": false }
 }

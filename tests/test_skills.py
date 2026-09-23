@@ -39,7 +39,7 @@ def test_all_skill_applies_everywhere():
 
 def test_system_prompt_for_includes_base_and_skills():
     sp = system_prompt_for("shape")
-    assert "GPS Art Wizard" in sp  # base system.txt content
+    assert "Paceasso" in sp  # base system.txt content
     assert "Loaded skills" in sp
     assert "shape-design" in sp
 

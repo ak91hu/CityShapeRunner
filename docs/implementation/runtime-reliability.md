@@ -51,7 +51,7 @@ Runtime hardening and behavior:
 - `API_HOST=0.0.0.0`, production JSON logging, empty local log file;
 - dependency-free `/health` container check every 30 seconds;
 - `SIGTERM` is the stop signal;
-- one `gps-art-wizzard` Uvicorn process by default.
+- one `paceasso` Uvicorn process by default.
 
 `INSTALL_EXTRAS=opencode` is the normal image. `all` adds Anthropic; an empty value produces deterministic/provider-free shape behavior. ORS still remains required for public routes.
 

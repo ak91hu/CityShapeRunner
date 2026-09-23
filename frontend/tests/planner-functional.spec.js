@@ -125,7 +125,7 @@ test("the homepage never labels an empty gallery as a Budapest heart", async ({ 
 test("the header mark and favicon share one scalable route identity", async ({ page }) => {
   await page.goto("/");
 
-  const home = page.getByRole("link", { name: "GPS Art Wizard home" });
+  const home = page.getByRole("link", { name: "Paceasso home" });
   const mark = home.locator(".brand-mark");
   const markPath = await mark.locator("path").getAttribute("d");
   await expect(home).toHaveAttribute("href", "/");

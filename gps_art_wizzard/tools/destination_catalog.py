@@ -1,7 +1,7 @@
 """Curated destination art: official-feeling city picks for the composer.
 
 Tourism boards increasingly commission running routes; this catalogue gives a
-hand-curated, deterministic answer for the cities GPS Art Wizard knows best.
+hand-curated, deterministic answer for the cities Paceasso knows best.
 Every entry maps to an existing route template so the resulting prompt resolves
 through the normal fast path. Entries carry a `partner_ready` flag so a future
 destination programme can switch individual cities to "official" without a

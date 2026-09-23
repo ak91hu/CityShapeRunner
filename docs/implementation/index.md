@@ -4,10 +4,14 @@
 
 # From drawing intent to a street-connected activity
 
-This guide documents the implementation behind GPS Art Wizard: module boundaries, state ownership, route-search mechanics, quality gates, browser behavior, failure containment, and deployment topology. It is written from the checked-in code rather than from a conceptual target architecture.
+This guide documents the implementation behind Paceasso: module boundaries, state ownership, route-search mechanics, quality gates, browser behavior, failure containment, and deployment topology. It is written from the checked-in code rather than from a conceptual target architecture.
 
 [Trace one generation](backend-pipeline.md){ .md-button .md-button--primary }
 [Inspect the state model](data-and-quality.md){ .md-button }
+
+[Read the algorithmic background](../algorithmic-background.md) for the
+geometric transforms, bounded placement search, score formulas, and export
+criteria behind these stages.
 
 </div>
 

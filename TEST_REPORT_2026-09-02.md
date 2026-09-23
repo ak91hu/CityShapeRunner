@@ -1,4 +1,4 @@
-# GPS Art Wizard – javítási és regressziós tesztjelentés
+# Paceasso – javítási és regressziós tesztjelentés
 
 **Dátum:** 2026-09-02
 **Éles cél:** `https://p01--cityshaperunner--vnycn2g6bghl.code.run/`

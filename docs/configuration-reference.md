@@ -135,11 +135,11 @@ fallback, telemetry, and release guidance.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `APP_ENV` | `local`; image sets `production` | Environment label and local-file logging behavior |
-| `SERVICE_NAME` | `gps-art-wizard` | Structured log service label; falls back to platform `K_SERVICE` |
+| `SERVICE_NAME` | `paceasso` | Structured log service label; falls back to platform `K_SERVICE` |
 | `APP_REVISION` | empty | Release/commit identifier; falls back to `K_REVISION` |
 | `LOG_LEVEL` | `INFO` | Python root log level |
 | `LOG_FORMAT` | `json` | `json` for structured JSONL; any other value selects readable text |
-| `LOG_FILE` | `logs/gps-art-wizard.log` locally, empty in production | Optional rotating local log file; console output always remains |
+| `LOG_FILE` | `logs/paceasso.log` locally, empty in production | Optional rotating local log file; console output always remains |
 | `LOG_MAX_BYTES` | `5000000` | Rotation threshold, clamped to at least 64,000 bytes |
 | `LOG_BACKUP_COUNT` | `5` | Rotated files retained, clamped to at least one |
 
@@ -158,7 +158,7 @@ The gallery stores rendered map images, not GPX/TCX tracks. Publishing requires 
 
 ```dotenv
 APP_ENV=production
-SERVICE_NAME=gps-art-wizard
+SERVICE_NAME=paceasso
 LOG_FORMAT=json
 LOG_FILE=
 API_HOST=0.0.0.0

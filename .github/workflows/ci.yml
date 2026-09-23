@@ -217,16 +217,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build the exact Northflank production image
-        run: docker build --tag gps-art-wizard:${{ github.sha }} .
+        run: docker build --tag paceasso:${{ github.sha }} .
 
       - name: Start production image
         run: |
           docker run --detach \
-            --name gps-art-wizard-ci \
+            --name paceasso-ci \
             --publish 127.0.0.1:8000:8000 \
             --env API_HOST=0.0.0.0 \
             --env GEOCODE_OFFLINE=1 \
-            gps-art-wizard:${{ github.sha }}
+            paceasso:${{ github.sha }}
 
       - name: Verify health and compiled SPA
         run: |
@@ -239,11 +239,11 @@ jobs:
 
       - name: Print container logs on failure
         if: failure()
-        run: docker logs gps-art-wizard-ci
+        run: docker logs paceasso-ci
 
       - name: Remove smoke-test container
         if: always()
-        run: docker rm --force gps-art-wizard-ci || true
+        run: docker rm --force paceasso-ci || true
 
   quality-gate:
     name: Quality gate

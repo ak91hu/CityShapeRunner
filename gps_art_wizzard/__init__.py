@@ -1,4 +1,4 @@
-"""GPS Art Wizard — AI-powered GPS art route planner.
+"""Paceasso — AI-powered GPS art route planner.
 
 Turn a natural-language prompt ("a dragon running through Budapest, ~30km")
 into an evaluated route candidate. Road-matched candidates that meet the

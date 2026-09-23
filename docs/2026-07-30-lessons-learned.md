@@ -69,7 +69,7 @@ Elvárt válasz:
 ```json
 {
   "status": "ok",
-  "service": "GPS Art Wizard",
+  "service": "Paceasso",
   "version": "0.1.0"
 }
 ```
@@ -301,7 +301,7 @@ azonosítóval kereshetők.
 Ajánlott Grafana/Loki keresések:
 
 ```logql
-{host="Northflank"} |= "gps-art-wizard"
+{host="Northflank"} |= "paceasso"
 ```
 
 ```logql
@@ -576,13 +576,13 @@ Az éles ellenőrző kérés request ID-ja:
 - build context: `/`;
 - Dockerfile: `/Dockerfile`;
 - CMD override: üres;
-- image CMD: `gps-art-wizzard`.
+- image CMD: `paceasso`.
 
 ### Runtime változók
 
 ```dotenv
 APP_ENV=production
-SERVICE_NAME=gps-art-wizard
+SERVICE_NAME=paceasso
 API_HOST=0.0.0.0
 API_PORT=8000
 LOG_LEVEL=INFO

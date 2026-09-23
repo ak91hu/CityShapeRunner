@@ -1010,7 +1010,7 @@ def shape_placement_preview(
 def health() -> dict:
     return {
         "status": "ok",
-        "service": "GPS Art Wizard",
+        "service": "Paceasso",
         "version": "0.1.0",
         "gallery": {"configured": cloudinary_gallery.is_configured()},
     }

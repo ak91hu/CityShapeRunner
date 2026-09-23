@@ -25,6 +25,12 @@ flowchart TB
 
 For module ownership, call sequence, retry behavior, state classes, and browser state management, continue with the [implementation guide](implementation/index.md). The separate [external API integration guide](external-apis.md) documents provider payloads, credentials, policies, and degradation boundaries.
 
+The [algorithmic background](algorithmic-background.md) explains the numerical
+steps behind these components: contour normalisation, metre-scale placement,
+preflight ranking, full routing, route similarity, and independent quality
+gates. The routing provider's connected geometry is the authority for export;
+preflight road proximity and local graph proposals only choose what to measure.
+
 ## Data flow (the state object)
 
 `WorkflowState` carries the complete exchange between nodes. Agents may update

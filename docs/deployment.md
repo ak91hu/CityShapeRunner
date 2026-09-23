@@ -28,16 +28,45 @@ hobby, preview, and testing workloads rather than production use and carries no
 production SLA. The application's bounded but CPU-heavy geometry search should
 therefore be measured after deployment before increasing external API usage.
 
+### Custom domain: paceasso.site
+
+The intended public application address is `https://paceasso.site/`. The frontend's
+canonical URL, structured data, sitemap, and robots file use this address.
+The existing `code.run` service URL remains useful as a rollout health check
+until the custom hostname is verified and its certificate is active.
+
+1. In **Northflank account settings → Domains**, add `paceasso.site` and copy
+   the TXT verification record that Northflank displays. Add that exact record
+   at the domain's DNS provider, then verify it in Northflank.
+2. Verify the automatically created apex entry. Point the apex DNS record to
+   the target shown by Northflank. The DNS provider must support CNAME
+   flattening/ALIAS at the zone apex; use the provider's equivalent record
+   type rather than an ordinary apex CNAME where prohibited.
+3. In the combined service's **Ports & DNS** settings, link the verified apex
+   domain to the public HTTP port `8000`. Wait for Northflank's managed TLS
+   certificate to become active.
+4. Verify `https://paceasso.site/`, `/health`, `/robots.txt`, and
+   `/sitemap.xml` over HTTPS. If the DNS provider proxies records, disable
+   proxying during initial domain verification and certificate issuance.
+5. After HTTPS is healthy, update the `northflank-production` GitHub
+   Environment's `NORTHFLANK_PRODUCTION_URL` to `https://paceasso.site` so the
+   gated release smoke checks the final hostname. The SPA and API share an
+   origin, so no additional `WEB_CORS_ORIGINS` value is required.
+
+Northflank supplies account-specific DNS verification names and values. Do
+not guess or commit them; use the values shown for this domain. The domain
+must have working authoritative DNS before verification can succeed.
+
 ### Create the service from the existing project
 
 Inside the Northflank project:
 
 1. Select **Create new → Service → Combined service**.
-2. Use service name `gps-art-wizard`.
+2. Use service name `paceasso`.
 3. Link `ak91hu/CityShapeRunner`, branch `master`.
 4. Select **Dockerfile** with build context `/` and path `/Dockerfile`.
 5. Do not add a build command or command override. The image's default command
-   is `gps-art-wizzard`.
+   is `paceasso`.
 6. Under **Networking**, expose container port `8000` as public HTTP. The
    Dockerfile already declares `EXPOSE 8000`; ensure the detected port is
    publicly exposed.
@@ -70,7 +99,7 @@ Add the following non-secret runtime variables to the combined service:
 
 ```dotenv
 APP_ENV=production
-SERVICE_NAME=gps-art-wizard
+SERVICE_NAME=paceasso
 API_HOST=0.0.0.0
 API_PORT=8000
 LOG_LEVEL=INFO
@@ -180,7 +209,7 @@ Configure the sink once at the Northflank account/team level:
 In Grafana, open **Explore**, select the Loki data source, and begin with:
 
 ```logql
-{host="Northflank"} |= "gps-art-wizard"
+{host="Northflank"} |= "paceasso"
 ```
 
 Search a user-visible request identifier or an event without promoting those
@@ -208,19 +237,19 @@ Do not expose logs through a public application endpoint.
 Locally, rotating JSONL files remain searchable without Grafana:
 
 ```powershell
-Select-String -Path "logs\gps-art-wizard.log*" -Pattern '"request_id":"debug-session-123"'
-Select-String -Path "logs\gps-art-wizard.log*" -Pattern '"event":"generation.completed"'
+Select-String -Path "logs\paceasso.log*" -Pattern '"request_id":"debug-session-123"'
+Select-String -Path "logs\paceasso.log*" -Pattern '"event":"generation.completed"'
 ```
 
 ## Build and run
 
 ```bash
-docker build --tag gps-art-wizzard:0.1.0 .
-docker run --rm --name gps-art-wizzard \
+docker build --tag paceasso:0.1.0 .
+docker run --rm --name paceasso \
   --publish 8000:8000 \
   --env-file .env \
   --env API_HOST=0.0.0.0 \
-  gps-art-wizzard:0.1.0
+  paceasso:0.1.0
 ```
 
 The default image contains the pinned OpenCode executable and the
@@ -229,7 +258,7 @@ Python provider SDKs, override the build argument with an empty value (the
 embedded CLI remains available):
 
 ```bash
-docker build --build-arg INSTALL_EXTRAS= --tag gps-art-wizzard:0.1.0-deterministic .
+docker build --build-arg INSTALL_EXTRAS= --tag paceasso:0.1.0-deterministic .
 ```
 
 Use `INSTALL_EXTRAS=anthropic` for Anthropic or `INSTALL_EXTRAS=all` for both
@@ -299,7 +328,7 @@ WEB_CORS_ORIGINS=https://routes.example.com
 API_HOST=0.0.0.0
 # Structured diagnostics for a platform log sink:
 APP_ENV=production
-SERVICE_NAME=gps-art-wizard
+SERVICE_NAME=paceasso
 APP_REVISION=
 LOG_FORMAT=json
 LOG_FILE=
@@ -324,7 +353,7 @@ deterministic planning remains available; route refinement is always
 deterministic and uses measured geometry.
 
 For a VM or paid container platform with an attached volume, set
-`LOG_FILE=/data/logs/gps-art-wizard.log`, tune `LOG_MAX_BYTES` and
+`LOG_FILE=/data/logs/paceasso.log`, tune `LOG_MAX_BYTES` and
 `LOG_BACKUP_COUNT`, mount `/data`, and grant it to container user `10001`.
 Do not set `LOG_FILE` or `EXPORT_DIR` on stateless deployments; console JSON
 logging remains authoritative there.
@@ -359,7 +388,7 @@ same endpoint:
 
 ```text
 GET /health
-200 {"status":"ok","service":"GPS Art Wizard","version":"0.1.0","gallery":{"configured":false}}
+200 {"status":"ok","service":"Paceasso","version":"0.1.0","gallery":{"configured":false}}
 ```
 
 The endpoint verifies that the process can answer HTTP requests. It intentionally

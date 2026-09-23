@@ -1,10 +1,10 @@
-site_name: GPS Art Wizard
-site_description: Architecture, API, operations, and engineering documentation for GPS Art Wizard.
+site_name: Paceasso | GPS Art Wizzard
+site_description: Architecture, algorithms, API, operations, and engineering documentation for Paceasso, the GPS Art Wizzard.
 site_url: https://ak91hu.github.io/CityShapeRunner/
 repo_url: https://github.com/ak91hu/CityShapeRunner
 repo_name: ak91hu/CityShapeRunner
 edit_uri: edit/master/docs/
-copyright: GPS Art Wizard technical documentation
+copyright: Paceasso technical documentation
 
 docs_dir: docs
 site_dir: site
@@ -81,6 +81,7 @@ nav:
       - Cloudinary gallery plan: cloudinary-map-gallery-plan.md
       - UI/UX rationale: ui-ux-rationale.md
   - Algorithms and research:
+      - Algorithmic background: algorithmic-background.md
       - Algorithm audit (2026-08): gps-art-algorithm-audit-2026-08.md
       - Generation improvements (2026-09): generation-development.md
       - GPS-art research: gps-art-research.md
@@ -128,4 +129,4 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/ak91hu/CityShapeRunner
-      name: GPS Art Wizard on GitHub
+      name: Paceasso on GitHub

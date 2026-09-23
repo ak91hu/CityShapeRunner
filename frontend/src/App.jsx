@@ -1921,7 +1921,7 @@ function GiftPosterOverlay({ open, imageDataUrl, stats, dedication, onDedication
           ))}
         </dl>
         <p className="poster-footer">
-          Planned with GPS Art Wizard · Map data © OpenStreetMap contributors
+          Planned with Paceasso · Map data © OpenStreetMap contributors
         </p>
         <div className="poster-actions">
           <button type="button" className="button button--primary" onClick={() => window.print()}>
@@ -2125,7 +2125,7 @@ function LessonSheetOverlay({ open, pack, points, dedication, onDedicationChange
         </ul>
         <p className="poster-footer">
           Total ≈ {pack.total_distance_km} km · {pack.waypoint_count} waypoints ·
-          Planned with GPS Art Wizard · Map data © OpenStreetMap contributors
+          Planned with Paceasso · Map data © OpenStreetMap contributors
         </p>
         <div className="poster-actions">
           <button type="button" className="button button--primary" onClick={() => window.print()}>
@@ -4349,7 +4349,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                         <li>Check the imported map, direction, access, and surface before saving it.</li>
                       </ol>
                       <p>
-                        Import wording differs by platform. GPS Art Wizard keeps the standard GPX
+                        Import wording differs by platform. Paceasso keeps the standard GPX
                         route portable and does not connect to your account.
                       </p>
                     </details>
@@ -5099,7 +5099,7 @@ export default function App() {
       </a>
 
       <header className="site-header">
-        <a className="brand" href="/" aria-label="GPS Art Wizard home">
+        <a className="brand" href="/" aria-label="Paceasso home">
           <span className="brand-mark" aria-hidden="true">
             <svg className="brand-mark-svg" viewBox="0 0 48 48">
               <rect x="2" y="2" width="44" height="44" rx="13" />
@@ -5108,8 +5108,9 @@ export default function App() {
               <circle cx="17" cy="23" r="2" />
             </svg>
           </span>
-          <span>
-            GPS Art <strong>Wizard</strong>
+          <span className="brand-copy">
+            <strong>Paceasso</strong>
+            <small>GPS Art Wizzard</small>
           </span>
         </a>
         <nav aria-label="Primary navigation">
@@ -6022,7 +6023,7 @@ export default function App() {
       </main>
 
       <footer>
-        <p>GPS Art Wizard</p>
+        <p>Paceasso · GPS Art Wizzard</p>
       </footer>
       <div className="sr-only" aria-live="polite">
         {downloadNotice}

@@ -24,7 +24,7 @@ test("robots and sitemap expose the public landing page", async ({ request }) =>
   expect(await robotsResponse.text()).toContain("Sitemap:");
   expect(sitemapResponse.ok()).toBe(true);
   expect(await sitemapResponse.text()).toContain(
-    "https://p01--cityshaperunner--vnycn2g6bghl.code.run/",
+    "https://paceasso.site/",
   );
 });
 

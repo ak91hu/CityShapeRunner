@@ -1,4 +1,4 @@
-"""FastAPI surface for GPS Art Wizard."""
+"""FastAPI surface for Paceasso."""
 
 from .routes import router
 

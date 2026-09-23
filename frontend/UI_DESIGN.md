@@ -1,4 +1,4 @@
-# GPS Art Wizard: cartographic studio
+# Paceasso: cartographic studio
 
 ## September 23 update: live gallery example
 

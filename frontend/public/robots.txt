@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://p01--cityshaperunner--vnycn2g6bghl.code.run/sitemap.xml
+Sitemap: https://paceasso.site/sitemap.xml
