@@ -31,7 +31,7 @@ Several adjacent research areas point to the same engineering pattern:
 4. [Chat2SVG](https://openaccess.thecvf.com/content/CVPR2025/papers/Wu_Chat2SVG_Vector_Graphics_Generation_with_Large_Language_Models_and_Image_CVPR_2025_paper.pdf)
    uses an LLM for a semantic vector scaffold and separate optimisation for
    geometric quality. This argues against trusting one raw model response as a
-   finished route. GPS Art Wizard substitutes executable topology checks, a
+   finished route. Paceasso substitutes executable topology checks, a
    bounded repair request, and road-network optimisation for the paper's image
    diffusion stages.
 5. [Waschk and Krüger](https://doi.org/10.1007/s41095-019-0146-z) show that

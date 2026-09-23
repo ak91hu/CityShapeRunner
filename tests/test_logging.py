@@ -58,7 +58,7 @@ def test_browser_clients_can_read_request_correlation_headers():
 
 def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
     request_token = bind_request_id("debug-session-123")
-    monkeypatch.setenv("SERVICE_NAME", "gps-art-wizard")
+    monkeypatch.setenv("SERVICE_NAME", "paceasso")
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setenv("APP_REVISION", "abc123")
     try:
@@ -84,7 +84,7 @@ def test_json_log_contains_searchable_host_independent_fields(monkeypatch):
         reset_request_id(request_token)
 
     assert payload["severity"] == "WARNING"
-    assert payload["service"] == "gps-art-wizard"
+    assert payload["service"] == "paceasso"
     assert payload["environment"] == "test"
     assert payload["revision"] == "abc123"
     assert payload["request_id"] == "debug-session-123"

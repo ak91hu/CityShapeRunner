@@ -1,6 +1,7 @@
 project:
-  name: GPS Art Wizard
-  description: AI-powered GPS art route planner
+  name: Paceasso
+  subtitle: GPS Art Wizzard
+  description: GPS Art Wizzard route planner
 
 llm:
   # Provider selection is env-driven (LLM_PROVIDER). This file holds tuning defaults.

@@ -328,7 +328,8 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await mockHealth(page);
   await page.goto("/");
 
-  await expect(page).toHaveTitle(/GPS Art Wizard/);
+  await expect(page).toHaveTitle("Paceasso | GPS Art Wizzard");
+  await expect(page.getByRole("link", { name: "Paceasso home" })).toContainText("GPS Art Wizzard");
   await expect(
     page.getByRole("heading", { level: 1, name: /Create GPS art on real streets/ }),
   ).toBeVisible();

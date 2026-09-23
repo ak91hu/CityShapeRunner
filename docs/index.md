@@ -1,10 +1,12 @@
-# GPS Art Wizard engineering guide
+# Paceasso engineering guide
+
+**GPS Art Wizzard** is the product subtitle.
 
 <div class="hero" markdown>
 
 # Draw with streets, not across them
 
-GPS Art Wizard turns a natural-language drawing idea into a route that follows a connected, routable street network. This site is the maintained engineering reference for the Python API, React client, route-generation pipeline, quality gates, deployment, and operations.
+Paceasso turns a natural-language drawing idea into a route that follows a connected, routable street network. This site is the maintained engineering reference for the Python API, React client, route-generation pipeline, quality gates, deployment, and operations.
 
 [Start developing](getting-started.md){ .md-button .md-button--primary }
 [Explore the architecture](architecture.md){ .md-button }
@@ -43,6 +45,9 @@ Follow intent parsing, shape design, placement search, street routing, validatio
 
 [Implementation guide](implementation/index.md) · [System architecture](architecture.md)
 
+[Algorithmic background](algorithmic-background.md) explains the search budgets,
+geometry comparison, scoring formulas, and export gates behind the pipeline.
+
 </div>
 
 </div>
@@ -70,7 +75,7 @@ The [engineering overview](implementation/index.md) links every box to its ownin
 
 ## Connected services at a glance
 
-<div class="integration-ribbon" aria-label="External services used by GPS Art Wizard">
+<div class="integration-ribbon" aria-label="External services used by Paceasso">
   <span><strong>ORS</strong> street routing</span>
   <span><strong>OSM</strong> places and tiles</span>
   <span><strong>AI</strong> four model adapters</span>

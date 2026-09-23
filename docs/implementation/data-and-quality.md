@@ -1,6 +1,6 @@
 # State, metrics, and quality gates
 
-GPS Art Wizard uses explicit dataclasses as its internal protocol. The state model is deliberately richer than the public response: it preserves search evidence, best-candidate snapshots, geometry transforms, and failure history so later stages do not need hidden agent memory.
+Paceasso uses explicit dataclasses as its internal protocol. The state model is deliberately richer than the public response: it preserves search evidence, best-candidate snapshots, geometry transforms, and failure history so later stages do not need hidden agent memory.
 
 ## Core domain model
 

@@ -32,7 +32,7 @@ FROM python:3.14-slim-bookworm AS runtime
 ENV API_HOST=0.0.0.0 \
     API_PORT=8000 \
     APP_ENV=production \
-    SERVICE_NAME=gps-art-wizard \
+    SERVICE_NAME=paceasso \
     LOG_FORMAT=json \
     LOG_FILE="" \
     OPENCODE_TRANSPORT=cli \
@@ -74,4 +74,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + (os.getenv('PORT') or os.getenv('API_PORT', '8000')) + '/health', timeout=2)"
 STOPSIGNAL SIGTERM
-CMD ["gps-art-wizzard"]
+CMD ["paceasso"]

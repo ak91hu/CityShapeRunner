@@ -1101,9 +1101,9 @@ def geocode(city: str) -> GeoResult:
     cfg = get_settings().geocoder
     headers = {
         "User-Agent": (
-            f"GPS-Art-Wizard/0.1 ({cfg.nominatim_email})"
+            f"Paceasso/0.1 ({cfg.nominatim_email})"
             if cfg.nominatim_email
-            else "GPS-Art-Wizard/0.1"
+            else "Paceasso/0.1"
         ),
         "Accept-Language": "en",
     }
@@ -1168,9 +1168,9 @@ def geocode_point(query: str) -> GeoResult | None:
     cfg = get_settings().geocoder
     headers = {
         "User-Agent": (
-            f"GPS-Art-Wizard/0.1 ({cfg.nominatim_email})"
+            f"Paceasso/0.1 ({cfg.nominatim_email})"
             if cfg.nominatim_email
-            else "GPS-Art-Wizard/0.1"
+            else "Paceasso/0.1"
         ),
         "Accept-Language": "en",
     }

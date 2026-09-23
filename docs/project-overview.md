@@ -1,4 +1,4 @@
-# GPS Art Wizard project guide
+# Paceasso project guide
 
 Enter an idea such as “heart, Budapest, running, 8 km”, choose one of 158 catalog
 options, or enter a city, activity, and distance. The planner creates and places
@@ -13,6 +13,12 @@ For implementation details, start with the visual
 request from React through FastAPI, the nine-agent state machine, placement
 preflight, ORS retry/recovery, independent quality gates, safe export boundary,
 and production observability with architecture and sequence diagrams.
+
+For the algorithm itself, the [algorithmic background](algorithmic-background.md)
+traces unit-space shape construction, local metre projection, placement
+screening, connected routing, recognition metrics, and independent acceptance
+gates. Its formulas correspond to `ValidationAgent` and its export rules to
+`quality.py`, so score interpretation stays tied to the implementation.
 
 The free-text field is not limited to the catalog. Named custom drawings keep
 their full description, use two bounded model-generated vector alternatives
@@ -93,7 +99,7 @@ deterministic street-network profile. The list is a reproducible product-
 coverage sample, not a population ranking or a guarantee of route suitability.
 
 The interaction model was informed by [drawmyloop.com](https://drawmyloop.com/en).
-GPS Art Wizard automates initial placement and keeps manual route-point editing
+Paceasso automates initial placement and keeps manual route-point editing
 available for corrections.
 
 ## How it works

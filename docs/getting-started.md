@@ -67,7 +67,7 @@ Never put provider keys into `frontend/` or a `VITE_*` variable. Vite variables 
 ## 3. Start the API
 
 ```powershell
-gps-art-wizzard
+paceasso
 ```
 
 The default bind address is `http://127.0.0.1:8000`. Useful development endpoints:

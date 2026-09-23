@@ -1,6 +1,6 @@
 # Production AI workflow
 
-GPS Art Wizard uses AI only where it adds semantic value. Geometry, street
+Paceasso uses AI only where it adds semantic value. Geometry, street
 routing, validation, candidate ranking, and export safety remain deterministic
 and testable. The workflow runtime adds run-scoped budgets and observability
 without changing the route algorithm or coupling agents to a vendor SDK.

@@ -15,7 +15,7 @@ LatLon = tuple[float, float]
 def to_gpx(
     points: list[LatLon],
     *,
-    name: str = "GPS Art Wizard route",
+    name: str = "Paceasso route",
     sport: str = "run",
     total_distance_m: float = 0.0,
 ) -> str:
@@ -35,7 +35,7 @@ def to_gpx(
 def to_segmented_gpx(
     segments: list[list[LatLon]],
     *,
-    name: str = "GPS Art Wizard multi-session track",
+    name: str = "Paceasso multi-session track",
     sport: str = "run",
 ) -> str:
     """Build one GPX track without drawing false lines between sessions.
@@ -81,7 +81,7 @@ def _haversine_m(start: LatLon, end: LatLon) -> float:
 def to_tcx(
     points: list[LatLon],
     *,
-    name: str = "GPS Art Wizard route",
+    name: str = "Paceasso route",
     sport: str = "running",
     total_distance_m: float = 0.0,
     pace_s_per_m: float | None = None,
