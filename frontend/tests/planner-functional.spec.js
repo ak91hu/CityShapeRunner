@@ -28,7 +28,7 @@ test("primary navigation links reach each planner section", async ({ page }) => 
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "Paceasso GPS Art Wizzard" }),
+    page.getByRole("heading", { level: 1, name: "Create GPS art on real streets." }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Create route" })).toBeVisible();
   await expect(page.getByText("Step 1 of 3")).toBeVisible();

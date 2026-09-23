@@ -56,9 +56,16 @@
         color: #18201e;
         font-family: ui-sans-serif, system-ui, sans-serif;
       }
+      .static-brand-row { display: flex; align-items: center; gap: clamp(0.7rem, 2vw, 1rem); }
+      .static-brand-mark { width: clamp(3.5rem, 10vw, 5.25rem); height: clamp(3.5rem, 10vw, 5.25rem); flex: 0 0 auto; }
+      .static-brand-mark rect { fill: #dcece5; stroke: #0b6b57; stroke-width: 2; }
+      .static-brand-mark path { fill: none; stroke: #0b6b57; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3.5; }
+      .static-brand-mark circle { stroke: white; stroke-width: 1.5; }
+      .static-brand-mark circle:first-of-type { fill: #e4542f; }
+      .static-brand-mark circle:last-of-type { fill: #0b6b57; }
       .static-app-shell h1 { display: grid; gap: 0.3rem; max-width: 100%; margin: 0; }
-      .static-brand-name { color: #0b6b57; font-family: Georgia, "Times New Roman", serif; font-size: clamp(3.1rem, 9vw, 5rem); font-style: italic; font-weight: 700; letter-spacing: -0.075em; line-height: 1; }
-      .static-brand-subtitle { color: #18201e; font-size: clamp(1rem, 2.8vw, 1.4rem); font-weight: 850; letter-spacing: 0.12em; line-height: 1.25; text-transform: uppercase; }
+      .static-brand-name { color: #0b6b57; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.25rem, 9vw, 4rem); font-style: italic; font-weight: 700; letter-spacing: -0.075em; line-height: 1; }
+      .static-brand-subtitle { color: #18201e; font-size: clamp(0.75rem, 2.8vw, 1.1rem); font-weight: 850; letter-spacing: 0.12em; line-height: 1.25; text-transform: uppercase; }
       .static-tagline { margin: 1.4rem 0 0 !important; color: #07483c !important; font-size: clamp(1.2rem, 2.5vw, 1.5rem) !important; font-weight: 800; }
       .static-app-shell > p { max-width: 45rem; margin: 1.25rem 0; color: #3f4c47; font-size: 1.1rem; line-height: 1.6; }
       .static-app-shell ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; padding: 0; list-style: none; }
@@ -74,7 +81,15 @@
     </noscript>
     <div id="root">
       <main class="static-app-shell" id="route-designer">
-        <h1><span class="static-brand-name">Paceasso</span><span class="static-brand-subtitle">GPS Art Wizzard</span></h1>
+        <div class="static-brand-row">
+          <svg class="static-brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+            <rect x="2" y="2" width="44" height="44" rx="13" />
+            <path d="M24 38L10 27L8 10L20 17L28 17L40 10L38 27L24 38ZM28 24L31 22L34 24M19 29L24 32L29 29" />
+            <circle cx="24" cy="38" r="2.5" />
+            <circle cx="17" cy="23" r="2" />
+          </svg>
+          <h1><span class="static-brand-name">Paceasso</span><span class="static-brand-subtitle">GPS Art Wizzard</span></h1>
+        </div>
         <p class="static-tagline">Create GPS art on real streets.</p>
         <p>
           Paceasso does more than snap one drawing to roads. It screens many placements,

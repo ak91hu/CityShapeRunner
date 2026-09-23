@@ -30,13 +30,22 @@ body {
 .app-shell { max-width: 82rem; }
 
 .site-header {
-  min-height: 5.5rem;
+  min-height: 7.5rem;
   border-bottom: 1px solid var(--line-strong);
 }
 
-.brand { font-weight: 650; letter-spacing: -0.04em; }
-.brand strong { color: var(--ink); }
-.brand-mark { width: 2.7rem; height: 2.7rem; }
+.brand { gap: 1rem; font-weight: 650; letter-spacing: -0.04em; }
+.brand strong { color: var(--brand); }
+.brand-mark { width: 5.25rem; height: 5.25rem; }
+.brand-copy small::after {
+  display: block;
+  width: 3rem;
+  height: 0.24rem;
+  margin-top: 0.4rem;
+  border-radius: 1rem;
+  background: var(--accent);
+  content: "";
+}
 .brand-mark-svg { filter: none; }
 .skip-link:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; padding: 0; overflow: hidden; white-space: nowrap; }
 .brand-mark-svg rect { fill: var(--brand); stroke: var(--brand); }
@@ -241,10 +250,12 @@ textarea:focus, input:focus, select:focus {
 
 @media (max-width: 38rem) {
   .app-shell { padding-inline: 1rem; }
-  .site-header { min-height: 4.75rem; gap: 0.5rem; }
-  .brand { gap: 0.4rem; font-size: 0.95rem; }
-  .brand-mark { width: 2rem; height: 2rem; }
-  .site-header nav { gap: 0; padding: 0.15rem; }
+  .site-header { min-height: 0; flex-wrap: wrap; gap: 0.45rem; padding-block: 0.7rem; }
+  .brand { min-height: 3.5rem; gap: 0.7rem; }
+  .brand-mark { width: 3.5rem; height: 3.5rem; }
+  .brand-copy strong { font-size: clamp(2.25rem, 9vw, 2.8rem); }
+  .brand-copy small { font-size: clamp(0.75rem, 3vw, 0.95rem); }
+  .site-header nav { width: 100%; gap: 0; margin-left: 0; padding: 0.15rem; }
   .site-header nav a { padding-inline: 0.55rem; font-size: 0.75rem; }
   .generator-stage { padding-top: 1.5rem; }
   .studio-eyebrow { font-size: 0.625rem; letter-spacing: 0.08em; }
@@ -265,6 +276,8 @@ textarea:focus, input:focus, select:focus {
 
 @media (max-width: 22rem) {
   .brand { font-size: 0.8rem; white-space: nowrap; }
-  .brand-mark { width: 1.7rem; height: 1.7rem; }
+  .brand-mark { width: 3.1rem; height: 3.1rem; }
+  .brand-copy strong { font-size: 2.1rem; }
+  .brand-copy small { font-size: 0.7rem; }
   .site-header nav a { padding-inline: 0.4rem; font-size: 0.6875rem; white-space: nowrap; }
 }
