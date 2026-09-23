@@ -116,7 +116,8 @@ without removing the original.
 Generation remains a quality-preserving search, so complex shapes can take
 time. The web app receives live workflow events and shows the actual stage,
 screened-placement count, full Directions-request count, elapsed time, and
-rotating route facts. Once ORS supplies a connected candidate, an early map
+rotating route facts. Final polish names its active check and shows that check's
+elapsed time and routing requests. Once ORS supplies a connected candidate, an early map
 appears as a provisional preview; it has no download action until final checks
 finish. Reduced-motion preferences disable nonessential animation. API clients
 can request the same progress via `Accept: application/x-ndjson`; ordinary JSON
@@ -232,6 +233,9 @@ the prompt, request ID, GPX/TCX document, or user profile. Configure the
 server-only `CLOUDINARY_URL` to enable it. The browser stores only the matching
 removal capability for images published from that browser; failure to retain
 that local token does not turn a successful upload into a failed publication.
+The homepage features a public gallery thumbnail and, when multiple images
+exist, chooses a different one on the next page load. It does not invent a
+city or drawing name for gallery images that carry no such metadata.
 On Northflank, the production image writes only to the captured console stream.
 The platform's native Loki log sink forwards that stream to Grafana Cloud,
 where entries can be searched by request ID, event, severity, environment, or

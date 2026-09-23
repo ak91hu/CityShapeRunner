@@ -128,8 +128,19 @@ body {
 .studio-art-heading { padding: 1rem 1.1rem; }
 .studio-art-heading .studio-eyebrow { margin-bottom: 0.4rem; }
 .studio-art-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 1.4rem; font-weight: 400; letter-spacing: -0.03em; }
-.studio-map-link { position: relative; display: block; }
-.studio-map-link img { display: block; width: 100%; height: auto; }
+.studio-map-link { position: relative; aspect-ratio: 10 / 7; display: grid; place-items: center; background: var(--surface-tint); }
+.studio-map-link img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.studio-map-placeholder {
+  min-height: 15rem;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: var(--surface-tint);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-align: center;
+}
 .studio-map-expand { position: absolute; left: 0.7rem; top: 0.7rem; padding: 0.45rem 0.65rem; border: 1px solid var(--line); border-radius: 2rem; background: var(--surface); color: var(--brand-dark); font-size: 0.7rem; font-weight: 700; }
 .studio-map-link:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .studio-art figcaption { padding: 1rem 1.1rem; }

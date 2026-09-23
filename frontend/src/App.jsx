@@ -30,6 +30,7 @@ import {
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
 const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
 const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
+const FEATURED_GALLERY_STORAGE_KEY = "gps-art-featured-gallery-id-v1";
 
 const CORE_IDEAS = [
   { glyph: "♥", label: "Heart", category: "Simple shapes", featured: true, prompt: "a heart run in Budapest, about 8 km" },
@@ -779,6 +780,29 @@ function mergeGalleryAssets(current, received, { replace, publishedAsset, remove
     seen.add(asset.id);
     return true;
   });
+}
+
+function chooseFeaturedGalleryAsset(assets) {
+  const available = (Array.isArray(assets) ? assets : []).filter(
+    (asset) => asset?.id && typeof asset.image_url === "string" && asset.image_url.startsWith("https://"),
+  );
+  if (available.length === 0) return null;
+  let previousId = null;
+  try {
+    previousId = window.localStorage.getItem(FEATURED_GALLERY_STORAGE_KEY);
+  } catch {
+    // Private browsing still gets a random gallery image.
+  }
+  const choices = available.length > 1
+    ? available.filter((asset) => asset.id !== previousId)
+    : available;
+  const selected = choices[Math.floor(Math.random() * choices.length)];
+  try {
+    window.localStorage.setItem(FEATURED_GALLERY_STORAGE_KEY, selected.id);
+  } catch {
+    // The image remains usable even if browser storage is disabled.
+  }
+  return selected;
 }
 
 function sampleControlPoints(points, maximum = 18) {
@@ -2621,20 +2645,25 @@ function loadingStageIndex(stage) {
   return 0;
 }
 
-function loadingStageMessage(stage) {
-  if (stage?.startsWith("polish.")) {
-    const subject = {
-      "polish.shape": "the outline",
-      "polish.reversals": "unnecessary backtracking",
-      "polish.detours": "street detours",
-      "polish.contour": "the route contour",
-      "polish.reference_contour": "recognisable details",
-      "polish.turns": "distinctive turns",
-      "polish.graph": "the street graph",
-      "polish.distance": "the requested distance",
-    }[stage] ?? "a final street alternative";
-    return `Checking ${subject}. The streets have opinions; the route checks have the last word.`;
+const POLISH_STAGE_NAMES = {
+  "polish.shape": "the outline",
+  "polish.reversals": "unnecessary backtracking",
+  "polish.detours": "street detours",
+  "polish.contour": "the route contour",
+  "polish.reference_contour": "recognisable details",
+  "polish.turns": "distinctive turns",
+  "polish.graph": "the street graph",
+  "polish.post_graph_contour": "a newly exposed detour",
+  "polish.post_graph_reference": "the final outline details",
+  "polish.distance": "the requested distance",
+};
+
+function loadingStageMessage(progress) {
+  if (progress?.polishPhase) {
+    const subject = POLISH_STAGE_NAMES[progress.polishPhase] ?? "a final street alternative";
+    return `Final polish: checking ${subject}.`;
   }
+  const stage = progress?.stage;
   return {
     intent: "Reading your idea and its route constraints.",
     planning: "Planning a drawing that could fit the city.",
@@ -2681,6 +2710,9 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
   const stages = kind === "image" ? IMAGE_LOADING_STAGES : ROUTE_LOADING_STAGES;
   const currentStage = progress?.stageIndex ?? -1;
   const factIndex = Math.floor(elapsedSeconds / 9) % LOADING_FACTS.length;
+  const polishSeconds = progress?.polishPhaseStartedAt
+    ? Math.max(0, Math.floor((Date.now() - progress.polishPhaseStartedAt) / 1000))
+    : 0;
 
   useEffect(() => {
     const timer = window.setInterval(
@@ -2767,7 +2799,7 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
           <span />
         </div>
         <p id="loading-message" className="loading-message" role="status" aria-live="polite">
-          {progress ? loadingStageMessage(progress.stage) : "Connecting to the route planner. The streets are warming up."}
+          {progress ? loadingStageMessage(progress) : "Connecting to the route planner. The streets are warming up."}
         </p>
         <p id="loading-expectation" className="loading-expectation">
           {kind === "image"
@@ -2802,10 +2834,21 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
           })}
         </ol>
 
+        {progress?.polishStarted && (
+          <div className="loading-polish-detail" role="status" aria-live="polite">
+            <strong>Final polish · {progress.polishCompleted.length} checks completed</strong>
+            <span>
+              {progress.polishPhase
+                ? `Checking ${POLISH_STAGE_NAMES[progress.polishPhase] ?? "a street alternative"} · ${polishSeconds}s on this check · ${progress.phase_routing_requests?.directions ?? 0} full route requests in this check`
+                : "Polish checks finished; reviewing the strongest street route."}
+            </span>
+          </div>
+        )}
+
         {progress && (
           <p className="loading-measured-work" role="status">
-            {progress.preflight_count > 0 && `${progress.preflight_count} placements screened · `}
-            {progress.routing_requests?.directions ?? 0} full street route requests so far
+            {progress.preflight_count > 0 && <span>{progress.preflight_count} placements screened</span>}
+            <span>{progress.routing_requests?.directions ?? 0} full street route requests so far</span>
           </p>
         )}
 
@@ -4538,12 +4581,14 @@ export default function App() {
   const [downloadNotice, setDownloadNotice] = useState("");
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const [lastPublishedGalleryAsset, setLastPublishedGalleryAsset] = useState(null);
+  const [featuredGallery, setFeaturedGallery] = useState({ asset: null, status: "loading" });
   const requestRef = useRef(null);
   const interpretationRef = useRef(null);
   const interpretationPromptSyncRef = useRef(null);
   const mapPreviewRef = useRef(null);
   const mapTemplatesRequestedRef = useRef(false);
   const lastGenerationRef = useRef(null);
+  const featuredGalleryLoadedRef = useRef(false);
   const loadingRef = useRef(null);
   const resultRef = useRef(null);
   const errorRef = useRef(null);
@@ -4567,6 +4612,27 @@ export default function App() {
     window.addEventListener("hashchange", syncViewFromHash);
     return () => window.removeEventListener("hashchange", syncViewFromHash);
   }, []);
+
+  useEffect(() => {
+    if (appView !== "planner" || featuredGalleryLoadedRef.current) return undefined;
+    const controller = new AbortController();
+    listGallery({ limit: 50, signal: controller.signal })
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        const asset = chooseFeaturedGalleryAsset(response.assets);
+        setFeaturedGallery({
+          asset,
+          status: asset ? "ready" : response.configured === false ? "unavailable" : "empty",
+        });
+        featuredGalleryLoadedRef.current = true;
+      })
+      .catch((galleryError) => {
+        if (controller.signal.aborted || galleryError?.name === "AbortError") return;
+        setFeaturedGallery({ asset: null, status: "unavailable" });
+        featuredGalleryLoadedRef.current = true;
+      });
+    return () => controller.abort();
+  }, [appView]);
 
   useEffect(() => {
     if (!campaign || campaignApplied.current) return;
@@ -4775,10 +4841,27 @@ export default function App() {
           if (update.type === "preview") {
             setGenerationPreview(update);
           } else if (update.type === "progress") {
-            setGenerationProgress((previous) => ({
-              ...update,
-              stageIndex: Math.max(previous?.stageIndex ?? -1, loadingStageIndex(update.stage)),
-            }));
+            setGenerationProgress((previous) => {
+              const polishPhase = update.phase
+                ?? (update.stage?.startsWith("polish.") ? update.stage : null);
+              const completed = previous?.polishCompleted ?? [];
+              const polishCompleted = update.stage?.startsWith("polish.")
+                && update.status === "completed" && !completed.includes(update.stage)
+                ? [...completed, update.stage]
+                : completed;
+              return {
+                ...update,
+                stageIndex: Math.max(previous?.stageIndex ?? -1, loadingStageIndex(update.stage)),
+                polishStarted: Boolean(previous?.polishStarted || polishPhase),
+                polishPhase,
+                polishPhaseStartedAt: polishPhase
+                  ? (polishPhase === previous?.polishPhase
+                    ? previous.polishPhaseStartedAt
+                    : Date.now())
+                  : null,
+                polishCompleted,
+              };
+            });
           }
         },
       });
@@ -5099,23 +5182,34 @@ export default function App() {
             </p>
             <figure className="studio-art" aria-labelledby="studio-example-title">
               <div className="studio-art-heading">
-                <span className="studio-eyebrow">Budapest · Planned route</span>
-                <h2 id="studio-example-title">A heart, with a few detours.</h2>
+                <span className="studio-eyebrow">From the public gallery</span>
+                <h2 id="studio-example-title">See what the streets inspire.</h2>
               </div>
-              <a className="studio-map-link" href="/budapest-heart-route-4bdf5a785149.webp" target="_blank" rel="noreferrer" aria-label="Open the full Budapest heart route map in a new tab">
-                <img src="/budapest-heart-route-4bdf5a785149.webp" width="1084" height="760" fetchPriority="high" alt="A planned heart-shaped route through Budapest streets. The angular green street route differs from the dashed coral heart outline." />
-                <span className="studio-map-expand">Explore the details ↗</span>
-              </a>
-              <figcaption>
-                <div className="studio-map-legend" aria-label="Map legend">
-                  <span><i className="legend-route" />Street route</span>
-                  <span><i className="legend-sketch" />Original drawing</span>
-                  <span><i className="legend-review" />Review sections</span>
+              {featuredGallery.asset ? (
+                <a className="studio-map-link" href={featuredGallery.asset.image_url} target="_blank" rel="noreferrer" aria-label="Open this public gallery image in a new tab">
+                  <img
+                    src={featuredGallery.asset.thumbnail_url || featuredGallery.asset.image_url}
+                    width={featuredGallery.asset.width || 900}
+                    height={featuredGallery.asset.height || 600}
+                    fetchPriority="high"
+                    alt="Anonymous GPS art route shared in the public gallery"
+                  />
+                  <span className="studio-map-expand">Explore the details ↗</span>
+                </a>
+              ) : (
+                <div className="studio-map-placeholder" role="status">
+                  {featuredGallery.status === "loading"
+                    ? "Choosing a route from the public gallery…"
+                    : featuredGallery.status === "empty"
+                      ? "No community maps have been shared yet. Yours could be the first."
+                      : "The public gallery is temporarily unavailable."}
                 </div>
-                <p>The drawing suggests the shape. The streets decide the turns.
+              )}
+              <figcaption>
+                <p>Real community map images, chosen afresh when you open the page.
                   Always review crossings and access before heading out.</p>
                 <div className="studio-art-caption">
-                  <span>From the GPS Art Wizard gallery</span>
+                  <a href="#gallery">Browse the public gallery</a>
                   <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
                 </div>
               </figcaption>

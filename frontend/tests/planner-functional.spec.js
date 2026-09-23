@@ -1,6 +1,7 @@
 import { expect, test } from "playwright/test";
 
 import {
+  galleryAsset,
   installCommonMocks,
   mockGeneration,
   reviewAndFindRoutes,
@@ -85,23 +86,40 @@ test("the planner uses a compact responsive layout with optional panels collapse
   expect(horizontalOverflow).toBeLessThanOrEqual(1);
 });
 
-test("the homepage uses an attributed street-route preview, not an invented map", async ({ page }) => {
+test("the homepage features a different public gallery image on each load", async ({ page }) => {
+  const assets = [galleryAsset("a", "first-map"), galleryAsset("b", "second-map")];
+  await page.route("**/gallery?limit=50", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ configured: true, assets, next_cursor: null }),
+  }));
   await page.goto("/");
-  const example = page.getByRole("figure", { name: "A heart, with a few detours." });
+  const example = page.getByRole("figure", { name: "See what the streets inspire." });
   await expect(example).toBeVisible();
-  await expect(example).toContainText("Budapest · Planned route");
-  await expect(example).toContainText("Original drawing");
-  await expect(example).toContainText("Review sections");
+  await expect(example).toContainText("From the public gallery");
   await expect(example.locator("svg")).toHaveCount(0);
   const map = example.getByRole("img");
-  await expect(map).toHaveAttribute("src", "/budapest-heart-route-4bdf5a785149.webp");
-  await expect.poll(() => map.evaluate((image) => image.complete && image.naturalWidth)).toBe(1084);
+  await expect(map).toBeVisible();
+  const firstSource = await map.getAttribute("src");
+  expect(assets.map((asset) => asset.image_url)).toContain(firstSource);
   await expect(example.getByRole("link", { name: "© OpenStreetMap contributors" })).toHaveAttribute("href", "https://www.openstreetmap.org/copyright");
-  await expect(example.getByRole("link", { name: /Open the full Budapest/ })).toHaveAttribute("href", "/budapest-heart-route-4bdf5a785149.webp");
+  await expect(example.getByRole("link", { name: /Open this public gallery image/ })).toHaveAttribute("href", firstSource);
+  await page.reload();
+  await expect(map).toBeVisible();
+  await expect(map).not.toHaveAttribute("src", firstSource);
+  expect(assets.map((asset) => asset.image_url)).toContain(await map.getAttribute("src"));
   const skip = page.getByRole("link", { name: "Skip to route planner" });
   await skip.focus();
   await expect(skip).toBeFocused();
   await expect(skip).toHaveCSS("clip-path", "none");
+});
+
+test("the homepage never labels an empty gallery as a Budapest heart", async ({ page }) => {
+  await page.goto("/");
+  const example = page.getByRole("figure", { name: "See what the streets inspire." });
+  await expect(example).toContainText("No community maps have been shared yet");
+  await expect(example.getByRole("img")).toHaveCount(0);
+  await expect(example).not.toContainText("Budapest");
 });
 
 test("the header mark and favicon share one scalable route identity", async ({ page }) => {

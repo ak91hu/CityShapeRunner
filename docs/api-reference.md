@@ -169,7 +169,10 @@ the route is generated. The default `Accept: application/json` behavior and
 request body remain unchanged. Stream messages have a `type` field:
 
 - `progress`: actual workflow stage, attempt, status, elapsed milliseconds,
-  screened placement count, and cumulative routing-request counts. The final
+  screened placement count, and cumulative routing-request counts. During final
+  polishing, `phase` retains the enclosing `polish.*` pass even when the nested
+  stage is `snap` or `validation`; `phase_routing_requests` counts provider
+  calls in that pass. The final
   `workflow.steps.metrics` also reports time and ORS calls per stage, including
   each `polish.*` pass.
 - `preview`: the first Directions-routed, connected candidate's full street

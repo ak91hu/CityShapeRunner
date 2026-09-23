@@ -1,9 +1,18 @@
 # GPS Art Wizard: cartographic studio
 
+## September 23 update: live gallery example
+
+The homepage now features a real public gallery thumbnail, changing it on each
+page load when at least two images are available. The caption stays generic
+because the gallery does not store city or shape names. Empty/unavailable
+galleries show text rather than a made-up map, and the historical bundled
+Budapest WebP is no longer preloaded. Final-polish progress names the enclosing
+check even while its nested street-routing call is running.
+
 ## September 11 correction: actual cartography and a mischievous identity
 
-This revision supersedes the invented street-grid illustration and W-pin logo
-described in the historical notes below. The homepage now bundles a WebP-encoded
+This revision superseded the invented street-grid illustration and W-pin logo
+described in the historical notes below. At the time, the homepage bundled a WebP-encoded
 Budapest heart preview from the project's public gallery. Its unchanged PNG source is documented
 in `public/budapest-heart-route.source.md`. The entire map, including attribution,
 stays visible at its original aspect ratio and can be opened at full resolution.
@@ -13,7 +22,7 @@ no recorded activity, guaranteed access or field verification is claimed.
 The original SVG identity now traces an angular fox face with a route-start marker,
 one open eye and a wink. It brings playfulness through the mark and the “few detours”
 caption, without inventing geography. Header, favicon and empty-gallery mark share
-the geometry. Both compact and desktop layouts retain the actual map example.
+the geometry. Both compact and desktop layouts retained the actual map example.
 
 Verification for this revision: production build and 10 unit tests passed;
 56 planner checks passed across desktop/mobile Chromium; eight focused
