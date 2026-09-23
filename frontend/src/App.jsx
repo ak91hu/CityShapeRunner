@@ -4593,6 +4593,10 @@ export default function App() {
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
+  const setPromptRef = useCallback((node) => {
+    promptRef.current = node;
+    node?.focus({ preventScroll: true });
+  }, []);
   const promptSubmitPointerRef = useRef(false);
   const suggestCityRef = useRef(null);
   const suggestActivityRef = useRef(null);
@@ -5241,7 +5245,7 @@ export default function App() {
               <div className="textarea-wrap">
                 <textarea
                   id="route-prompt"
-                  ref={promptRef}
+                  ref={setPromptRef}
                   value={prompt}
                   onChange={(event) => {
                     const nextPrompt = event.target.value;
@@ -5275,7 +5279,6 @@ export default function App() {
                   aria-invalid={Boolean(promptError)}
                   aria-errormessage={promptError ? "prompt-error" : undefined}
                   disabled={loading}
-                  autoFocus
                   required
                 />
                 <span id="prompt-count" className="character-count">

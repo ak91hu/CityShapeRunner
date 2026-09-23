@@ -335,6 +335,7 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   ).toBeVisible();
   await expect(page.getByLabel("Drawing and location")).toBeVisible();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await expect(page.getByText("Planner online")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Review request" })).toBeEnabled();
   await page.getByText("Other ways to start", { exact: true }).click();
