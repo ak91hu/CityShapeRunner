@@ -8,7 +8,7 @@ import pytest
 
 from gps_art_wizzard.llm import factory as llm_factory
 from gps_art_wizzard.llm.base import LLMResponse
-from gps_art_wizzard.state import Validation, WorkflowState
+from gps_art_wizzard.state import SnappedRoute, Validation, WorkflowState
 from gps_art_wizzard.workflow_runtime import (
     StepStatus,
     WorkflowRuntime,
@@ -87,6 +87,58 @@ def test_cache_scope_is_unique_even_when_request_id_is_reused() -> None:
 
     assert first.trace.run_id == second.trace.run_id == "reused"
     assert first.cache_scope != second.cache_scope
+
+
+def test_nested_polish_stage_records_elapsed_time_and_ors_calls() -> None:
+    state = WorkflowState(prompt="heart")
+    clock = MutableClock()
+    runtime = _runtime(state, clock=clock)
+
+    def route_candidate() -> None:
+        runtime.record_routing_request("directions")
+        clock.value = 0.35
+
+    runtime.run_step("polish.shape", lambda: runtime.run_step("snap", route_candidate))
+
+    assert runtime.trace.step_metrics["polish.shape"] == {
+        "duration_ms": 350,
+        "routing_requests": {"directions": 1},
+    }
+    assert runtime.trace.step_metrics["snap"] == {
+        "duration_ms": 350,
+        "routing_requests": {"directions": 1},
+    }
+    assert runtime.trace.public_summary()["steps"]["metrics"]["polish.shape"] == {
+        "duration_ms": 350,
+        "routing_requests": {"directions": 1},
+    }
+
+
+def test_live_events_continue_after_trace_cap_and_preview_requires_street_route() -> None:
+    events = []
+    previews = []
+    state = WorkflowState(prompt="heart")
+    runtime = WorkflowRuntime(
+        state, max_duration_seconds=10, max_llm_calls=0, max_events=8,
+        event_sink=events.append, preview_sink=previews.append,
+    )
+    for _ in range(6):
+        runtime.run_step("preflight", lambda: None)
+    assert len(events) == 12
+    assert len(runtime.trace.events) == 8
+    assert runtime.trace.dropped_events == 4
+
+    state.snapped = SnappedRoute([(47.5, 19.0), (47.501, 19.001)], 150, False)
+    state.validation = _passing_validation()
+    state.validation.on_roads = True
+    runtime.publish_preview(state)
+    assert not previews
+    state.snapped.snapped = True
+    runtime.publish_preview(state)
+    runtime.publish_preview(state)
+    assert len(previews) == 1
+    assert previews[0]["status"] == "checking"
+    assert "gpx" not in previews[0]
 
 
 def test_failed_step_is_classified_without_recording_exception_text() -> None:

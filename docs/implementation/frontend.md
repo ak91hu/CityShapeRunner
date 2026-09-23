@@ -112,11 +112,11 @@ Every call gets an internal `AbortController`. A caller-supplied signal is forwa
 
 !!! note "Cancellation boundary"
 
-    `AbortController` stops the browser from waiting and prevents an obsolete result from updating UI state. `/generate` is a synchronous FastAPI handler, so a client disconnect is not a guaranteed cancellation token for every model/ORS call already running on the server. Upstream work remains bounded by provider timeouts and the configured search budget.
+    `AbortController` stops the browser from waiting and prevents an obsolete result from updating UI state. The streaming `/generate` variant still runs one bounded synchronous workflow in a worker thread; a client disconnect is not a guaranteed cancellation token for model/ORS calls already running on the server.
 
 ## Waiting experience
 
-`LoadingState` maintains elapsed seconds, rotates topic-specific explanatory stages, supports explicit cancellation, and respects `prefers-reduced-motion`. The stage labels are illustrative product guidance, not server progress events or a percentage-complete promise.
+`LoadingState` maintains elapsed seconds, displays real server step events and ORS/preflight counters, supports explicit cancellation, and respects `prefers-reduced-motion`. It never derives stage completion from elapsed time or promises a percentage-complete value. The first provider-routed, connected candidate may appear as an explicitly provisional map; it carries no GPX/TCX or export control while final checks continue. Without stream support the client still accepts the ordinary JSON result and shows an indeterminate waiting state.
 
 This distinction avoids a misleading progress bar while still explaining why route generation takes time: drawing, placement search, street routing, comparison, and export preparation.
 

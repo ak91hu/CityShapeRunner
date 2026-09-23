@@ -93,6 +93,7 @@ class _JsonFormatter(logging.Formatter):
         "workflow_stage",
         "workflow_attempt",
         "workflow_duration_ms",
+        "workflow_routing_requests",
         "workflow_max_duration_seconds",
         "workflow_max_llm_calls",
         "workflow_step_failures",

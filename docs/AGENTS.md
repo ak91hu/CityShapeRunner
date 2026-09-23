@@ -232,7 +232,7 @@ reroute at most two local guide omissions to improve weak contour sections
 reroute at most two alternatives guided by the original contour section
 if characteristic turns still fail: route at most three high-proxy, reference-guided local turn repairs directly through Directions
 if turning or detour length still fails: graph-screen reconnect windows (and high-error turning windows when needed); measure bounded sequential challengers
-rerun one omission and one reference-guided reconnect candidate on the repaired incumbent
+if turn or graph repair changed the incumbent geometry: rerun one omission and one reference-guided reconnect candidate
 ```
 Complete quality-gate passes always rank ahead of partial results. Requested
 distance may differ by up to 20% (`distance_fit >= exp(-0.6)`); closed-loop
@@ -283,9 +283,11 @@ and reversal quality. Rejection, success, or the shared deadline stops the
 stage, and fixed start constraints skip it. The graph path is never export
 evidence, and a worse routed result rolls back.
 Because direct-turn and graph repairs can expose a new local detour after the
-initial reconnect screens, the final incumbent receives one last omission and
-one last reference-guided reconnect candidate. Both use the same 50-guide
-Directions authority and quality ranking; no broad window set is reopened.
+initial reconnect screens, a changed incumbent receives one last omission and
+one last reference-guided reconnect candidate. If neither late repair changed
+the contour inputs, these redundant Directions measurements are skipped. Both
+use the same 50-guide Directions authority and quality ranking; no broad
+window set is reopened.
 Before the local repair passes, a failed reversal gate can trigger one additional graph
 proposal with a cost for edges already used in earlier contour layers. Its
 50-guide Directions route is measured against the same drawing and competes
