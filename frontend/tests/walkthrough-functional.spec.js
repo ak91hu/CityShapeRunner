@@ -8,6 +8,11 @@ if (process.env.WALKTHROUGH_TEST_ORIGIN) {
 
 test("the virtual walkthrough loads its worker and follows the route", async ({ page }) => {
   await installCommonMocks(page);
+  const diagnostics = [];
+  await page.route("**/walkthrough-diagnostics", (route) => {
+    diagnostics.push(route.request().postDataJSON());
+    return route.fulfill({ status: 204 });
+  });
   if (!process.env.WALKTHROUGH_USE_LIVE_STYLE) {
     await page.route(STYLE_URL, (route) => route.fulfill({
       status: 200,
@@ -29,7 +34,14 @@ test("the virtual walkthrough loads its worker and follows the route", async ({ 
   });
 
   await openGeneratedRoute(page);
+  const supportsWebGL2 = await page.evaluate(() => Boolean(document.createElement("canvas").getContext("webgl2")));
   await page.getByText("Virtually walk through your route").click();
+  if (!supportsWebGL2) {
+    await expect(page.locator(".walkthrough-map-error")).toContainText("does not support WebGL 2");
+    await expect.poll(() => diagnostics.length).toBeGreaterThan(0);
+    expect(diagnostics[0].code).toBe("webgl_unsupported");
+    return;
+  }
   await expect.poll(() => mapReady).toBe(true);
   await expect.poll(() => page.workers().length).toBeGreaterThan(0);
   await expect(page.locator(".walkthrough-map-error")).toHaveCount(0);
@@ -52,6 +64,8 @@ test("a blocked map style shows the precise failure and logs it", async ({ page 
   });
 
   await openGeneratedRoute(page);
+  const supportsWebGL2 = await page.evaluate(() => Boolean(document.createElement("canvas").getContext("webgl2")));
+  test.skip(!supportsWebGL2, "This CI browser has no WebGL 2 context to load a map style.");
   await page.getByText("Virtually walk through your route").click();
   await expect(page.getByRole("alert")).toContainText("HTTP 429");
   await expect.poll(() => diagnostics.length).toBeGreaterThan(0);
