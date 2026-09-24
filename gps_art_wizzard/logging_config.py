@@ -101,6 +101,11 @@ class _JsonFormatter(logging.Formatter):
         "workflow_llm_fallbacks",
         "workflow_error_category",
         "workflow_error_type",
+        "map_error_code",
+        "map_phase",
+        "map_resource",
+        "map_http_status",
+        "map_detail",
     )
 
     def format(self, record: logging.LogRecord) -> str:

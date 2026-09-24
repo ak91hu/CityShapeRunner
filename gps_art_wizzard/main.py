@@ -9,11 +9,12 @@ import time
 import uuid
 from collections.abc import MutableMapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from .api.gallery import router as gallery_router
 from .api.niche import router as niche_router
@@ -55,6 +56,18 @@ _SECURITY_HEADERS = {
 
 _HASHED_ASSET = re.compile(r"^assets/.+-[A-Za-z0-9_-]{8,}\.[^/]+$")
 _HASHED_PUBLIC_ASSET = re.compile(r"^[^/]+-[0-9a-f]{12}\.[^/]+$")
+
+
+class WalkthroughDiagnostic(BaseModel):
+    code: Literal[
+        "worker_failed", "rate_limited", "resource_missing", "service_unavailable",
+        "request_blocked", "map_data_failed", "render_failed", "map_error",
+        "webgl_unsupported", "timeout",
+    ]
+    phase: Literal["initializing", "loading", "rendering"]
+    resource: Literal["worker", "style", "sprite", "glyph", "tile", "unknown"]
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    detail: str = Field(max_length=240)
 
 
 class CachedSPAStaticFiles(StaticFiles):
@@ -150,6 +163,20 @@ def create_app() -> FastAPI:
             raise
         finally:
             reset_request_id(token)
+
+    @app.post("/walkthrough-diagnostics", status_code=204)
+    async def walkthrough_diagnostics(diagnostic: WalkthroughDiagnostic) -> None:
+        log.warning(
+            "Virtual walkthrough client error",
+            extra={
+                "event": "walkthrough.client.error",
+                "map_error_code": diagnostic.code,
+                "map_phase": diagnostic.phase,
+                "map_resource": diagnostic.resource,
+                "map_http_status": diagnostic.http_status,
+                "map_detail": diagnostic.detail,
+            },
+        )
 
     app.include_router(router)
     app.include_router(gallery_router)
