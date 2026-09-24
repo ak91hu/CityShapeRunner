@@ -200,3 +200,30 @@ def test_edit_route_endpoint_blocks_unsafe_gpx_without_ors():
             "routing service is available."
         )
     }
+
+
+def test_walkthrough_diagnostic_is_structured_and_bounded(caplog):
+    payload = {
+        "code": "worker_failed",
+        "phase": "loading",
+        "resource": "worker",
+        "http_status": None,
+        "detail": "Worker failed to load",
+    }
+    with caplog.at_level(logging.WARNING, logger="gps_art_wizzard.main"):
+        with TestClient(create_app()) as client:
+            response = client.post("/walkthrough-diagnostics", json=payload)
+            invalid = client.post(
+                "/walkthrough-diagnostics",
+                json={**payload, "detail": "x" * 241},
+            )
+
+    assert response.status_code == 204
+    assert invalid.status_code == 422
+    record = next(
+        record for record in caplog.records
+        if getattr(record, "event", None) == "walkthrough.client.error"
+    )
+    assert record.map_error_code == "worker_failed"
+    assert record.map_resource == "worker"
+    assert record.map_detail == "Worker failed to load"
