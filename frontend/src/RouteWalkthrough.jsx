@@ -5,22 +5,16 @@ import { buildWalkthrough, locateOnWalkthrough } from "./routeWalkthrough.js";
 
 const PREVIEW_METRES_PER_SECOND = 35;
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
-const EYE_HEIGHT_METRES = 1.6;
-const LOOK_AHEAD_METRES = 20;
+const FOLLOW_ZOOM = 18;
+const FOLLOW_PITCH = 65;
 const toLngLat = (points) => points.map(([lat, lng]) => [lng, lat]);
 const lineFeature = (points) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: points } });
 const pointFeature = (point) => ({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: point } });
 
-function eyeLevelCamera(map, location) {
+function followCamera(location) {
   const [latitude, longitude] = location.position;
-  const heading = location.heading * Math.PI / 180;
-  const aheadLatitude = latitude + LOOK_AHEAD_METRES * Math.cos(heading) / 111320;
-  const aheadLongitude = longitude + LOOK_AHEAD_METRES * Math.sin(heading) /
-    (111320 * Math.max(0.1, Math.cos(latitude * Math.PI / 180)));
-  return map.calculateCameraOptionsFromTo(
-    [longitude, latitude], EYE_HEIGHT_METRES,
-    [aheadLongitude, aheadLatitude], EYE_HEIGHT_METRES,
-  );
+  return { center: [longitude, latitude], bearing: location.heading,
+    zoom: FOLLOW_ZOOM, pitch: FOLLOW_PITCH };
 }
 
 function RouteWalkthroughMap({ walkthrough, location }) {
@@ -40,9 +34,7 @@ function RouteWalkthroughMap({ walkthrough, location }) {
     try {
       map = new maplibregl.Map({
         container: containerRef.current, style: STYLE_URL,
-        center: routeCoordinates[0], zoom: 18, pitch: 90,
-        bearing: location.heading, maxPitch: 95,
-        centerClampedToGround: false, interactive: false,
+        ...followCamera(location), interactive: false,
         canvasContextAttributes: { antialias: true },
       });
     } catch {
@@ -78,7 +70,7 @@ function RouteWalkthroughMap({ walkthrough, location }) {
       });
       const current = locationRef.current;
       const [currentLatitude, currentLongitude] = current.position;
-      map.jumpTo(eyeLevelCamera(map, current));
+      map.jumpTo(followCamera(current));
       map.getSource("walkthrough-position").setData(pointFeature([currentLongitude, currentLatitude]));
       map.getSource("walkthrough-travelled").setData(lineFeature(toLngLat(current.travelled)));
       setMapError("");
@@ -95,7 +87,7 @@ function RouteWalkthroughMap({ walkthrough, location }) {
     const map = mapRef.current;
     if (!map || !location) return;
     const [latitude, longitude] = location.position;
-    map.easeTo({ ...eyeLevelCamera(map, location), duration: 65,
+    map.easeTo({ ...followCamera(location), duration: 65,
       easing: (progress) => progress, essential: true });
     map.getSource("walkthrough-position")?.setData(pointFeature([longitude, latitude]));
     map.getSource("walkthrough-travelled")?.setData(lineFeature(toLngLat(location.travelled)));
