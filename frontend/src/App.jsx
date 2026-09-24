@@ -28,6 +28,7 @@ import {
 } from "./routeSetup.js";
 
 const RouteMap = lazy(() => import("./RouteMap.jsx"));
+const RouteWalkthrough = lazy(() => import("./RouteWalkthrough.jsx"));
 const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
 const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
 const FEATURED_GALLERY_STORAGE_KEY = "gps-art-featured-gallery-id-v1";
@@ -3794,6 +3795,11 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               <strong>We couldn’t draw this route</strong>
               <span>Change the idea or choose another route.</span>
             </div>
+          )}
+          {roadRouted && (activeRoute.points_preview ?? []).length > 1 && (
+            <Suspense fallback={null}>
+              <RouteWalkthrough key={activeRouteId} points={activeRoute.points_preview} shapeName={shapeName} />
+            </Suspense>
           )}
           <div className="route-editor" aria-label="Route editor">
             <div>
