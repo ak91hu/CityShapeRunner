@@ -797,4 +797,5 @@ def test_responses_include_browser_security_headers() -> None:
     assert "frame-ancestors 'none'" in content_security_policy
     assert "object-src 'none'" in content_security_policy
     assert "https://tile.openstreetmap.org" in content_security_policy
+    assert "connect-src 'self' https://tiles.openfreemap.org" in content_security_policy
     assert "https://res.cloudinary.com" in content_security_policy

@@ -37,15 +37,6 @@ body {
 .brand { gap: 1rem; font-weight: 650; letter-spacing: -0.04em; }
 .brand strong { color: var(--brand); }
 .brand-mark { width: 5.25rem; height: 5.25rem; }
-.brand-copy small::after {
-  display: block;
-  width: 3rem;
-  height: 0.24rem;
-  margin-top: 0.4rem;
-  border-radius: 1rem;
-  background: var(--accent);
-  content: "";
-}
 .brand-mark-svg { filter: none; }
 .skip-link:not(:focus) { clip-path: inset(50%); width: 1px; height: 1px; padding: 0; overflow: hidden; white-space: nowrap; }
 .brand-mark-svg rect { fill: var(--brand); stroke: var(--brand); }
@@ -75,10 +66,13 @@ body {
   box-shadow: inset 0 -2px var(--brand);
 }
 
+main { padding-bottom: 1.25rem; }
+footer { min-height: 3.25rem; padding-block: 0.7rem; }
+
 .generator-stage {
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.2fr);
   gap: clamp(2rem, 4vw, 3rem);
-  padding-block: 2.75rem;
+  padding-block: 2.75rem 1.25rem;
   align-items: start;
 }
 
@@ -238,7 +232,7 @@ textarea:focus, input:focus, select:focus {
 .section-heading h2 { letter-spacing: -0.035em; }
 
 @media (max-width: 68rem) {
-  .generator-stage { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-block: 1.75rem; }
+  .generator-stage { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-block: 1.75rem 1rem; }
   .planner-intro { max-width: none; }
   .planner-intro h1 { max-width: 22ch; font-size: clamp(2.4rem, 6vw, 3.6rem); }
   .planner-intro-copy { max-width: 65ch; }
@@ -246,6 +240,34 @@ textarea:focus, input:focus, select:focus {
   .studio-art { max-width: 34rem; }
   .planner-proof { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; margin-top: 1rem; }
   .planner-safety-note { max-width: none; }
+}
+
+.walkthrough {
+  padding: 1.1rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.walkthrough-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; list-style: none; }
+.walkthrough-heading::-webkit-details-marker { display: none; }
+.walkthrough-heading > div { display: grid; gap: 0.35rem; }
+.walkthrough-heading strong { font-family: Georgia, serif; color: var(--ink); font-size: 1.3rem; font-weight: 400; }
+.walkthrough-heading small, .walkthrough-note { margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
+.walkthrough-chevron { font-size: 1.7rem; line-height: 1; transition: transform 150ms ease; }
+.walkthrough[open] .walkthrough-chevron { transform: rotate(180deg); }
+.walkthrough-body { margin-top: 1rem; }
+.walkthrough-scene { position: relative; }
+.walkthrough-map { width: 100%; height: clamp(21rem, 48vw, 34rem); box-sizing: border-box; border: 1px solid var(--line); border-radius: 0.7rem; overflow: hidden; }
+.walkthrough-map-error { position: absolute; inset: auto 1rem 1rem; margin: 0; padding: 0.8rem; background: var(--surface); color: var(--accent-dark); font-size: 0.8rem; }
+.walkthrough-controls { display: grid; gap: 0.65rem; padding-top: 0.9rem; }
+.walkthrough-progress { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; font-size: 0.82rem; }
+.walkthrough-progress strong { font-size: 1.1rem; color: var(--brand-dark); }
+.walkthrough-progress span { color: var(--muted); }
+.walkthrough-controls input[type="range"] { width: 100%; accent-color: var(--brand); }
+.walkthrough-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+.walkthrough-actions .button { display: inline-flex; align-items: center; justify-content: center; }
+@media (max-width: 38rem) {
+  .walkthrough-map { height: 22rem; }
+  .walkthrough-actions .button { flex: 1 1 auto; }
 }
 
 @media (max-width: 38rem) {

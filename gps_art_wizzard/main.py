@@ -31,11 +31,11 @@ _CONTENT_SECURITY_POLICY = "; ".join(
     (
         "default-src 'self'",
         "base-uri 'self'",
-        "connect-src 'self'",
+        "connect-src 'self' https://tiles.openfreemap.org",
         "font-src 'self' data:",
         "form-action 'self'",
         "frame-ancestors 'none'",
-        "img-src 'self' data: blob: https://tile.openstreetmap.org https://res.cloudinary.com",
+        "img-src 'self' data: blob: https://tile.openstreetmap.org https://tiles.openfreemap.org https://res.cloudinary.com",
         "media-src 'self' data: blob:",
         "object-src 'none'",
         "script-src 'self'",
