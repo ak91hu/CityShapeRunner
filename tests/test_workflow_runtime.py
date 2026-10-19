@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 
@@ -11,11 +12,34 @@ from gps_art_wizzard.llm.base import LLMResponse
 from gps_art_wizzard.state import SnappedRoute, Validation, WorkflowState
 from gps_art_wizzard.workflow_runtime import (
     StepStatus,
+    WorkflowCancelledError,
     WorkflowRuntime,
     WorkflowStatus,
     active_workflow_runtime,
+    cancellation_scope,
+    record_routing_request,
     trace_asdict,
 )
+
+
+def test_cancellation_stops_steps_and_provider_attempts_without_leaking_scope():
+    signal = Event()
+    state = WorkflowState(prompt="heart")
+    runtime = WorkflowRuntime(state, max_duration_seconds=175, max_llm_calls=1)
+    executed = []
+    with cancellation_scope(signal), runtime.activate():
+        signal.set()
+        for operation in (
+            lambda: runtime.run_step("snap", lambda: executed.append("snap")),
+            lambda: record_routing_request("directions"),
+            runtime.llm_budget_status,
+            runtime.deadline_exceeded,
+        ):
+            with pytest.raises(WorkflowCancelledError):
+                operation()
+    assert executed == []
+    assert runtime.trace.routing_requests == {}
+    assert runtime.run_step("intent", lambda: "next run") == "next run"
 
 
 class MutableClock:
@@ -126,10 +150,11 @@ def test_nested_routing_events_keep_their_visible_polish_phase() -> None:
 
     runtime.run_step("polish.graph", lambda: runtime.run_step("snap", route_candidate))
     assert [event["stage"] for event in events] == [
-        "polish.graph", "snap", "snap", "polish.graph",
+        "polish.graph", "snap", "snap", "snap", "polish.graph",
     ]
     assert all(event["phase"] == "polish.graph" for event in events)
     assert events[2]["phase_routing_requests"] == {"directions": 1}
+    assert events[2]["status"] == "running"  # visible before the provider replies
     runtime.run_step("route_review", lambda: None)
     assert events[-1]["phase"] is None
 

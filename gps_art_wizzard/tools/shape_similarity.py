@@ -157,6 +157,44 @@ def hausdorff(p: np.ndarray, q: np.ndarray) -> float:
     return max(max_from_p, float(min_from_q.max()))
 
 
+@lru_cache(maxsize=8)
+def _frechet_wavefronts(n: int, m: int) -> tuple[tuple[np.ndarray, ...], ...]:
+    """Immutable DP addresses depend only on dimensions, never geometry."""
+    width = m + 1
+    pool = np.arange(max(n, m) + 1)
+    fronts = []
+    for anti in range(2, n + m + 1):
+        ii = pool[max(1, anti - m): min(n, anti - 1) + 1]
+        flat = ii * width + anti - ii
+        indices = (flat, flat - width, flat - width - 1, flat - 1, flat - ii - width)
+        for array in indices:
+            array.flags.writeable = False
+        fronts.append(indices)
+    return tuple(fronts)
+
+
+def _discrete_frechet_batch(reference: np.ndarray, candidates: tuple[np.ndarray, ...]) -> np.ndarray:
+    """Evaluate the identical DP for all direction/phase variants together.
+
+    Each wavefront remains independent between variants. Batching removes
+    repeated Python wavefront loops without reducing resolution, dropping
+    orientations, or approximating any distance used by the quality gates.
+    """
+    count, n, m = len(candidates), len(reference), len(candidates[0])
+    if n == 0 or m == 0:
+        return np.full(count, np.inf)
+    delta = np.stack(candidates)[:, np.newaxis, :, :] - reference[np.newaxis, :, np.newaxis, :]
+    distances = np.sqrt(np.einsum("bijk,bijk->bij", delta, delta)).reshape(count, n * m)
+    width = m + 1
+    cost = np.full((count, (n + 1) * width), np.inf)
+    cost[:, 0] = 0.0
+    for flat, up, diagonal, left, step in _frechet_wavefronts(n, m):
+        best = np.minimum(cost[:, up], cost[:, diagonal])
+        best = np.minimum(best, cost[:, left])
+        cost[:, flat] = np.maximum(distances[:, step], best)
+    return cost[:, n * width + m]
+
+
 def _similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
     frechet = discrete_frechet(reference, candidate)
     haus = hausdorff(reference, candidate)
@@ -466,8 +504,9 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
     weights = (0.22, 0.18, 0.15, 0.19, 0.11, 0.08, 0.07)
     best: SimilarityDiagnostics | None = None
     best_fidelity = -1.0
-    for oriented in _candidate_orientations(reference, candidate):
-        frechet = discrete_frechet(reference, oriented)
+    orientations = _candidate_orientations(reference, candidate)
+    frechets = _discrete_frechet_batch(reference, orientations)
+    for oriented, frechet in zip(orientations, frechets, strict=True):
         spatial = float(0.6 * math.exp(-frechet / 0.35) + 0.4 * math.exp(-haus / 0.30))
         turning = _turning_similarity(reference, oriented)
         landmarks = _landmark_similarity(reference, oriented)

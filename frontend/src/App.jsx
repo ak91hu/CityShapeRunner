@@ -22,6 +22,7 @@ import {
   rescueArtwork,
 } from "./api.js";
 import RouteSetupPanel from "./RouteSetupPanel.jsx";
+import WaitingSketchGame from "./WaitingSketchGame.jsx";
 import {
   EMPTY_ROUTE_PREFERENCES,
   buildRouteSetupPayload,
@@ -1212,7 +1213,8 @@ function OccasionStrip({ disabled, onPick, city }) {
     : [];
   if (!items.length && !cityPicks.length) return null;
   return (
-    <details className="inspiration-panel" role="region" aria-label="Route inspiration">
+    <section aria-label="Route inspiration">
+    <details className="inspiration-panel">
       <summary>
         <span>
           <strong>Route inspiration</strong>
@@ -1295,6 +1297,7 @@ function OccasionStrip({ disabled, onPick, city }) {
         )}
       </div>
     </details>
+    </section>
   );
 }
 
@@ -1810,8 +1813,33 @@ const DIALOG_FOCUSABLE = [
   "input:not(:disabled)",
   "select:not(:disabled)",
   "textarea:not(:disabled)",
+  "summary",
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
+
+function visibleDialogControls(dialog) {
+  return [...(dialog?.querySelectorAll(DIALOG_FOCUSABLE) ?? [])].filter(
+    (element) => element.tabIndex >= 0 && element.getClientRects().length > 0
+      && getComputedStyle(element).visibility !== "hidden" && !element.closest("[inert]"),
+  );
+}
+
+function inertDialogBackground(dialog) {
+  const outside = [];
+  let branch = dialog;
+  while (branch && branch !== document.body) {
+    const parent = branch.parentElement;
+    if (!parent) break;
+    for (const sibling of parent.children) {
+      if (sibling !== branch && !sibling.inert) {
+        sibling.inert = true;
+        outside.push(sibling);
+      }
+    }
+    branch = parent;
+  }
+  return () => { for (const element of outside) element.inert = false; };
+}
 
 function useModalDialog(open, onClose, bodyClassName = null) {
   const dialogRef = useRef(null);
@@ -1828,16 +1856,17 @@ function useModalDialog(open, onClose, bodyClassName = null) {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     if (bodyClassName) document.body.classList.add(bodyClassName);
+    const restoreBackground = inertDialogBackground(dialogRef.current);
 
     const focusInitialControl = () => {
       const dialog = dialogRef.current;
       const target =
         dialog?.querySelector("[data-dialog-initial-focus]") ||
-        dialog?.querySelector(DIALOG_FOCUSABLE) ||
+        visibleDialogControls(dialog)[0] ||
         dialog;
       target?.focus({ preventScroll: true });
     };
-    window.requestAnimationFrame(focusInitialControl);
+    const focusFrame = window.requestAnimationFrame(focusInitialControl);
 
     const handleKeyDown = (event) => {
       const dialog = dialogRef.current;
@@ -1849,9 +1878,7 @@ function useModalDialog(open, onClose, bodyClassName = null) {
       }
       if (event.key !== "Tab") return;
 
-      const focusable = [...dialog.querySelectorAll(DIALOG_FOCUSABLE)].filter(
-        (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true",
-      );
+      const focusable = visibleDialogControls(dialog);
       if (focusable.length === 0) {
         event.preventDefault();
         dialog.focus();
@@ -1873,8 +1900,10 @@ function useModalDialog(open, onClose, bodyClassName = null) {
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
+      restoreBackground();
       if (bodyClassName) document.body.classList.remove(bodyClassName);
       if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
     };
@@ -2708,16 +2737,33 @@ const LOADING_FACTS = [
 
 function LoadingState({ onCancel, kind = "route", focusRef, progress, preview }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 48rem)").matches);
+  const dialogRef = useModalDialog(compact, onCancel);
+  const setLoadingRef = useCallback((node) => {
+    dialogRef.current = node;
+    if (focusRef) focusRef.current = node;
+  }, [dialogRef, focusRef]);
   const stages = kind === "image" ? IMAGE_LOADING_STAGES : ROUTE_LOADING_STAGES;
   const currentStage = progress?.stageIndex ?? -1;
   const factIndex = Math.floor(elapsedSeconds / 9) % LOADING_FACTS.length;
   const polishSeconds = progress?.polishPhaseStartedAt
     ? Math.max(0, Math.floor((Date.now() - progress.polishPhaseStartedAt) / 1000))
     : 0;
+  const updateAge = progress?.receivedAt
+    ? Math.max(0, Math.floor((Date.now() - progress.receivedAt) / 1000))
+    : elapsedSeconds;
 
   useEffect(() => {
+    const media = window.matchMedia("(max-width: 48rem)");
+    const update = () => setCompact(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    const startedAt = Date.now();
     const timer = window.setInterval(
-      () => setElapsedSeconds((current) => current + 1),
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000)),
       1_000,
     );
     return () => window.clearInterval(timer);
@@ -2725,11 +2771,12 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
 
   return (
     <section
-      ref={focusRef}
+      ref={setLoadingRef}
       className="loading-card loading-card--journey"
+      role={compact ? "dialog" : undefined}
+      aria-modal={compact ? true : undefined}
       aria-labelledby="loading-title"
       aria-describedby="loading-message loading-expectation"
-      aria-busy="true"
       tabIndex="-1"
     >
       {preview ? (
@@ -2786,9 +2833,9 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
       <div className="loading-content">
         <div className="loading-heading-row">
           <div>
-            <h2 id="loading-title">
+            <h1 id="loading-title" tabIndex={-1} data-dialog-initial-focus>
               {kind === "image" ? "Drawing from your image" : "Finding routes"}
-            </h2>
+            </h1>
           </div>
           <span aria-label={`${elapsedSeconds} seconds elapsed`}>{elapsedSeconds}s</span>
         </div>
@@ -2796,6 +2843,7 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
           className="loading-progress-track"
           role="progressbar"
           aria-label="Route generation is in progress"
+          aria-valuetext={progress ? loadingStageMessage(progress) : "Waiting for the route planner"}
         >
           <span />
         </div>
@@ -2804,9 +2852,14 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
         </p>
         <p id="loading-expectation" className="loading-expectation">
           {kind === "image"
-            ? "Image tracing normally finishes within about a minute."
-            : "Complex drawings may need a little longer while streets are tested."}
+            ? "We’ll show a street-connected preview as soon as the image outline has been routed."
+            : "We compare street fits and show the first connected route while the remaining checks run."}
         </p>
+        {updateAge >= 12 && (
+          <p className="loading-quiet-note" role="status">
+            The planner hasn’t sent a new update yet. Your request is still active; you can cancel below.
+          </p>
+        )}
 
         <div className="loading-stages-heading">
           <strong>Planning flow</strong>
@@ -2849,9 +2902,13 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
         {progress && (
           <p className="loading-measured-work" role="status">
             {progress.preflight_count > 0 && <span>{progress.preflight_count} placements screened</span>}
+            {progress.search_areas > 0 && <span>{progress.search_areas} search areas explored</span>}
+            {progress.connected_candidates > 0 && <span>{progress.connected_candidates} street-connected candidates found</span>}
             <span>{progress.routing_requests?.directions ?? 0} full street route requests so far</span>
           </p>
         )}
+
+        <WaitingSketchGame />
 
         <p className="loading-fact">
           <span>While you wait</span>
@@ -2880,10 +2937,12 @@ function GalleryLightbox({ assets, activeIndex, onClose, onMove }) {
     previousFocusRef.current = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const restoreBackground = inertDialogBackground(dialogRef.current);
     closeButtonRef.current?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      restoreBackground();
       if (previousFocusRef.current?.isConnected) previousFocusRef.current.focus();
     };
   }, []);
@@ -3105,7 +3164,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
     <section className="gallery" id="gallery" aria-labelledby="gallery-title">
       <div className="section-heading gallery-heading">
         <div>
-          <h2 id="gallery-title">Public gallery</h2>
+          <h1 id="gallery-title">Public gallery</h1>
           <p>Map images shared by users. Prompts, profiles, and route files are not published.</p>
         </div>
         <div className="gallery-heading-actions">
@@ -3223,7 +3282,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
   );
 }
 
-function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null }) {
+function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null, active = true }) {
   const candidates = result.candidates ?? [];
   const [selectedCandidateId, setSelectedCandidateId] = useState(
     candidates[0]?.id ?? "best",
@@ -3255,6 +3314,15 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   const [lessonPoints, setLessonPoints] = useState([]);
   const [lessonDedication, setLessonDedication] = useState("");
   const mapCaptureRef = useRef(null);
+
+  useEffect(() => {
+    if (!active) {
+      // Hidden dialogs must release their focus trap and document scroll lock.
+      setPosterOpen(false);
+      setReelOpen(false);
+      setLessonOpen(false);
+    }
+  }, [active]);
 
   const startReelCapture = useCallback(
     () => mapCaptureRef.current?.startReelCapture(),
@@ -3579,10 +3647,9 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     const candidateReadiness = candidate.details?.readiness ?? {};
     const selected = selectedCandidate?.id === candidate.id;
     return (
+      <div className="candidate-option" role="listitem" key={candidate.id}>
       <button
         type="button"
-        role="listitem"
-        key={candidate.id}
         data-candidate-id={candidate.id}
         className={`candidate-card${selected ? " candidate-card--selected" : ""}`}
         aria-pressed={selected}
@@ -3610,6 +3677,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
           </span>
         </span>
       </button>
+      </div>
     );
   };
 
@@ -3617,14 +3685,15 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     <section
       ref={focusRef}
       className="result"
+      id="route-result"
       aria-labelledby="result-title"
       tabIndex="-1"
     >
       <div className="section-heading">
         <div>
-          <h2 id="result-title">
+          <h1 id="result-title">
             {shapeName} in {city}
-          </h2>
+          </h1>
         </div>
         <div className="result-heading-actions">
           <span
@@ -3644,7 +3713,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         <div className="request-summary-heading">
           <div>
             <span className="eyebrow">Your request</span>
-            <h3 id="request-summary-title">We understood {understoodDrawing}</h3>
+            <h2 id="request-summary-title">We understood {understoodDrawing}</h2>
             <p className="request-summary-essentials">
               {city} · {activity}
               {targetDistance != null ? ` · ${formatMetric(targetDistance)} km` : ""}
@@ -4546,6 +4615,7 @@ export default function App() {
   const [promptError, setPromptError] = useState("");
   const [promptValidationAttempt, setPromptValidationAttempt] = useState(0);
   const [ideaQuery, setIdeaQuery] = useState("");
+  const [ideaCategory, setIdeaCategory] = useState("");
   const [ideaCatalogOpen, setIdeaCatalogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingKind, setLoadingKind] = useState("route");
@@ -4599,9 +4669,20 @@ export default function App() {
   const resultRef = useRef(null);
   const errorRef = useRef(null);
   const promptRef = useRef(null);
+  const focusedPromptNodesRef = useRef(new WeakSet());
+  const reviewHeadingRef = useRef(null);
+  const alternateStartsRef = useRef(null);
+  const mapStartRef = useRef(null);
+  const fieldsStartRef = useRef(null);
+  const imageStartRef = useRef(null);
   const setPromptRef = useCallback((node) => {
     promptRef.current = node;
-    node?.focus({ preventScroll: true });
+    // React's development checks can attach the same ref twice. Never take
+    // focus back from a user who has already moved on to the next control.
+    if (node && !focusedPromptNodesRef.current.has(node)) {
+      focusedPromptNodesRef.current.add(node);
+      node.focus({ preventScroll: true });
+    }
   }, []);
   const promptSubmitPointerRef = useRef(false);
   const suggestCityRef = useRef(null);
@@ -4618,10 +4699,11 @@ export default function App() {
   useEffect(() => {
     const syncViewFromHash = () => {
       setAppView(window.location.hash === "#gallery" ? "gallery" : "planner");
+      if (window.location.hash === "#route-result" && result) showCurrentRoute();
     };
     window.addEventListener("hashchange", syncViewFromHash);
     return () => window.removeEventListener("hashchange", syncViewFromHash);
-  }, []);
+  }, [result]);
 
   useEffect(() => {
     if (appView !== "planner" || featuredGalleryLoadedRef.current) return undefined;
@@ -4654,30 +4736,34 @@ export default function App() {
   }, [campaign, suggestCity, suggestSport, suggestDistance]);
 
   useEffect(() => {
-    if (!result) return;
-    window.requestAnimationFrame(() => {
+    if (!result || appView !== "planner" || plannerStep !== "result" || loading) return;
+    const focusFrame = window.requestAnimationFrame(() => {
       resultRef.current?.focus({ preventScroll: true });
-      resultRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+      // `auto` inherits the page's smooth scrolling. Finish the stage change
+      // before the user starts interacting with controls further down the page.
+      resultRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
-  }, [result]);
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [result, appView, plannerStep, loading]);
+
+  useEffect(() => {
+    if (appView === "planner" && plannerStep === "review" && !loading) {
+      reviewHeadingRef.current?.focus();
+    }
+  }, [appView, plannerStep, loading]);
 
   useEffect(() => {
     if (!loading) return undefined;
 
     const mobileViewport = window.matchMedia("(max-width: 48rem)").matches;
-    const previousOverflow = document.body.style.overflow;
-    if (mobileViewport) document.body.style.overflow = "hidden";
+    if (mobileViewport) return undefined;
 
-    window.requestAnimationFrame(() => {
+    const focusFrame = window.requestAnimationFrame(() => {
       loadingRef.current?.focus({ preventScroll: true });
-      if (!mobileViewport) {
-        loadingRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
-      }
+      loadingRef.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
 
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => window.cancelAnimationFrame(focusFrame);
   }, [loading]);
 
   useEffect(() => {
@@ -4722,11 +4808,35 @@ export default function App() {
   );
   const filteredIdeas = useMemo(() => {
     const query = ideaQuery.trim().toLocaleLowerCase("en");
-    if (!query) return QUICK_IDEAS;
     return QUICK_IDEAS.filter((idea) =>
+      (!ideaCategory || idea.category === ideaCategory) &&
       `${idea.label} ${idea.category}`.toLocaleLowerCase("en").includes(query),
     );
-  }, [ideaQuery]);
+  }, [ideaQuery, ideaCategory]);
+
+  function showCurrentRoute() {
+    interpretationRef.current?.abort();
+    interpretationRef.current = null;
+    setInterpretationBusy(false);
+    setAppView("planner");
+    setPlannerStep("result");
+  }
+
+  function chooseExample(idea) {
+    setPrompt(idea.prompt);
+    setPromptError("");
+    window.requestAnimationFrame(() => promptRef.current?.focus());
+  }
+
+  function openStartPanel(panelRef) {
+    if (!alternateStartsRef.current || !panelRef.current) return;
+    alternateStartsRef.current.open = true;
+    panelRef.current.open = true;
+    window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector("summary")?.focus();
+      panelRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+  }
 
   async function loadMapPlacementTemplates() {
     if (mapTemplatesRequestedRef.current) return;
@@ -4861,6 +4971,14 @@ export default function App() {
                 : completed;
               return {
                 ...update,
+                receivedAt: Date.now(),
+                preflight_count: Math.max(previous?.preflight_count ?? 0, update.preflight_count ?? 0),
+                search_areas: Math.max(previous?.search_areas ?? 0, update.search_areas ?? 0),
+                connected_candidates: Math.max(previous?.connected_candidates ?? 0, update.connected_candidates ?? 0),
+                routing_requests: Object.fromEntries(
+                  [...new Set([...Object.keys(previous?.routing_requests ?? {}), ...Object.keys(update.routing_requests ?? {})])]
+                    .map((key) => [key, Math.max(previous?.routing_requests?.[key] ?? 0, update.routing_requests?.[key] ?? 0)]),
+                ),
                 stageIndex: Math.max(previous?.stageIndex ?? -1, loadingStageIndex(update.stage)),
                 polishStarted: Boolean(previous?.polishStarted || polishPhase),
                 polishPhase,
@@ -5100,16 +5218,57 @@ export default function App() {
     setDownloadNotice(`${extension.toUpperCase()} download started.`);
   }
 
+  const plannerActions = (
+    <div className="prompt-actions">
+      <button
+        type="submit"
+        className="button button--primary generate-button"
+        onPointerDown={() => {
+          promptSubmitPointerRef.current = true;
+        }}
+        onPointerUp={() => {
+          promptSubmitPointerRef.current = false;
+        }}
+        onPointerCancel={() => {
+          promptSubmitPointerRef.current = false;
+        }}
+        disabled={loading || interpretationBusy}
+      >
+        <span>
+          {interpretationBusy
+            ? "Checking request…"
+            : plannerStep === "review"
+              ? "Find routes"
+              : "Review request"}
+        </span>
+        <span className="button-arrow" aria-hidden="true">→</span>
+      </button>
+      {plannerStep === "review" && (
+        <button
+          type="button"
+          className="button button--secondary request-check-button"
+          onClick={() => {
+            setPlannerStep("idea");
+            window.requestAnimationFrame(() => promptRef.current?.focus());
+          }}
+          disabled={loading}
+        >
+          Back
+        </button>
+      )}
+    </div>
+  );
+
   const { minimum: minimumDistance, maximum: maximumDistance, activity: activityLabel } =
     distanceLimits(suggestSport);
   return (
     <div className="app-shell">
-      <a className="skip-link" href={appView === "gallery" ? "#gallery" : "#route-designer"}>
-        {appView === "gallery" ? "Skip to gallery" : "Skip to route planner"}
+      <a className="skip-link" href={appView === "gallery" ? "#gallery" : plannerStep === "result" ? "#route-result" : "#route-designer"}>
+        {appView === "gallery" ? "Skip to gallery" : plannerStep === "result" ? "Skip to your route" : "Skip to route planner"}
       </a>
 
       <header className="site-header">
-        <a className="brand" href="/" aria-label="Paceasso home">
+        <a className="brand" href="/" aria-label="Paceasso GPS Art Wizzard home">
           <span className="brand-mark" aria-hidden="true">
             <svg className="brand-mark-svg" viewBox="0 0 48 48">
               <rect x="2" y="2" width="44" height="44" rx="13" />
@@ -5119,7 +5278,7 @@ export default function App() {
             </svg>
           </span>
           <span className="brand-copy">
-            <strong>Paceasso</strong>
+            <strong>Paceasso</strong>{" "}
             <small>GPS Art Wizzard</small>
           </span>
         </a>
@@ -5141,6 +5300,15 @@ export default function App() {
           >
             Gallery
           </a>
+          {result && !loading && (
+            <a
+              href="#route-result"
+              aria-current={appView === "planner" && plannerStep === "result" ? "page" : undefined}
+              onClick={showCurrentRoute}
+            >
+              Your route
+            </a>
+          )}
         </nav>
       </header>
 
@@ -5190,47 +5358,13 @@ export default function App() {
             <p className="planner-safety-note">
               You can compare the street route with the original drawing before downloading anything.
             </p>
-            <figure className="studio-art" aria-labelledby="studio-example-title">
-              <div className="studio-art-heading">
-                <span className="studio-eyebrow">From the public gallery</span>
-                <h2 id="studio-example-title">See what the streets inspire.</h2>
-              </div>
-              {featuredGallery.asset ? (
-                <a className="studio-map-link" href={featuredGallery.asset.image_url} target="_blank" rel="noreferrer" aria-label="Open this public gallery image in a new tab">
-                  <img
-                    src={featuredGallery.asset.thumbnail_url || featuredGallery.asset.image_url}
-                    width={featuredGallery.asset.width || 900}
-                    height={featuredGallery.asset.height || 600}
-                    fetchPriority="high"
-                    alt="Anonymous GPS art route shared in the public gallery"
-                  />
-                  <span className="studio-map-expand">Explore the details ↗</span>
-                </a>
-              ) : (
-                <div className="studio-map-placeholder" role="status">
-                  {featuredGallery.status === "loading"
-                    ? "Choosing a route from the public gallery…"
-                    : featuredGallery.status === "empty"
-                      ? "No community maps have been shared yet. Yours could be the first."
-                      : "The public gallery is temporarily unavailable."}
-                </div>
-              )}
-              <figcaption>
-                <p>Real community map images, chosen afresh when you open the page.
-                  Always review crossings and access before heading out.</p>
-                <div className="studio-art-caption">
-                  <a href="#gallery">Browse the public gallery</a>
-                  <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
-                </div>
-              </figcaption>
-            </figure>
           </div>
 
           <div className="designer-card">
             <div className="card-heading">
               <div>
                 <span className="step-label">Step {plannerStep === "review" ? "2" : "1"} of 3</span>
-                <h2>{plannerStep === "review" ? "Check your request" : "Describe your route"}</h2>
+                <h2 ref={reviewHeadingRef} tabIndex={-1}>{plannerStep === "review" ? "Check your request" : "Describe your route"}</h2>
                 <p>
                   {plannerStep === "review"
                     ? "Confirm the essentials, then add any optional route preferences."
@@ -5238,6 +5372,23 @@ export default function App() {
                 </p>
               </div>
             </div>
+
+            {plannerStep === "idea" && (
+              <div className="planner-start-links" role="group" aria-label="Choose how to start">
+                <p>Prefer a guided start?</p>
+                <div>
+                  {[
+                    ["Suggest a shape", "planner-start-fields", fieldsStartRef],
+                    ["Place on map", "planner-start-map", mapStartRef],
+                    ["Use image link", "planner-start-image", imageStartRef],
+                  ].map(([label, target, panelRef]) => (
+                    <button key={target} type="button" aria-controls={target} onClick={() => openStartPanel(panelRef)}>
+                      {label}<span aria-hidden="true">↓</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} noValidate>
               <div className="planner-idea-step" hidden={plannerStep !== "idea"}>
@@ -5301,8 +5452,11 @@ export default function App() {
                 </p>
               )}
 
+              {plannerStep === "idea" && plannerActions}
+
               <fieldset className="idea-picker">
-                <legend>Starting shapes <span className="optional-label">Optional</span></legend>
+                <legend>Example requests <span className="optional-label">Optional</span></legend>
+                <p className="field-help idea-example-help">Examples include a place, activity, and distance. Edit the sentence above to make it yours.</p>
                 <div className="idea-list">
                   {FEATURED_IDEAS.map((idea) => (
                     <button
@@ -5310,10 +5464,7 @@ export default function App() {
                       key={idea.label}
                       className="idea-chip"
                       aria-pressed={activeIdea === idea.label}
-                      onClick={() => {
-                        setPrompt(idea.prompt);
-                        setPromptError("");
-                      }}
+                      onClick={() => chooseExample(idea)}
                       disabled={loading}
                     >
                       <span aria-hidden="true">{ideaGlyph(idea)}</span>
@@ -5363,9 +5514,23 @@ export default function App() {
                       onChange={(event) => setIdeaQuery(event.target.value)}
                       placeholder="Search by name or category"
                     />
-                    <span aria-live="polite">
-                      {filteredIdeas.length} option{filteredIdeas.length === 1 ? "" : "s"}
-                    </span>
+                    <div className="idea-category-field">
+                      <label htmlFor="idea-category">Category</label>
+                      <select id="idea-category" value={ideaCategory} onChange={(event) => setIdeaCategory(event.target.value)}>
+                        <option value="">All categories</option>
+                        {IDEA_CATEGORIES.map((category) => <option key={category}>{category}</option>)}
+                      </select>
+                    </div>
+                    <div className="idea-filter-status">
+                      <span role="status">{filteredIdeas.length} option{filteredIdeas.length === 1 ? "" : "s"}</span>
+                      {(ideaQuery || ideaCategory) && (
+                        <button type="button" className="button button--quiet" onClick={() => {
+                          setIdeaQuery("");
+                          setIdeaCategory("");
+                          document.getElementById("idea-filter")?.focus();
+                        }}>Clear filters</button>
+                      )}
+                    </div>
                   </div>
                   {IDEA_CATEGORIES.map((category) => {
                     const categoryIdeas = filteredIdeas.filter((idea) => idea.category === category);
@@ -5380,10 +5545,7 @@ export default function App() {
                               key={idea.label}
                               className="idea-chip"
                               aria-pressed={activeIdea === idea.label}
-                              onClick={() => {
-                                setPrompt(idea.prompt);
-                                setPromptError("");
-                              }}
+                              onClick={() => chooseExample(idea)}
                               disabled={loading}
                             >
                               <span aria-hidden="true">{ideaGlyph(idea)}</span>
@@ -5396,7 +5558,7 @@ export default function App() {
                   })}
                   {filteredIdeas.length === 0 && (
                     <p className="idea-empty" role="status">
-                      Nothing in the catalog? No problem. Type your own idea above.
+                      No matching shapes. Clear the filters to browse again, or type your own idea above.
                     </p>
                   )}
                 </div>}
@@ -5484,48 +5646,11 @@ export default function App() {
                 onStartModeChange={changeStartMode}
               />}
 
-              <div className="prompt-actions">
-                <button
-                  type="submit"
-                  className="button button--primary generate-button"
-                  onPointerDown={() => {
-                    promptSubmitPointerRef.current = true;
-                  }}
-                  onPointerUp={() => {
-                    promptSubmitPointerRef.current = false;
-                  }}
-                  onPointerCancel={() => {
-                    promptSubmitPointerRef.current = false;
-                  }}
-                  disabled={loading}
-                >
-                  <span>
-                    {interpretationBusy
-                      ? "Checking request…"
-                      : plannerStep === "review"
-                        ? "Find routes"
-                        : "Review request"}
-                  </span>
-                  <span className="button-arrow" aria-hidden="true">→</span>
-                </button>
-                {plannerStep === "review" && (
-                  <button
-                    type="button"
-                    className="button button--secondary request-check-button"
-                    onClick={() => {
-                      setPlannerStep("idea");
-                      window.requestAnimationFrame(() => promptRef.current?.focus());
-                    }}
-                    disabled={loading}
-                  >
-                    Back
-                  </button>
-                )}
-              </div>
+              {plannerStep === "review" && plannerActions}
             </form>
 
             {plannerStep === "idea" && (
-            <details className="alternate-starts-panel">
+            <details className="alternate-starts-panel" ref={alternateStartsRef}>
               <summary className="alternate-starts-heading">
                 <span>
                   <strong>Other ways to start</strong>
@@ -5537,6 +5662,8 @@ export default function App() {
 
             <details
               className="map-placement-panel"
+              id="planner-start-map"
+              ref={mapStartRef}
               onToggle={(event) => {
                 if (event.currentTarget.open) loadMapPlacementTemplates();
               }}
@@ -5654,7 +5781,7 @@ export default function App() {
               </form>
             </details>
 
-            <details className="suggest-panel">
+            <details className="suggest-panel" id="planner-start-fields" ref={fieldsStartRef}>
               <summary>
                 <span>
                   <strong>Choose city, activity, and distance</strong>
@@ -5830,7 +5957,7 @@ export default function App() {
               </form>
             </details>
 
-            <details className="image-reference-panel">
+            <details className="image-reference-panel" id="planner-start-image" ref={imageStartRef}>
               <summary>
                 <span>
                   <strong>Use an image link</strong>
@@ -5864,9 +5991,8 @@ export default function App() {
                   />
                 </label>
                 <p id="image-url-help" className="field-help">
-                  AI traces SVG plus all raster formats the server can decode, including PNG, JPG,
-                  WebP, GIF, AVIF, BMP, TIFF, ICO, and PSD. Images are resized for faster generation.
-                  Maximum 5 MB. Use an image you have permission to reuse.
+                  Paste a public image link. PNG, JPG, SVG, WebP, and other common formats are
+                  supported, up to 5 MB. Use an image you have permission to reuse.
                 </p>
                 {imageErrors.url && (
                   <p id="image-url-error" className="field-error" role="alert">
@@ -5957,6 +6083,41 @@ export default function App() {
             </details>
             )}
           </div>
+
+            <figure className="studio-art" aria-labelledby="studio-example-title">
+              <div className="studio-art-heading">
+                <span className="studio-eyebrow">From the public gallery</span>
+                <h2 id="studio-example-title">See what the streets inspire.</h2>
+              </div>
+              {featuredGallery.asset ? (
+                <a className="studio-map-link" href={featuredGallery.asset.image_url} target="_blank" rel="noreferrer" aria-label="Open this public gallery image in a new tab">
+                  <img
+                    src={featuredGallery.asset.thumbnail_url || featuredGallery.asset.image_url}
+                    width={featuredGallery.asset.width || 900}
+                    height={featuredGallery.asset.height || 600}
+                    fetchPriority="high"
+                    alt="Anonymous GPS art route shared in the public gallery"
+                  />
+                  <span className="studio-map-expand">Explore the details ↗</span>
+                </a>
+              ) : (
+                <div className="studio-map-placeholder" role="status">
+                  {featuredGallery.status === "loading"
+                    ? "Choosing a route from the public gallery…"
+                    : featuredGallery.status === "empty"
+                      ? "No community maps have been shared yet. Yours could be the first."
+                      : "The public gallery is temporarily unavailable."}
+                </div>
+              )}
+              <figcaption>
+                <p>Real community map images, chosen afresh when you open the page.
+                  Always review crossings and access before heading out.</p>
+                <div className="studio-art-caption">
+                  <a href="#gallery">Browse the public gallery</a>
+                  <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+                </div>
+              </figcaption>
+            </figure>
         </section>
         )}
 
@@ -5995,32 +6156,48 @@ export default function App() {
                   Support reference: <code>{error.requestId}</code>
                 </p>
               )}
-              <button
-                type="button"
-                className="button button--secondary"
-                onClick={() => {
-                  const previous = lastGenerationRef.current;
-                  generate(previous?.prompt ?? prompt, previous?.payload ?? {});
-                }}
-              >
-                Try again
-              </button>
+              <div className="error-actions">
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={() => {
+                    const previous = lastGenerationRef.current;
+                    generate(previous?.prompt ?? prompt, previous?.payload ?? {});
+                  }}
+                >
+                  Try again
+                </button>
+                <button
+                  type="button"
+                  className="button button--quiet"
+                  onClick={() => {
+                    setError(null);
+                    focusPrompt();
+                  }}
+                >
+                  Edit route idea
+                </button>
+              </div>
             </div>
           </section>
         )}
 
-        {appView === "planner" && plannerStep === "result" && result && (
-          <ResultPanel
-            result={result}
-            onDownload={handleDownload}
-            onGalleryPublished={(asset) => {
-              setLastPublishedGalleryAsset(asset);
-              setGalleryRefreshKey((current) => current + 1);
-            }}
-            onEditRequest={focusPrompt}
-            focusRef={resultRef}
-            campaignSlug={campaign?.slug ?? null}
-          />
+        {result && (
+          // Keep candidate selection and unfinished edits when switching views.
+          <div hidden={appView !== "planner" || plannerStep !== "result"}>
+            <ResultPanel
+              result={result}
+              active={appView === "planner" && plannerStep === "result"}
+              onDownload={handleDownload}
+              onGalleryPublished={(asset) => {
+                setLastPublishedGalleryAsset(asset);
+                setGalleryRefreshKey((current) => current + 1);
+              }}
+              onEditRequest={focusPrompt}
+              focusRef={resultRef}
+              campaignSlug={campaign?.slug ?? null}
+            />
+          </div>
         )}
         {appView === "gallery" && <GallerySection
           refreshKey={galleryRefreshKey}

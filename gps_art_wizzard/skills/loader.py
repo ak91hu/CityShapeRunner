@@ -1,17 +1,18 @@
-"""Skills: markdown capability docs in ``docs/skill-*.md`` loaded into prompts.
+"""Skills: markdown capability docs in ``docs/skills/skill-*.md`` loaded into prompts.
 
 Each skill file has YAML frontmatter (``name``, ``description``,
 ``applies_to``, ``tags``) and a markdown body. At runtime an agent asks for
 the skills that apply to it, and they are appended to its system prompt — so
 the documentation in ``docs/`` is actively used during prompt construction.
 
-All markdown lives in the single ``docs/`` folder (see the project README);
-this module is the bridge from that folder into the prompt system.
+Runtime skills have a dedicated folder, separate from developer instructions
+and historical reports. Their bodies remain the source for agent prompts.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -19,7 +20,13 @@ from typing import Any
 
 import yaml
 
-DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "docs"
+
+def _default_skills_directory() -> Path:
+    source = Path(__file__).resolve().parents[2] / "docs" / "skills"
+    return source if source.is_dir() else Path(sys.prefix) / "share" / "paceasso" / "skills"
+
+
+SKILLS_DIR = _default_skills_directory()
 
 _FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
 
@@ -52,11 +59,11 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
 
 @lru_cache(maxsize=1)
 def load_all() -> tuple[Skill, ...]:
-    """Load every ``docs/skill-*.md`` file, sorted by name for stable order."""
-    if not DOCS_DIR.exists():
+    """Load runtime skills in stable filename order."""
+    if not SKILLS_DIR.exists():
         return ()
     skills: list[Skill] = []
-    for p in sorted(DOCS_DIR.glob("skill-*.md")):
+    for p in sorted(SKILLS_DIR.glob("skill-*.md")):
         meta, body = _split_frontmatter(p.read_text(encoding="utf-8"))
         skills.append(
             Skill(

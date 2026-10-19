@@ -2635,7 +2635,7 @@ def test_recommendation_ranking_normalises_unexpected_request_values():
 
 def test_balaton_recommendation_document_matches_the_runtime_ranker():
     document = (
-        Path(__file__).resolve().parents[1] / "docs" / "balaton-city-coverage.md"
+        Path(__file__).resolve().parents[1] / "docs" / "guides" / "balaton-city-coverage.md"
     ).read_text(encoding="utf-8")
     table = document.split("## Baseline recommendation list", 1)[1].split(
         "## Regression coverage",

@@ -27,6 +27,7 @@ frontend/e2e
 frontend/node_modules
 frontend/playwright-report
 frontend/test-results
+frontend/test-results-*
 htmlcov
 logs
 node_modules

@@ -42,6 +42,43 @@ class StreetGraph:
     components: dict[int, int] = field(default_factory=dict)
     no_uturn: set[tuple[int, int]] = field(default_factory=set)
     only_uturn: set[tuple[int, int]] = field(default_factory=set)
+    # Graphs are immutable after construction. Bound the derived frame cache;
+    # local repairs repeatedly query the same start without changing any OSM data.
+    _frames: OrderedDict = field(default_factory=OrderedDict, repr=False, compare=False)
+    _frame_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _node_ids: list[int] = field(default_factory=list, init=False, repr=False, compare=False)
+    _node_coordinates: np.ndarray | None = field(default=None, init=False, repr=False, compare=False)
+
+    def projection(self, center: geo.LatLon, *, with_nodes: bool = True):
+        with self._frame_lock:
+            cached = self._frames.get(center)
+            if cached is not None:
+                self._frames.move_to_end(center)
+                if not with_nodes or cached[2] is not None:
+                    return cached
+            if self._node_coordinates is None:
+                self._node_ids = list(self.nodes)
+                self._node_coordinates = np.asarray(list(self.nodes.values()), dtype=float)
+            ids, points = self._node_ids, self._node_coordinates
+        # Same arithmetic and order as latlon_to_unit(..., scale_m=1).
+        # Vectorise only the independent node projections, retaining Python
+        # float pairs in the search so its edge-cost arithmetic stays exact.
+        coordinates = cached[1] if cached is not None else np.column_stack((
+            np.radians(points[:, 1] - center[1]) * geo.EARTH_R_M * math.cos(math.radians(center[0])),
+            np.radians(points[:, 0] - center[0]) * geo.EARTH_R_M,
+        ))
+        node_xy = dict(zip(ids, (tuple(point) for point in coordinates.tolist()), strict=True)) if with_nodes else None
+        frame = (ids, coordinates, node_xy)
+        with self._frame_lock:
+            # Another worker may already have materialised the node mapping.
+            present = self._frames.get(center)
+            if present is not None and present[2] is not None:
+                return present
+            self._frames[center] = frame
+            self._frames.move_to_end(center)
+            while len(self._frames) > 4:
+                self._frames.popitem(last=False)
+        return frame
 
     def turn_allowed(self, incoming: int, via: int, outgoing: int, previous: int = -1, target: int = -2) -> bool:
         if (incoming, via) in self.no_uturn and previous == target:
@@ -55,9 +92,8 @@ class StreetGraph:
                 common_component: bool = False) -> list[list[int]]:
         if not self.nodes or not points:
             return [[] for _ in points]
-        ids = list(self.nodes)
         center = points[0]
-        coordinates = np.asarray([geo.latlon_to_unit(*self.nodes[node], *center, 1) for node in ids])
+        ids, coordinates, _ = self.projection(center, with_nodes=False)
         ranked = []
         component_distances = []
         for point in points:
@@ -301,7 +337,7 @@ def shape_route(graph: StreetGraph, guides: list[geo.LatLon], *, target_m: float
     if any(not nodes for nodes in nearest):
         return None
     center = guides[0]
-    xy = {node: geo.latlon_to_unit(*point, *center, 1) for node, point in graph.nodes.items()}
+    _, _, xy = graph.projection(center)
     guide_xy = [geo.latlon_to_unit(*point, *center, 1) for point in guides]
     # Distinct legal exits can matter at a restricted guide: the cheapest
     # arrival may allow only a dead end, while another incoming way continues
@@ -332,6 +368,7 @@ def shape_route(graph: StreetGraph, guides: list[geo.LatLon], *, target_m: float
         dx, dy = end_xy[0] - start_xy[0], end_xy[1] - start_xy[1]
         segment_length = max(1.0, math.hypot(dx, dy))
         corridor = max(25.0, min(120.0, segment_length * 0.3))
+        edge_costs: dict[tuple[int, Edge], tuple[float, float] | None] = {}
         next_beam = []
         for prior_cost, prior_length, prior_path, incoming, previous in beam:
             used_edges = {frozenset((a, b)) for a, b in zip(prior_path, prior_path[1:], strict=False)} if reuse_penalty else set()
@@ -379,16 +416,22 @@ def shape_route(graph: StreetGraph, guides: list[geo.LatLon], *, target_m: float
                 for edge in graph.edges.get(node, ()):
                     if not graph.turn_allowed(from_way, node, edge.way, prev, edge.target):
                         continue
-                    a, b = xy[node], xy[edge.target]
-                    vx, vy = b[0] - a[0], b[1] - a[1]
-                    midpoint = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-                    t = max(0.0, min(1.0, ((midpoint[0] - start_xy[0]) * dx + (midpoint[1] - start_xy[1]) * dy) / segment_length**2))
-                    deviation = math.hypot(midpoint[0] - start_xy[0] - t * dx, midpoint[1] - start_xy[1] - t * dy)
-                    if deviation > max(400.0, segment_length * 1.5):
+                    key = (node, edge)
+                    if key not in edge_costs:
+                        a, b = xy[node], xy[edge.target]
+                        vx, vy = b[0] - a[0], b[1] - a[1]
+                        midpoint = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                        t = max(0.0, min(1.0, ((midpoint[0] - start_xy[0]) * dx + (midpoint[1] - start_xy[1]) * dy) / segment_length**2))
+                        deviation = math.hypot(midpoint[0] - start_xy[0] - t * dx, midpoint[1] - start_xy[1] - t * dy)
+                        alignment = (vx * dx + vy * dy) / max(1.0, math.hypot(vx, vy) * segment_length)
+                        factor = 1 + 3 * (deviation / corridor)**2 + 0.8 * (1 - alignment)
+                        edge_costs[key] = (factor, alignment) if deviation <= max(400.0, segment_length * 1.5) else None
+                    cached_cost = edge_costs[key]
+                    if cached_cost is None:
                         continue
-                    alignment = (vx * dx + vy * dy) / max(1.0, math.hypot(vx, vy) * segment_length)
+                    factor, alignment = cached_cost
                     reversal = 2.0 if edge.target == prev and alignment < 0.25 else 0.0
-                    weight = edge.length * (1 + 3 * (deviation / corridor)**2 + 0.8 * (1 - alignment) + reversal)
+                    weight = edge.length * (factor + reversal)
                     if reuse_penalty and frozenset((node, edge.target)) in used_edges:
                         weight += reuse_penalty * edge.length
                     neighbour = (edge.target, edge.way, node)

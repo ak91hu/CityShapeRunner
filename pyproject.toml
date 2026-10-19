@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "paceasso"
 version = "0.1.0"
 description = "Paceasso, the GPS Art Wizzard: generate and validate GPX-exportable drawings on real street networks."
-readme = "docs/project-overview.md"
+readme = "docs/guides/project-overview.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Paceasso" }]
@@ -51,6 +51,9 @@ include = ["gps_art_wizzard*"]
 
 [tool.setuptools.package-data]
 "gps_art_wizzard.prompts" = ["*.txt"]
+
+[tool.setuptools.data-files]
+"share/paceasso/skills" = ["docs/skills/skill-*.md"]
 
 [tool.ruff]
 line-length = 100

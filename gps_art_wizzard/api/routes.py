@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import re
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from contextvars import copy_context
 from dataclasses import asdict, replace
-from queue import SimpleQueue
-from threading import Thread
+from threading import Event, Thread
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -45,6 +45,7 @@ from ..tools import (
     shape_library,
     shape_similarity,
 )
+from ..workflow_runtime import WorkflowCancelledError, cancellation_scope
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class MapPlacementRequest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    search_seed: int | None = Field(default=None, ge=0, le=4_294_967_295, strict=True)
     prompt: str = Field(
         ...,
         min_length=1,
@@ -173,6 +175,7 @@ class GenerateRequest(BaseModel):
 
 
 class WorkflowLimitsResponse(BaseModel):
+    optimization_budget_seconds: float | None = Field(default=None, ge=1)
     max_duration_seconds: float = Field(ge=1)
     max_llm_calls: int = Field(ge=-1)
 
@@ -211,6 +214,8 @@ class WorkflowSummaryResponse(BaseModel):
 
 
 class GenerateResponse(BaseModel):
+    search_seed: int = 0
+    search_areas: int = 0
     request_id: str | None = None
     workflow: WorkflowSummaryResponse | None = None
     prompt: str
@@ -695,6 +700,9 @@ def _state_to_response(state) -> dict:
             }
         )
 
+    from ..tools.route_diversity import diverse_route_order
+    candidates = diverse_route_order(candidates)
+
     route_verification = (
         quality_gate_report(
             state.validation,
@@ -848,6 +856,8 @@ def _state_to_response(state) -> dict:
         iterations=state.iterations,
         candidate_count=state.candidate_count,
         preflight_count=state.preflight_count,
+        search_seed=getattr(state, "search_seed", 0),
+        search_areas=getattr(state, "search_areas", 0),
         below_threshold=state.below_threshold,
         errors=state.errors,
         history=state.history,
@@ -1164,36 +1174,52 @@ def generate_route(req: GenerateRequest, request: Request) -> dict | StreamingRe
 
 def _stream_generation(req: GenerateRequest) -> StreamingResponse:
     """Stream bounded, prompt-free progress beside one ordinary generation run."""
-    messages: SimpleQueue[dict[str, Any]] = SimpleQueue()
     context = copy_context()
 
-    def work() -> None:
-        try:
-            result = _generate_route_sync(
-                req,
-                event_sink=lambda data: messages.put({"type": "progress", **data}),
-                preview_sink=lambda data: messages.put({"type": "preview", **data}),
-            )
-            validated = GenerateResponse.model_validate(result)
-            messages.put({"type": "result", "data": validated.model_dump(mode="json")})
-        except HTTPException as exc:
-            messages.put({"type": "error", "status": exc.status_code, "detail": exc.detail})
-        except Exception:  # noqa: BLE001 - streamed responses cannot change HTTP status
-            log.exception("streamed generation failed")
-            messages.put({"type": "error", "status": 500, "detail": "Route generation failed."})
-        finally:
-            messages.put({"type": "end"})
-
-    def stream() -> Iterator[str]:
+    async def stream() -> AsyncIterator[str]:
         import json
+
+        loop = asyncio.get_running_loop()
+        messages: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        cancelled = Event()
+
+        def send(message: dict[str, Any]) -> None:
+            if not cancelled.is_set():
+                try:
+                    loop.call_soon_threadsafe(messages.put_nowait, message)
+                except RuntimeError:  # the server loop has already shut down
+                    cancelled.set()
+
+        def work() -> None:
+            try:
+                with cancellation_scope(cancelled):
+                    result = _generate_route_sync(
+                        req,
+                        event_sink=lambda data: send({"type": "progress", **data}),
+                        preview_sink=lambda data: send({"type": "preview", **data}),
+                    )
+                validated = GenerateResponse.model_validate(result)
+                send({"type": "result", "data": validated.model_dump(mode="json")})
+            except WorkflowCancelledError:
+                pass
+            except HTTPException as exc:
+                send({"type": "error", "status": exc.status_code, "detail": exc.detail})
+            except Exception:  # noqa: BLE001 - headers have already been sent
+                log.exception("streamed generation failed")
+                send({"type": "error", "status": 500, "detail": "Route generation failed."})
+            finally:
+                send({"type": "end"})
 
         worker = Thread(target=lambda: context.run(work), name="gps-art-stream", daemon=True)
         worker.start()
-        while True:
-            message = messages.get()
-            if message["type"] == "end":
-                return
-            yield json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
+        try:
+            while True:
+                message = await messages.get()
+                if message["type"] == "end":
+                    return
+                yield json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n"
+        finally:
+            cancelled.set()
 
     return StreamingResponse(
         stream(),
@@ -1249,14 +1275,16 @@ def _generate_route_sync(
         start_point = (resolved.lat, resolved.lon)
         start_label = resolved.name
     try:
-        callbacks = (
+        generation_options: dict[str, Any] = (
             {"event_sink": event_sink, "preview_sink": preview_sink}
             if event_sink is not None or preview_sink is not None
             else {}
         )
+        if req.search_seed is not None:
+            generation_options["search_seed"] = req.search_seed
         has_preferences = any(req.route_preferences.model_dump().values())
         if (
-            not callbacks
+            not generation_options
             and intent_override is None
             and start_point is None
             and req.start_direction_deg is None
@@ -1284,7 +1312,7 @@ def _generate_route_sync(
                 reference_name=(imported_reference.name if imported_reference else None),
                 reference_kind=(imported_reference.kind if imported_reference else None),
                 map_placement=map_placement,
-                **callbacks,
+                **generation_options,
             )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

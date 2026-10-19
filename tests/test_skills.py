@@ -1,8 +1,10 @@
-"""Tests for the skills loader: docs/skill-*.md are discovered and injected."""
+"""Tests for runtime skill discovery and prompt injection from docs/skills/."""
 
 from __future__ import annotations
 
-from gps_art_wizzard.skills import for_agent, load_all, system_prompt_for
+import shutil
+
+from gps_art_wizzard.skills import for_agent, load_all, loader, system_prompt_for
 
 _EXPECTED = {
     "prompt-engineering",
@@ -49,3 +51,18 @@ def test_unknown_agent_gets_only_all_skills():
     assert "Skill: prompt-engineering" in block
     # shape-design applies_to [shape, planning] -> not included for unknown
     assert "Skill: shape-design" not in block
+
+
+def test_installed_package_loads_runtime_skills_without_a_source_checkout(tmp_path, monkeypatch):
+    installed = tmp_path / "share" / "paceasso" / "skills"
+    shutil.copytree(loader.SKILLS_DIR, installed)
+    monkeypatch.setattr(loader, "__file__", str(tmp_path / "lib/site-packages/gps_art_wizzard/skills/loader.py"))
+    monkeypatch.setattr(loader.sys, "prefix", str(tmp_path))
+    assert loader._default_skills_directory() == installed
+    monkeypatch.setattr(loader, "SKILLS_DIR", loader._default_skills_directory())
+    load_all.cache_clear()
+    try:
+        assert {skill.name for skill in load_all()} == _EXPECTED
+        assert "Skill: shape-design" in system_prompt_for("shape")
+    finally:
+        load_all.cache_clear()

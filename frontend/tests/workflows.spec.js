@@ -284,7 +284,11 @@ test("cancelling an in-flight generation restores the designer without an error"
   await findRoutes(page);
   await expect.poll(() => requestStarted).toBe(true);
   await expect(page.getByRole("heading", { name: "Finding routes" })).toBeVisible();
-  await expect(page.locator(".loading-card--journey")).toBeFocused();
+  if (page.viewportSize().width <= 768) {
+    await expect(page.getByRole("heading", { name: "Finding routes" })).toBeFocused();
+  } else {
+    await expect(page.locator(".loading-card--journey")).toBeFocused();
+  }
   await expect(page.getByText("Live route lab")).toHaveCount(0);
   await expect(page.getByRole("progressbar", { name: "Route generation is in progress" })).toBeVisible();
   await expect(page.getByText("Waiting for the first update")).toBeVisible();

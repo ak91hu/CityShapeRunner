@@ -1,12 +1,16 @@
 """Live route progress contract without provider or paid map calls."""
 
+import asyncio
 import json
+from threading import Event
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import gps_art_wizzard.api.routes as routes
 from gps_art_wizzard.main import create_app
+from gps_art_wizzard.workflow_runtime import record_routing_request
 
 
 def test_stream_reports_real_progress_and_preview_before_final_result(monkeypatch):
@@ -62,3 +66,29 @@ def test_stream_failure_is_an_explicit_error_event_not_a_fake_success(monkeypatc
     assert [message["type"] for message in messages] == ["progress", "error"]
     assert messages[-1]["status"] == 503
     assert "result" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_disconnected_stream_stops_before_another_provider_call(monkeypatch):
+    resume, finished = Event(), Event()
+    calls = []
+
+    def generate_stub(_request, *, event_sink=None, preview_sink=None):
+        try:
+            event_sink({"stage": "snap", "status": "running"})
+            assert resume.wait(3), "test did not release the in-flight step"
+            record_routing_request("directions")
+            calls.append("directions")
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(routes, "_generate_route_sync", generate_stub)
+    response = routes._stream_generation(routes.GenerateRequest(prompt="heart"))
+    stream = response.body_iterator
+    try:
+        assert json.loads(await anext(stream))["type"] == "progress"
+        await stream.aclose()
+    finally:
+        resume.set()
+    assert await asyncio.to_thread(finished.wait, 3)
+    assert calls == []

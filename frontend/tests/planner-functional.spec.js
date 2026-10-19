@@ -125,7 +125,7 @@ test("the homepage never labels an empty gallery as a Budapest heart", async ({ 
 test("the header mark and favicon share one scalable route identity", async ({ page }) => {
   await page.goto("/");
 
-  const home = page.getByRole("link", { name: "Paceasso home" });
+  const home = page.getByRole("link", { name: "Paceasso GPS Art Wizzard home" });
   const mark = home.locator(".brand-mark");
   const markPath = await mark.locator("path").getAttribute("d");
   await expect(home).toHaveAttribute("href", "/");
@@ -329,7 +329,7 @@ test("the full idea catalogue exposes every category and all 158 options", async
   expect(await page.locator("*").count()).toBeLessThan(1451);
   await page.getByText("More shapes, letters, and numbers").click();
 
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(158);
+  await expect(page.locator(".idea-group").getByRole("button")).toHaveCount(158);
   for (const category of [
     "Hungarian ideas",
     "Simple shapes",
@@ -350,15 +350,15 @@ test("the expanded catalogue filters by name and selects a detailed shape", asyn
   const filter = page.getByLabel("Filter options");
   await filter.fill("turtle");
   await expect(page.locator(".idea-filter")).toContainText("1 option");
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(1);
+  await expect(page.locator(".idea-group").getByRole("button")).toHaveCount(1);
   await page.getByRole("button", { name: "Turtle", exact: true }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
     "a turtle run in Keszthely, about 14 km",
   );
 
   await filter.fill("not-a-shape");
-  await expect(page.getByText("Nothing in the catalog")).toBeVisible();
-  await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(0);
+  await expect(page.getByText("No matching shapes.", { exact: false })).toBeVisible();
+  await expect(page.locator(".idea-group").getByRole("button")).toHaveCount(0);
 });
 
 test("a custom free-text drawing is submitted without catalog selection", async ({ page }) => {

@@ -4,18 +4,12 @@ import {
   buildRouteResult,
   installCommonMocks,
   openGeneratedRoute,
+  openOptionalRouteTools,
 } from "./support/functional-fixtures.js";
 
 test.beforeEach(async ({ page }) => {
   await installCommonMocks(page);
 });
-
-async function openOptionalRouteTools(page) {
-  const tools = page.locator(".route-lab");
-  if (!(await tools.locator(".route-lab-grid").isVisible())) {
-    await tools.locator("summary").click();
-  }
-}
 
 test("a completed generation moves focus to the result region", async ({ page }) => {
   await openGeneratedRoute(page);
@@ -107,7 +101,8 @@ test("the result leads with the interpreted request and offers a correction path
 
   await summary.getByRole("button", { name: "Change request" }).click();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
-  await expect(page.locator(".result")).toHaveCount(0);
+  await expect(page.locator(".result")).toBeHidden();
+  await expect(page.getByRole("link", { name: "Your route", exact: true })).toBeVisible();
 });
 
 test("compact results keep decision text readable and provide a download shortcut", async ({

@@ -16,6 +16,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import httpx
@@ -69,6 +70,17 @@ _directions_cache: OrderedDict[tuple, tuple[float, list[LatLon], float, bool, Ro
 _directions_cache_lock = threading.Lock()
 
 
+@contextmanager
+def _routing_client():
+    """Reuse this workflow's HTTP pool; standalone calls own their client."""
+    runtime = active_workflow_runtime()
+    if runtime is not None and callable(getattr(runtime, "routing_client", None)):
+        yield runtime.routing_client()
+    else:
+        with httpx.Client() as client:
+            yield client
+
+
 def clear_directions_cache() -> None:
     """Drop every memoised Directions response (used by tests and admin tooling)."""
 
@@ -96,7 +108,7 @@ def _directions_cache_key(
 ) -> tuple:
     cfg = get_settings().routing
     return (
-        tuple((round(lat, 7), round(lon, 7)) for lat, lon in prepared),
+        tuple((lat, lon) for lat, lon in prepared),
         profile,
         bool(closed),
         cfg.ors_base_url.rstrip("/"),
@@ -104,7 +116,7 @@ def _directions_cache_key(
         bool(cfg.continue_straight),
         int(start_radius),
         _route_preferences_key(route_preferences),
-        None if start_direction_deg is None else round(start_direction_deg % 360.0, 3),
+        None if start_direction_deg is None else start_direction_deg % 360.0,
         guide_budget,
         workflow_scope,
     )
@@ -320,7 +332,7 @@ def preflight_route_candidates(
         headers["Authorization"] = cfg.ors_api_key
     radius = max(1, min(350, int(radius_m or cfg.snap_radius_m)))
 
-    with httpx.Client() as client:
+    with _routing_client() as client:
         response_locations = _snap_request(
             url,
             headers,
@@ -1339,8 +1351,10 @@ def snap_route_detailed(
     attempts = 0
     radius_index = 0
     current_via = via
-    with httpx.Client() as client:
+    with _routing_client() as client:
         while attempts < _MAX_ORS_ATTEMPTS:
+            if attempts and runtime is not None and runtime.deadline_exceeded(quality_required=True):
+                break
             radius = radii[min(radius_index, len(radii) - 1)]
             attempts += 1
             coords = [[lon, lat] for lat, lon in current_via]

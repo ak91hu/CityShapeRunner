@@ -93,7 +93,7 @@ jobs:
           retention-days: 14
 
   frontend-build:
-    name: Frontend · production build
+    name: Frontend · unit tests and production build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -114,8 +114,8 @@ jobs:
       - name: Install locked frontend dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Build optimized frontend
-        run: npm run build
+      - name: Check frontend units and production build
+        run: npm run check
 
   ui-tests:
     name: UI · ${{ matrix.label }}
@@ -189,6 +189,9 @@ jobs:
 
       - name: Install documentation toolchain
         run: python -m pip install -e ".[docs]"
+
+      - name: Validate documentation layout and local links
+        run: python scripts/check_documentation.py
 
       - name: Build documentation with warnings as errors
         run: python -m mkdocs build --strict

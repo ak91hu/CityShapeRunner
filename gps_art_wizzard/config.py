@@ -98,6 +98,12 @@ class GeocoderConfig:
 
 @dataclass
 class WorkflowConfig:
+    optimization_budget_seconds: float = field(
+        default_factory=lambda: _float("OPTIMIZATION_BUDGET_SECONDS", 35.0)
+    )
+    initial_placement_candidates: int = field(
+        default_factory=lambda: _int("INITIAL_PLACEMENT_CANDIDATES", 3)
+    )
     shape_polish_candidates: int = field(default_factory=lambda: _int("SHAPE_POLISH_CANDIDATES", 4))
     max_refinement_iterations: int = field(default_factory=lambda: _int("MAX_REFINEMENT_ITERATIONS", 6))
     validation_score_threshold: float = field(default_factory=lambda: _float("VALIDATION_SCORE_THRESHOLD", 0.72))
@@ -107,6 +113,9 @@ class WorkflowConfig:
     )
     preflight_max_placements: int = field(
         default_factory=lambda: _int("PREFLIGHT_MAX_PLACEMENTS", 180)
+    )
+    preflight_creative_placements: int = field(
+        default_factory=lambda: _int("PREFLIGHT_CREATIVE_PLACEMENTS", 90)
     )
     preflight_shortlist: int = field(
         default_factory=lambda: _int("PREFLIGHT_SHORTLIST", 7)
@@ -228,10 +237,13 @@ def get_settings() -> Settings:
                 # Env vars win over yaml; only apply yaml when env didn't set it.
                 env_name = {
                     "max_refinement_iterations": "MAX_REFINEMENT_ITERATIONS",
+                    "optimization_budget_seconds": "OPTIMIZATION_BUDGET_SECONDS",
+                    "initial_placement_candidates": "INITIAL_PLACEMENT_CANDIDATES",
                     "shape_polish_candidates": "SHAPE_POLISH_CANDIDATES",
                     "validation_score_threshold": "VALIDATION_SCORE_THRESHOLD",
                     "preflight_enabled": "PREFLIGHT_ENABLED",
                     "preflight_max_placements": "PREFLIGHT_MAX_PLACEMENTS",
+                    "preflight_creative_placements": "PREFLIGHT_CREATIVE_PLACEMENTS",
                     "preflight_shortlist": "PREFLIGHT_SHORTLIST",
                     "preflight_guide_points": "PREFLIGHT_GUIDE_POINTS",
                     "preflight_adaptive": "PREFLIGHT_ADAPTIVE",

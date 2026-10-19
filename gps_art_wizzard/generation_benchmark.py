@@ -71,6 +71,8 @@ def result_record(case: GenerationCase, state: WorkflowState, elapsed: float) ->
                           else ["missing_routing_telemetry"])
     if state.workflow and not points and not state.workflow.routing_requests.get("directions"):
         incomplete_reasons.append("routing_not_measured")
+    if state.workflow and "optimization_budget_exhausted" in state.workflow.degraded_reasons:
+        incomplete_reasons.append("optimization_budget_exhausted")
     record: dict[str, Any] = {
         "schema_version": 1, "case": asdict(case),
         "route_hash": route_fingerprint(points) if points else None,
@@ -90,6 +92,8 @@ def result_record(case: GenerationCase, state: WorkflowState, elapsed: float) ->
             if points and state.snapped else None
         ),
         "preflight_placements": state.preflight_count,
+        "search_seed": state.search_seed,
+        "search_areas": state.search_areas,
         "routing_candidates": state.candidate_count,
         "candidate_metrics": [
             {"shape": candidate.shape_name, "validation": asdict(candidate.validation),
@@ -216,6 +220,10 @@ def run_cases(cases, *, variant: str, network_revision: str | None = None, check
     result: dict[str, Any] = {"schema_version": 1, "variant": variant, "network_revision": network_revision,
               "shape_metric_revision": shape_similarity.METRIC_REVISION,
               "configuration": {"adaptive": settings.workflow.preflight_adaptive,
+                                "optimization_budget_seconds": settings.workflow.optimization_budget_seconds,
+                                "initial_placement_candidates": settings.workflow.initial_placement_candidates,
+                                "measurement_workers": settings.workflow.measurement_workers,
+                                "search_seed_policy": "sha256(case.id), first 32 bits",
                                 "placement_limit": settings.workflow.preflight_max_placements,
                                 "guide_points": settings.workflow.preflight_guide_points,
                                 "graph_enabled": settings.routing.shape_graph_enabled,
@@ -229,7 +237,8 @@ def run_cases(cases, *, variant: str, network_revision: str | None = None, check
             ors_client.clear_directions_cache()
             started = time.perf_counter()
             try:
-                state = run(case.prompt, intent_override=Intent(case.shape, None, case.city, case.sport, case.distance_km, None))
+                seed = int.from_bytes(hashlib.sha256(case.id.encode()).digest()[:4], "big")
+                state = run(case.prompt, intent_override=Intent(case.shape, None, case.city, case.sport, case.distance_km, None), search_seed=seed)
                 record = result_record(case, state, time.perf_counter() - started)
             except Exception as error:
                 # Store only the class; provider exceptions may contain request data.

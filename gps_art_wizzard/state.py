@@ -327,6 +327,8 @@ class WorkflowState:
     fit_decision: FitDecision | None = None
     candidate_count: int = 0
     preflight_count: int = 0
+    search_seed: int = 0
+    search_areas: int = 0
     placement_candidates: list[RouteDraft] = field(default_factory=list)
     preflight_candidates: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[EvaluatedCandidate] = field(default_factory=list)

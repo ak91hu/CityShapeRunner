@@ -31,6 +31,7 @@ frontend/dist/
 coverage/
 playwright-report/
 test-results/
+frontend/test-results-*/
 npm-debug.log*
 error*.png
 
