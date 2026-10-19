@@ -50,55 +50,67 @@ theme:
 nav:
   - Home: index.md
   - Start here:
-      - Developer quick start: getting-started.md
-      - Complete project guide: project-overview.md
-      - Repository guide: AGENTS.md
+      - Developer quick start: guides/getting-started.md
+      - Complete project guide: guides/project-overview.md
+      - Repository guide: architecture/agents.md
   - Architecture:
-      - System architecture: architecture.md
+      - System architecture: architecture/overview.md
       - Implementation guide:
-          - Engineering overview: implementation/index.md
-          - Backend route pipeline: implementation/backend-pipeline.md
-          - State and quality model: implementation/data-and-quality.md
-          - Frontend implementation: implementation/frontend.md
-          - Runtime and reliability: implementation/runtime-reliability.md
-      - AI shape pipeline: AI_SHAPE_PIPELINE.md
-      - Production AI workflow: ai-workflow.md
-      - Custom shape generation: custom-shape-generation.md
-      - GPS-art intelligence: gps-art-intelligence.md
-      - Shape-template uniqueness: shape-template-uniqueness.md
+          - Engineering overview: architecture/implementation/index.md
+          - Backend route pipeline: architecture/implementation/backend-pipeline.md
+          - State and quality model: architecture/implementation/data-and-quality.md
+          - Frontend implementation: architecture/implementation/frontend.md
+          - Runtime and reliability: architecture/implementation/runtime-reliability.md
+      - AI shape pipeline: architecture/ai-shape-pipeline.md
+      - Production AI workflow: architecture/ai-workflow.md
+      - Custom shape generation: architecture/custom-shape-generation.md
+      - GPS-art intelligence: guides/gps-art-intelligence.md
+      - Shape-template uniqueness: skills/shape-template-uniqueness.md
   - Reference:
-      - HTTP API: api-reference.md
-      - External API integrations: external-apis.md
-      - Configuration: configuration-reference.md
-      - Hungarian shape catalog: hungarian-shape-catalog.md
-      - City and shape recommendations: city-shape-recommendations.md
-      - Balaton city coverage: balaton-city-coverage.md
+      - HTTP API: reference/api-reference.md
+      - External API integrations: reference/external-apis.md
+      - Configuration: reference/configuration-reference.md
+      - Hungarian shape catalog: reference/hungarian-shape-catalog.md
+      - City and shape recommendations: guides/city-shape-recommendations.md
+      - Balaton city coverage: guides/balaton-city-coverage.md
   - Quality and operations:
-      - Testing: testing.md
-      - CI/CD and documentation: ci-cd.md
-      - Production deployment: deployment.md
-      - Production gallery testing: production-gallery-testing.md
-      - Cloudinary gallery plan: cloudinary-map-gallery-plan.md
-      - UI/UX rationale: ui-ux-rationale.md
+      - Development and review workflow: development/workflow.md
+      - Testing: development/testing.md
+      - CI/CD and documentation: operations/ci-cd.md
+      - Production deployment: operations/deployment.md
+      - Production gallery testing: operations/production-gallery-testing.md
+      - Cloudinary gallery plan: design/cloudinary-map-gallery-plan.md
+      - UI/UX rationale: design/ui-ux-rationale.md
+      - UI design history: design/ui-design.md
   - Algorithms and research:
-      - Algorithmic background: algorithmic-background.md
-      - Algorithm audit (2026-08): gps-art-algorithm-audit-2026-08.md
-      - Generation improvements (2026-09): generation-development.md
-      - GPS-art research: gps-art-research.md
-      - Niche positioning (2026-08): niche-positioning-2026-08.md
-      - Lessons learned (2026-07-30): 2026-07-30-lessons-learned.md
+      - Algorithmic background: architecture/algorithmic-background.md
+      - GPS-art research: research/gps-art-research.md
+      - Generation review (2026-10-19): research/2026-10-19-generation-review.md
+      - Niche positioning (2026-08): research/niche-positioning-2026-08.md
+      - Route preview provenance: research/budapest-heart-route.md
+  - Reports:
+      - Placement comparison (2026-10-19): reports/2026-10-19-creative-fit.md
+      - Code quality review (2026-10-19): reports/2026-10-19-code-quality.md
+      - Usability audit (2026-10-19): reports/2026-10-19-usability.md
+      - Algorithm audit (2026-08): reports/gps-art-algorithm-audit-2026-08.md
+      - Generation improvements (2026-09): reports/generation-development.md
+      - Lessons learned (2026-07-30): reports/2026-07-30-lessons-learned.md
+      - Regression report (2026-09-02): reports/2026-09-02-test-report.md
   - Agent skills:
-      - Planning: skill-planning.md
-      - Prompt engineering: skill-prompt-engineering.md
-      - Shape design: skill-shape-design.md
-      - Route placement: skill-route-placement.md
-      - Street snapping: skill-snap-and-roads.md
-      - Refinement heuristics: skill-refinement-heuristics.md
-      - Validation metrics: skill-validation-metrics.md
+      - Planning: skills/skill-planning.md
+      - Prompt engineering: skills/skill-prompt-engineering.md
+      - Shape design: skills/skill-shape-design.md
+      - Route placement: skills/skill-route-placement.md
+      - Street snapping: skills/skill-snap-and-roads.md
+      - Refinement heuristics: skills/skill-refinement-heuristics.md
+      - Validation metrics: skills/skill-validation-metrics.md
 
 plugins:
   - search:
       lang: en
+
+hooks:
+  - scripts/check_documentation.py
 
 markdown_extensions:
   - admonition

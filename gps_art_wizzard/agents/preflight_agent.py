@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 import math
-import time
+import random
 from dataclasses import replace
 
 from ..config import get_settings
@@ -32,13 +32,27 @@ class PreflightAgent(BaseAgent):
             self._record(state, "preflight disabled")
             return state
 
-        drafts = self._candidate_drafts(state)
+        # Keep the established coarse-to-fine search intact. Creative samples
+        # are an additional family, not replacements for its promising cells.
+        # Both families share each Snap request, so breadth costs coordinates,
+        # rather than another round trip per placement.
+        legacy = self._candidate_drafts(state, legacy=True)
+        creative = self._candidate_drafts(state) if (
+            state.map_placement is None and state.route_draft.anchored_start is None
+        ) else []
+        creative_limit = max(0, getattr(workflow, "preflight_creative_placements", 90))
+        families = [(legacy, workflow.preflight_max_placements, False)]
+        if creative and creative_limit:
+            families.append((creative, creative_limit, True))
         adaptive = getattr(workflow, "preflight_adaptive", False)
-        if adaptive and len(drafts) > 12:
-            # Sample the whole transform space, rather than truncating the
-            # scale-major enumeration and losing its later orientations.
-            count = max(12, int(workflow.preflight_max_placements * 0.55))
-            drafts = self._spread_drafts(drafts, min(count, len(drafts)))
+        family_drafts = []
+        for candidates, maximum, _ in families:
+            count = min(len(candidates), max(12, int(maximum * 0.55))) if adaptive else maximum
+            family_drafts.append(self._spread_drafts(candidates, min(count, len(candidates))))
+        if len(family_drafts) > 1:
+            established_signatures = {self._signature(d) for d in family_drafts[0]}
+            family_drafts[1] = [d for d in family_drafts[1] if self._signature(d) not in established_signatures]
+        drafts = [draft for group in family_drafts for draft in group]
         results = ors_client.preflight_route_candidates(
             [draft.waypoints for draft in drafts],
             sport=state.intent.sport,
@@ -49,6 +63,7 @@ class PreflightAgent(BaseAgent):
             self._record(state, "preflight unavailable; using deterministic placement")
             return state
         state.preflight_count += len(drafts)
+        self._publish_search(state, drafts)
         if not results:
             self._record(state, "preflight found no snappable placement")
             return state
@@ -58,13 +73,27 @@ class PreflightAgent(BaseAgent):
         # can improve ranking without changing the export authority.
         from ..tools.street_graph import graph_for_state
         graph = graph_for_state(state) if hasattr(get_settings(), "routing") else None
-        results = self._network_rank(results, drafts, graph)
+        family_results = []
+        offset = 0
+        for group in family_drafts:
+            local = [replace(r, candidate_index=r.candidate_index - offset) for r in results
+                     if offset <= r.candidate_index < offset + len(group)]
+            family_results.append(self._network_rank(local, group, graph))
+            offset += len(group)
         if adaptive:
             for round_index in (1, 2):
-                remaining = max(0, workflow.preflight_max_placements - len(drafts))
-                budget = remaining if round_index == 2 else (remaining + 1) // 2
-                seeds = self._diverse_shortlist(results, drafts, 4)
-                fine = self._refined_drafts(state, drafts, seeds, budget, round_index)
+                from ..workflow_runtime import active_workflow_runtime
+                runtime = active_workflow_runtime()
+                if runtime is not None and runtime.deadline_exceeded(quality_required=True):
+                    break
+                fine_groups = []
+                for index, (_, maximum, reserve_areas) in enumerate(families):
+                    group, ranked = family_drafts[index], family_results[index]
+                    remaining = max(0, maximum - len(group))
+                    budget = remaining if round_index == 2 else (remaining + 1) // 2
+                    seeds = self._diverse_shortlist(ranked, group, 4, reserve_areas=reserve_areas)
+                    fine_groups.append(self._refined_drafts(state, group, seeds, budget, round_index))
+                fine = [draft for group in fine_groups for draft in group]
                 if not fine:
                     break
                 measured = ors_client.preflight_route_candidates(
@@ -73,24 +102,36 @@ class PreflightAgent(BaseAgent):
                     closed=state.shape.closed,
                     max_guide_points=workflow.preflight_guide_points,
                 )
-                state.preflight_count += len(fine)
                 if measured is None:
                     # Preserve the measured coarse results if the next batch
                     # is unavailable; no repeated provider retry here.
                     self._record(state, "adaptive preflight unavailable; retaining measured placements")
                     break
-                offset = len(drafts)
-                drafts.extend(fine)
-                measured = self._network_rank(self._valid_results(measured, len(fine)), fine, graph)
-                results.extend(
-                    replace(result, candidate_index=offset + result.candidate_index)
-                    for result in self._valid_results(measured, len(fine))
-                )
-                results = self._valid_results(results, len(drafts))
+                state.preflight_count += len(fine)
+                self._publish_search(state, [*(d for group in family_drafts for d in group), *fine])
+                measured = self._valid_results(measured, len(fine))
+                offset = 0
+                for index, group in enumerate(fine_groups):
+                    local = [replace(r, candidate_index=r.candidate_index - offset) for r in measured
+                             if offset <= r.candidate_index < offset + len(group)]
+                    local = self._network_rank(local, group, graph)
+                    base = len(family_drafts[index])
+                    family_drafts[index].extend(group)
+                    family_results[index].extend(replace(r, candidate_index=base + r.candidate_index) for r in local)
+                    family_results[index] = self._valid_results(family_results[index], len(family_drafts[index]))
+                    offset += len(group)
                 state.history.append({
                     "agent": "preflight", "adaptive_round": round_index,
-                    "placements": len(fine), "best_score": results[0].score if results else None,
+                    "placements": len(fine),
+                    "best_score": max((r.score for group in family_results for r in group), default=None),
                 })
+
+        drafts, results = [], []
+        for group, ranked in zip(family_drafts, family_results, strict=True):
+            offset = len(drafts)
+            drafts.extend(group)
+            results.extend(replace(r, candidate_index=offset + r.candidate_index) for r in ranked)
+        results = self._valid_results(results, len(drafts))
 
         shortlist_size = min(
             max(1, workflow.preflight_shortlist),
@@ -119,11 +160,25 @@ class PreflightAgent(BaseAgent):
                     "lon_offset_m": draft.lon_offset_m,
                 }
             )
-        shortlisted_results = self._diverse_shortlist(
-            results,
-            drafts,
-            shortlist_size,
+        # Independent point snaps cannot predict which later local repairs
+        # will succeed. Preserve the *whole* established shortlist, not just
+        # its proxy winner. Creative alternatives use the additional initial
+        # measurement slots; they never evict an established finalist.
+        established = self._diverse_shortlist(
+            family_results[0], family_drafts[0], shortlist_size, reserve_areas=False,
         )
+        creative_slots = min(2, max(0, getattr(workflow, "initial_placement_candidates", 1) - 1))
+        alternatives = [r for r in results if r.candidate_index >= len(family_drafts[0])]
+        if established:
+            # Keep the strongest creative proxy; diversify its companion
+            # against both families' winners before spending Directions calls.
+            creative_choices = self._diverse_shortlist(
+                alternatives, drafts, creative_slots,
+                other_drafts=[family_drafts[0][established[0].candidate_index]],
+            )
+            shortlisted_results = [established[0], *creative_choices, *established[1:]]
+        else:
+            shortlisted_results = self._diverse_shortlist(results, drafts, shortlist_size)
         ranked_drafts: list[RouteDraft] = []
         for rank, result in enumerate(shortlisted_results, start=1):
             if result.candidate_index >= len(drafts):
@@ -166,15 +221,28 @@ class PreflightAgent(BaseAgent):
         return state
 
     @staticmethod
+    def _publish_search(state, drafts):
+        from ..workflow_runtime import active_workflow_runtime
+
+        # These are measured search areas, not administrative neighbourhoods.
+        state.search_areas = len({
+            (round(draft.lat_offset_m / 750), round(draft.lon_offset_m / 750))
+            for draft in drafts
+        })
+        runtime = active_workflow_runtime()
+        if runtime is not None:
+            runtime.publish_search_progress()
+
+    @staticmethod
     def _network_rank(results, drafts, graph):
         if graph is None:
             return results
         from ..tools.street_graph import connectivity_proxy
         ranked = list(results)
-        deadline = time.monotonic() + 0.4
+        # Bound work by candidates and graph expansions, not machine speed.
+        # A partial wall-clock-dependent prefix changed the winning placement
+        # between identical requests and penalised only whichever rows fit.
         for index, result in enumerate(ranked[:21]):
-            if time.monotonic() > deadline:
-                break
             guides = ors_client._subsample(drafts[result.candidate_index].waypoints, closed=drafts[result.candidate_index].closed, max_points=6)
             connected, detour = connectivity_proxy(graph, guides)
             penalty = 0.08 if connected == 0 else 1 / (1 + max(0, (detour or 1) - 1) * 0.25)
@@ -255,6 +323,9 @@ class PreflightAgent(BaseAgent):
         results: list[ors_client.SnapPreflightResult],
         drafts: list[RouteDraft],
         size: int,
+        *,
+        reserve_areas: bool = True,
+        other_drafts: tuple[RouteDraft, ...] | list[RouteDraft] = (),
     ) -> list[ors_client.SnapPreflightResult]:
         """Keep high-quality placements without returning near-duplicates.
 
@@ -272,22 +343,39 @@ class PreflightAgent(BaseAgent):
         if not valid or size <= 0:
             return []
         selected = [valid.pop(0)]
+        compared = [*other_drafts]
         while valid and len(selected) < size:
+            compared.append(drafts[selected[-1].candidate_index])
+            # Reserve the first visible alternatives for other areas when
+            # their road-fit evidence is comparable. Rotation alone must not
+            # fill all three cards with the same neighbourhood.
+            separated = [
+                result for result in valid
+                if result.score >= max(0.35, selected[0].score * 0.80)
+                and all(cls._different_area(drafts[result.candidate_index], other)
+                        for other in compared)
+            ] if reserve_areas and len(selected) < 3 else []
             def utility(result: ors_client.SnapPreflightResult) -> float:
                 draft = drafts[result.candidate_index]
                 min_diversity = min(
                     cls._draft_diversity(
                         draft,
-                        drafts[chosen.candidate_index],
+                        other,
                     )
-                    for chosen in selected
+                    for other in compared
                 )
                 return 0.82 * result.score + 0.18 * min_diversity
 
-            next_result = max(valid, key=utility)
+            next_result = max(separated or valid, key=utility)
             valid.remove(next_result)
             selected.append(next_result)
         return selected
+
+    @staticmethod
+    def _different_area(first: RouteDraft, second: RouteDraft) -> bool:
+        distance = math.hypot(first.lat_offset_m - second.lat_offset_m,
+                              first.lon_offset_m - second.lon_offset_m)
+        return distance >= max(600.0, 0.5 * min(first.scale_m, second.scale_m))
 
     @staticmethod
     def _draft_diversity(first: RouteDraft, second: RouteDraft) -> float:
@@ -309,7 +397,7 @@ class PreflightAgent(BaseAgent):
         )
         return 0.50 * spatial + 0.30 * rotation + 0.20 * scale
 
-    def _candidate_drafts(self, state: WorkflowState) -> list[RouteDraft]:
+    def _candidate_drafts(self, state: WorkflowState, *, legacy: bool = False) -> list[RouteDraft]:
         if state.route_draft is None or state.shape is None:
             return []
         workflow = get_settings().workflow
@@ -329,6 +417,7 @@ class PreflightAgent(BaseAgent):
             (step, step),
         )
         manual = state.map_placement
+        varied = manual is None and base.anchored_start is None
         offsets: tuple[tuple[float, float], ...]
         if manual is not None:
             manual_step = min(
@@ -350,6 +439,7 @@ class PreflightAgent(BaseAgent):
             offsets = self._city_grid_offsets(
                 base,
                 state.plan.city_bbox if state.plan else None,
+                seed=state.search_seed if varied and not legacy else None,
             )
         if base.anchored_start is not None:
             offsets = ((0.0, 0.0),)
@@ -361,7 +451,7 @@ class PreflightAgent(BaseAgent):
             else (
                 (0.0, -12.0, 12.0, -25.0, 25.0)
                 if manual is not None
-                else (0.0, 30.0, 60.0, 90.0, 120.0, 150.0)
+                else tuple(float(angle) for angle in range(0, 180 if legacy else 360, 30))
             )
         )
         scale_factors = (1.0, 0.90, 1.10) if manual is not None else (1.0, 0.85, 1.15)
@@ -373,44 +463,53 @@ class PreflightAgent(BaseAgent):
 
         candidates: list[RouteDraft] = []
         signatures: set[tuple[float, ...]] = set()
-        for scale_factor in scale_factors:
-            for rotation_delta in rotation_deltas:
-                for lat_delta, lon_delta in offsets:
-                    # Shallow scalar copy suffices: ``project`` below replaces
-                    # the waypoint list wholesale and never reads the base's.
-                    draft = copy.copy(base)
-                    draft.scale_m = max(25.0, base.scale_m * scale_factor)
-                    draft.rotation_deg = (
-                        base.rotation_deg + rotation_delta
-                    ) % 360.0
-                    draft.lat_offset_m = base.lat_offset_m + lat_delta
-                    draft.lon_offset_m = base.lon_offset_m + lon_delta
-                    draft.preflight_score = None
-                    draft.preflight_coverage = None
-                    draft.preflight_snap_distance_m = None
-                    draft.waypoints = placement.project(state.shape, draft)
-                    signature = (
-                        round(draft.scale_m, 1),
-                        round(draft.rotation_deg, 1),
-                        round(draft.lat_offset_m, 1),
-                        round(draft.lon_offset_m, 1),
-                    )
-                    if signature in signatures:
-                        continue
-                    if city_bbox and not self._inside_bbox(draft, city_bbox):
-                        continue
-                    signatures.add(signature)
-                    candidates.append(draft)
-                    if len(candidates) >= maximum:
-                        return candidates
+        transforms = [(scale, rotation, lat, lon)
+                      for scale in scale_factors for rotation in rotation_deltas
+                      for lat, lon in offsets]
+        if manual is None and not legacy:
+            # Sample all scales, orientations and city sectors before the
+            # budget is exhausted, keeping the planned origin as a baseline.
+            baseline, *remaining = transforms
+            random.Random(state.search_seed).shuffle(remaining)
+            transforms = [baseline, *remaining]
+        for scale_factor, rotation_delta, lat_delta, lon_delta in transforms:
+            # Shallow scalar copy suffices: ``project`` below replaces
+            # the waypoint list wholesale and never reads the base's.
+            draft = copy.copy(base)
+            draft.scale_m = max(25.0, base.scale_m * scale_factor)
+            draft.rotation_deg = (
+                base.rotation_deg + rotation_delta
+            ) % 360.0
+            draft.lat_offset_m = base.lat_offset_m + lat_delta
+            draft.lon_offset_m = base.lon_offset_m + lon_delta
+            draft.preflight_score = None
+            draft.preflight_coverage = None
+            draft.preflight_snap_distance_m = None
+            draft.waypoints = placement.project(state.shape, draft)
+            signature = (
+                round(draft.scale_m, 1),
+                round(draft.rotation_deg, 1),
+                round(draft.lat_offset_m, 1),
+                round(draft.lon_offset_m, 1),
+            )
+            if signature in signatures:
+                continue
+            if city_bbox and not self._inside_bbox(draft, city_bbox):
+                continue
+            signatures.add(signature)
+            candidates.append(draft)
+            if len(candidates) >= maximum:
+                return candidates
         return candidates
 
     @staticmethod
     def _city_grid_offsets(
         base: RouteDraft,
         bbox: tuple[float, float, float, float] | None,
+        *,
+        seed: int | None = None,
     ) -> tuple[tuple[float, float], ...]:
-        """Return a 3×3 city-wide translation grid plus the planned origin.
+        """Return stratified city areas, with reproducible per-request jitter.
 
         Template-matching research shows that placement is as important as
         rotation. Sampling the municipality, instead of only nudging one city
@@ -434,7 +533,18 @@ class PreflightAgent(BaseAgent):
         )
 
         offsets: list[tuple[float, float]] = [(0.0, 0.0)]
-        for latitude in latitudes:
+        if seed is not None:
+            rng = random.Random(seed)
+            # One sample in each of sixteen sectors. Jitter changes actual
+            # city areas on repeated requests, rather than just tie-breaking.
+            positions = [
+                (south + (north - south) * (0.12 + 0.76 * (row + rng.random()) / 4),
+                 west + (east - west) * (0.12 + 0.76 * (column + rng.random()) / 4))
+                for row in range(4) for column in range(4)
+            ]
+        else:
+            positions = [(lat, lon) for lat in latitudes for lon in longitudes]
+        for latitude, longitude in positions:
             lat_metres = geo.haversine(
                 base.center_lat,
                 base.center_lon,
@@ -443,23 +553,22 @@ class PreflightAgent(BaseAgent):
             )
             if latitude < base.center_lat:
                 lat_metres *= -1.0
-            for longitude in longitudes:
-                lon_metres = geo.haversine(
-                    base.center_lat,
-                    base.center_lon,
-                    base.center_lat,
-                    longitude,
+            lon_metres = geo.haversine(
+                base.center_lat,
+                base.center_lon,
+                base.center_lat,
+                longitude,
+            )
+            if longitude < base.center_lon:
+                lon_metres *= -1.0
+            # Grid points are absolute city positions, while draft
+            # offsets are relative to the geocoded centre.
+            offsets.append(
+                (
+                    lat_metres - base.lat_offset_m,
+                    lon_metres - base.lon_offset_m,
                 )
-                if longitude < base.center_lon:
-                    lon_metres *= -1.0
-                # Grid points are absolute city positions, while draft
-                # offsets are relative to the geocoded centre.
-                offsets.append(
-                    (
-                        lat_metres - base.lat_offset_m,
-                        lon_metres - base.lon_offset_m,
-                    )
-                )
+            )
         return tuple(dict.fromkeys(offsets))
 
     @staticmethod

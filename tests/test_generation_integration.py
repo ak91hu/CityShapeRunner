@@ -76,7 +76,7 @@ def test_final_distance_repair_accepts_measured_on_road_route_without_losing_sha
     monkeypatch.setattr(Orchestrator, "_measure_route_variants", staticmethod(measure))
     nodes = {"placement": SimpleNamespace(run=lambda trial: trial)}
     Orchestrator()._repair_distance(
-        state, nodes, SimpleNamespace(deadline_exceeded=lambda: False),
+        state, nodes, SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
     assert len(measured) == 1
     assert state.route_draft.scale_m > 2793
@@ -100,7 +100,7 @@ def test_final_distance_repair_rejects_shape_regression_and_restores_incumbent(m
     monkeypatch.setattr(Orchestrator, "_measure_route_variants", staticmethod(measure))
     Orchestrator()._repair_distance(
         state, {"placement": SimpleNamespace(run=lambda trial: trial)},
-        SimpleNamespace(deadline_exceeded=lambda: False),
+        SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
     assert len(state.history) == 4
     assert all(not entry["accepted"] for entry in state.history)
@@ -115,7 +115,7 @@ def test_final_distance_repair_preserves_user_placed_footprint(monkeypatch):
     monkeypatch.setattr(Orchestrator, "_measure_route_variants",
                         staticmethod(lambda *args: pytest.fail("must not reroute")))
     Orchestrator()._repair_distance(
-        state, {}, SimpleNamespace(deadline_exceeded=lambda: False),
+        state, {}, SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
     assert not state.history
 
@@ -286,7 +286,7 @@ def test_shape_polish_preserves_incumbent_and_obeys_budget(monkeypatch, deadline
     monkeypatch.setattr(ors_client, "preflight_route_candidates", preflight)
     monkeypatch.setattr(ors_client, "snap_route_detailed", lambda points, **kw:
         ([original[0], (47.502, 19.03), original[-1]], 9000, True, RouteReadiness()))
-    Orchestrator()._polish_shape(state, nodes, SimpleNamespace(deadline_exceeded=lambda: deadline))
+    Orchestrator()._polish_shape(state, nodes, SimpleNamespace(deadline_exceeded=lambda **_kwargs: deadline))
     assert state.validation is incumbent
     assert state.snapped.points == original
     assert screened == ([] if deadline else [16])
@@ -369,7 +369,7 @@ def test_component_polish_adds_one_challenger_without_displacing_four_incumbent_
                          candidate_state.route_draft.scale_m))
         candidate_state.validation = replace(validation, shape_fidelity=0.7)
     monkeypatch.setattr(Orchestrator, "_measure_route_variants", staticmethod(measure))
-    Orchestrator()._polish_shape(state, {}, SimpleNamespace(deadline_exceeded=lambda: False))
+    Orchestrator()._polish_shape(state, {}, SimpleNamespace(deadline_exceeded=lambda **_kwargs: False))
     assert measured[:4] == [(0, 0, 500), (1, 0, 500), (2, 0, 500), (3, 0, 500)]
     assert len(measured) == 5
     assert measured[-1][0] not in {0, 1, 2, 3}

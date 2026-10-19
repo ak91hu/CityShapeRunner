@@ -19,6 +19,7 @@ import contextvars
 import copy
 import logging
 import math
+import secrets
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
@@ -49,6 +50,11 @@ log = logging.getLogger(__name__)
 # enforce per-minute quotas; a small pool already collapses the wall-clock
 # time of the recovery/suggestion/fallback searches from a sum to a maximum.
 _MAX_MEASUREMENT_WORKERS = 6
+
+
+class _SearchBudgetReached(RuntimeError):
+    """An optional queued measurement was never started."""
+
 
 # Equal-arc diagnostics use 256 samples. Local street edits can therefore
 # produce real but sub-0.0005 component gains near a phase boundary. Let those
@@ -183,6 +189,7 @@ class Orchestrator:
         reference_name: str | None = None,
         reference_kind: str | None = None,
         map_placement: MapPlacement | None = None,
+        search_seed: int | None = None,
         event_sink: Callable[[dict[str, Any]], None] | None = None,
         preview_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> WorkflowState:
@@ -206,6 +213,7 @@ class Orchestrator:
             reference_name=reference_name,
             reference_kind=reference_kind,
             map_placement=copy.deepcopy(map_placement),
+            search_seed=search_seed if search_seed is not None else (secrets.randbits(32) or 1),
         )
         cfg = get_settings().workflow
         runtime = WorkflowRuntime(
@@ -213,9 +221,28 @@ class Orchestrator:
             max_duration_seconds=cfg.max_duration_seconds,
             max_llm_calls=cfg.max_llm_calls,
             max_events=cfg.max_trace_events,
+            optimization_budget_seconds=cfg.optimization_budget_seconds,
             event_sink=event_sink,
             preview_sink=preview_sink,
         )
+        try:
+            return self._run_workflow(state, runtime, intent_override=intent_override)
+        except Exception as exc:
+            runtime.fail(exc)
+            raise
+        finally:
+            # All measurement pools join before returning or propagating an
+            # exception, so no worker can still be using these connections.
+            runtime.close_routing_client()
+
+    def _run_workflow(
+        self,
+        state: WorkflowState,
+        runtime: WorkflowRuntime,
+        *,
+        intent_override: Intent | None = None,
+    ) -> WorkflowState:
+        cfg = get_settings().workflow
         n = runtime.instrument_nodes(self.nodes)
 
         # --- linear pass --------------------------------------------------- #
@@ -250,12 +277,17 @@ class Orchestrator:
         n["shape"].run(state)
         n["placement"].run(state)
         n["preflight"].run(state)
-        self._measure_route_variants(state, n)
+        initial_extra = self._measure_initial_placements(state, n, runtime) or 0
         self._recover_unroutable_placement(state, n, runtime=runtime)
         self._evaluate_suggestion_candidates(state, n, runtime=runtime)
 
         threshold = cfg.validation_score_threshold
-        max_iter = cfg.max_refinement_iterations
+        # Additional creative initial placements do not displace established
+        # finalists. Constrained searches without that extra family retain
+        # one combined budget and avoid extra blind refinement iterations.
+        extra_finalists = max(0, len(state.placement_candidates) + initial_extra
+                              - max(0, cfg.preflight_shortlist - 1))
+        max_iter = max(0, cfg.max_refinement_iterations - max(0, initial_extra - extra_finalists))
 
         best_v = state.validation
         best_snapped = copy.deepcopy(state.snapped)
@@ -276,7 +308,7 @@ class Orchestrator:
         while (
             best_v.on_roads
             and not self._passes_quality(best_v)
-            and not runtime.deadline_exceeded()
+            and not runtime.deadline_exceeded(quality_required=True)
             and state.iterations < max_iter
         ):
             state.iterations += 1
@@ -362,7 +394,8 @@ class Orchestrator:
         # distance, and closure checks as the original.
         self._evaluate_fallback_candidates(state, n, runtime=runtime)
         from .tools.route_review import review_finalists
-        if state.snapped and state.snapped.snapped and cfg.ai_route_verifier_enabled:
+        if (state.snapped and state.snapped.snapped and cfg.ai_route_verifier_enabled
+                and not runtime.deadline_exceeded()):
             runtime.run_step("route_review", lambda: review_finalists(state), recoverable=True)
         if state.validation is not None:
             best_v = state.validation
@@ -432,6 +465,59 @@ class Orchestrator:
             configured = 1
         return max(1, min(configured, _MAX_MEASUREMENT_WORKERS, max(1, job_count)))
 
+    def _measure_initial_placements(self, state, nodes, runtime) -> int:
+        """Measure distinct preflight areas together, keeping all routed results.
+
+        Previously a passing first placement meant no area alternatives at all;
+        failures consumed the same shortlist through serial refinement passes.
+        The existing bounded pool now overlaps the first three measurements.
+        """
+        count = max(1, min(3, get_settings().workflow.initial_placement_candidates))
+        if not state.placement_candidates or count == 1 or runtime.deadline_exceeded():
+            self._measure_route_variants(state, nodes)
+            return 0
+        drafts = [state.route_draft, *state.placement_candidates[:count - 1]]
+        state.placement_candidates = state.placement_candidates[count - 1:]
+        jobs = []
+        for draft in drafts:
+            trial = self._measurement_shell(state)
+            trial.errors = list(state.errors)
+            trial.route_draft = copy.deepcopy(draft)
+            trial.candidate_count = 0
+            trial.preflight_count = 0
+            jobs.append(("road_recovery", trial, ""))
+        results = self._measure_candidates(jobs, nodes, runtime=runtime, mandatory_first=True)
+        winner = None
+        unmeasured = []
+        for draft, (trial, error) in zip(drafts, results, strict=True):
+            if isinstance(error, _SearchBudgetReached):
+                # The quality loop may still need this placement after the
+                # shorter exploration budget; it was never measured here.
+                unmeasured.append(copy.deepcopy(draft))
+                continue
+            state.candidate_count += trial.candidate_count
+            state.candidates.extend(trial.candidates)
+            state.history.extend(trial.history)
+            if error is not None or trial.validation is None:
+                continue
+            if winner is None or self._candidate_is_better(trial.validation, winner.validation):
+                winner = trial
+        state.placement_candidates = [*unmeasured, *state.placement_candidates]
+        if winner is None:
+            # Keep the original mandatory failure semantics if all speculative
+            # workers failed, rather than inventing a usable route.
+            self._measure_route_variants(state, nodes)
+            return 0
+        state.route_draft = winner.route_draft
+        state.snapped = winner.snapped
+        state.validation = winner.validation
+        state.errors = winner.errors
+        state.history.append({
+            "agent": "parallel_placements", "queued_placements": len(jobs),
+            "placements": sum(not isinstance(error, _SearchBudgetReached) for _, error in results),
+        })
+        return max(0, sum(not isinstance(error, _SearchBudgetReached) for _, error in results) - 1)
+
     @staticmethod
     def _contour_inputs(state: WorkflowState) -> tuple[tuple[LatLon, ...], tuple[LatLon, ...]]:
         """The only geometry the post-graph reconnect screens depend on."""
@@ -466,6 +552,9 @@ class Orchestrator:
         nodes: Mapping[str, WorkflowNode],
         *,
         fallback_sources: list[WorkflowState] | None = None,
+        runtime: WorkflowRuntime | None = None,
+        mandatory_first: bool = False,
+        quality_required: bool = False,
     ) -> list[tuple[WorkflowState, Exception | None]]:
         """Measure independent candidate pipelines concurrently, in input order.
 
@@ -486,6 +575,12 @@ class Orchestrator:
 
         def execute(index: int) -> tuple[WorkflowState, Exception | None]:
             label, job_state, shape_name = jobs[index]
+            if (runtime is not None and runtime.deadline_exceeded(quality_required=quality_required)
+                    and not (mandatory_first and index == 0)):
+                skipped = self._measurement_shell(job_state)
+                skipped.candidate_count = skipped.preflight_count = 0
+                skipped.validation = skipped.snapped = None
+                return skipped, _SearchBudgetReached("optional_search_budget_reached")
             source = measurement_sources[index]
             context = contexts[index]
             try:
@@ -544,10 +639,10 @@ class Orchestrator:
                 or state.validation.reversal_similarity >= cfg.workflow.min_shape_fidelity
                 or state.route_draft.anchored_start is not None
                 or state.route_draft.preferred_start_direction_deg is not None
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         graph = street_graph.graph_for_state(state)
-        if graph is None or runtime.deadline_exceeded():
+        if graph is None or runtime.deadline_exceeded(quality_required=True):
             return
         draft = state.route_draft
         proposal = street_graph.shape_route(
@@ -555,7 +650,7 @@ class Orchestrator:
             target_m=draft.target_distance_km * 1000 if draft.target_distance_km else None,
             closed=draft.closed, seconds=cfg.routing.shape_graph_seconds, reuse_penalty=3,
         )
-        if proposal is None or runtime.deadline_exceeded():
+        if proposal is None or runtime.deadline_exceeded(quality_required=True):
             return
         best = (state.snapped, state.validation, list(state.errors))
         state.pending_direct_guides = proposal.points
@@ -573,11 +668,11 @@ class Orchestrator:
 
         if (not state.route_draft or not state.snapped or not state.validation
                 or not state.validation.on_roads or self._passes_quality(state.validation)
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         proposals = detour_guides(state.route_draft.waypoints, state.snapped.points)
         for guides in proposals:
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 break
             best = (state.snapped, state.validation, list(state.errors))
             state.pending_direct_guides = guides
@@ -609,7 +704,7 @@ class Orchestrator:
 
         if (not state.route_draft or not state.snapped or not state.validation
                 or not state.validation.on_roads or self._passes_quality(state.validation)
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         proposals = reconnect_guides(
             state.route_draft.waypoints,
@@ -618,7 +713,7 @@ class Orchestrator:
             reference_guided=reference_guided,
         )
         for guides in proposals:
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 break
             best = (state.snapped, state.validation, list(state.errors))
             state.pending_direct_guides = guides
@@ -653,7 +748,7 @@ class Orchestrator:
                 or state.validation.turning_similarity >= cfg.min_shape_fidelity
                 or state.route_draft.anchored_start is not None
                 or state.route_draft.preferred_start_direction_deg is not None
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         reference = state.route_draft.waypoints
         baseline = shape_similarity.similarity_diagnostics_between_routes(
@@ -673,7 +768,7 @@ class Orchestrator:
                              + proxy.length_similarity, index, guides, proxy))
         screened.sort(key=lambda row: (-row[0], row[1]))
         for _, index, guides, proxy in screened[:3]:
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 return
             best = (state.snapped, state.validation, list(state.errors))
             state.pending_direct_guides = guides
@@ -716,15 +811,15 @@ class Orchestrator:
                     and state.validation.length_similarity >= cfg.workflow.min_shape_fidelity)
                 or state.route_draft.anchored_start is not None
                 or state.route_draft.preferred_start_direction_deg is not None
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         graph = street_graph.graph_for_state(state)
-        if graph is None or runtime.deadline_exceeded():
+        if graph is None or runtime.deadline_exceeded(quality_required=True):
             return
 
         reference = state.route_draft.waypoints
         for attempt in range(1, 4):
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 return
             route = state.snapped.points
             baseline = shape_similarity.similarity_diagnostics_between_routes(reference, route)
@@ -744,7 +839,7 @@ class Orchestrator:
             seen = set()
             screened_guides = set()
             for candidate, phase_targeted in candidates:
-                if runtime.deadline_exceeded():
+                if runtime.deadline_exceeded(quality_required=True):
                     break
                 signature = tuple(candidate)
                 if signature in seen:
@@ -806,7 +901,7 @@ class Orchestrator:
                                      diagnostics.length_similarity, guides, proposal,
                                      phase_targeted, dense_guides))
 
-            if not screened or runtime.deadline_exceeded():
+            if not screened or runtime.deadline_exceeded(quality_required=True):
                 return
             baseline_bottleneck = min(
                 getattr(baseline, metric) for metric in _GRAPH_BOTTLENECK_COMPONENTS
@@ -882,7 +977,7 @@ class Orchestrator:
                 or incumbent.distance_fit >= distance_fit_minimum(incumbent.target_distance_km)
                 or state.map_placement is not None
                 or draft.target_distance_km is None or draft.target_distance_km <= 0
-                or snapped.total_distance_m <= 0 or runtime.deadline_exceeded()):
+                or snapped.total_distance_m <= 0 or runtime.deadline_exceeded(quality_required=True)):
             return
         ratio = draft.target_distance_km * 1000 / snapped.total_distance_m
         if not math.isfinite(ratio) or abs(ratio - 1.0) < 0.02:
@@ -898,7 +993,7 @@ class Orchestrator:
                    damped, ratio)
         tried_scales: set[float] = set()
         for factor in factors:
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 break
             scale = min(200_000.0, max(25.0, original[0].scale_m * min(1.4, max(0.7, factor))))
             if round(scale, 1) in tried_scales:
@@ -967,7 +1062,7 @@ class Orchestrator:
         if (not limit or not cfg.preflight_adaptive or not state.preflight_count
                 or not state.route_draft or not state.validation or not state.intent
                 or not state.validation.on_roads or self._passes_quality(state.validation)
-                or runtime.deadline_exceeded()):
+                or runtime.deadline_exceeded(quality_required=True)):
             return
         preflight = PreflightAgent()
         drafts = preflight._refined_drafts(
@@ -985,7 +1080,7 @@ class Orchestrator:
         results = preflight._valid_results(results, len(drafts))
         shortlisted = preflight._diverse_shortlist(results, drafts, limit)
         for result in shortlisted:
-            if runtime.deadline_exceeded():
+            if runtime.deadline_exceeded(quality_required=True):
                 break
             best = (state.route_draft, state.snapped, state.validation, list(state.errors))
             state.route_draft = drafts[result.candidate_index]
@@ -1006,7 +1101,7 @@ class Orchestrator:
         forced_draft = None
         forced_score = None
         if (component_seed_result is not None and not self._passes_quality(state.validation)
-                and not runtime.deadline_exceeded()):
+                and not runtime.deadline_exceeded(quality_required=True)):
             component_seed, measured_km = component_seed_result
             projector = PlacementAgent()
             step = min(80.0, max(25.0, component_seed.scale_m * 0.035))
@@ -1040,7 +1135,7 @@ class Orchestrator:
             screened = []
             if graph is not None:
                 for draft in component_drafts:
-                    if runtime.deadline_exceeded():
+                    if runtime.deadline_exceeded(quality_required=True):
                         break
                     proposal = street_graph.shape_route(
                         graph,
@@ -1063,7 +1158,7 @@ class Orchestrator:
                                       "lon_offset_m": forced_draft.lon_offset_m,
                                       "graph_fidelity": forced_score})
         if (forced_draft is not None and not self._passes_quality(state.validation)
-                and not runtime.deadline_exceeded()):
+                and not runtime.deadline_exceeded(quality_required=True)):
             best = (state.route_draft, state.snapped, state.validation, list(state.errors))
             state.route_draft = forced_draft
             self._measure_route_variants(state, nodes)
@@ -1214,6 +1309,7 @@ class Orchestrator:
             validation is None
             or primary_is_connected
             or not state.placement_candidates
+            or (runtime is not None and runtime.deadline_exceeded(quality_required=True))
         ):
             return
 
@@ -1232,7 +1328,7 @@ class Orchestrator:
             job_state.route_draft = copy.deepcopy(draft)
             jobs.append(("road_recovery", job_state, ""))
 
-        results = self._measure_candidates(jobs, nodes)
+        results = self._measure_candidates(jobs, nodes, runtime=runtime, quality_required=True)
 
         connected_index: int | None = None
         total_candidate_count = 0
@@ -1416,7 +1512,7 @@ class Orchestrator:
             ]
             # Near the deadline further replacement routings cannot finish
             # inside the client timeout; keep the requested route instead.
-            if runtime is not None and runtime.deadline_exceeded():
+            if runtime is not None and runtime.deadline_exceeded(quality_required=True):
                 log.warning(
                     "fallback search skipped: workflow deadline already exceeded"
                 )
@@ -1432,6 +1528,8 @@ class Orchestrator:
                 jobs,
                 nodes,
                 fallback_sources=[primary_state] * len(jobs),
+                runtime=runtime,
+                quality_required=True,
             )
 
             for candidate_name, (candidate, _error) in zip(
@@ -1439,6 +1537,8 @@ class Orchestrator:
                 results,
                 strict=True,
             ):
+                if isinstance(_error, _SearchBudgetReached):
+                    continue
                 attempted.append(candidate_name)
                 state.candidate_count += candidate.candidate_count
                 state.preflight_count += candidate.preflight_count
@@ -1823,7 +1923,7 @@ class Orchestrator:
         ]
         # Near the deadline further template routings cannot finish inside the
         # client timeout; keep the best measured route instead.
-        if runtime is not None and runtime.deadline_exceeded():
+        if runtime is not None and runtime.deadline_exceeded(quality_required=True):
             log.warning(
                 "suggestion search skipped: workflow deadline already exceeded"
             )
@@ -1840,7 +1940,7 @@ class Orchestrator:
             candidate_state.route_draft = None
             jobs.append(("candidate", candidate_state, candidate_name))
 
-        results = self._measure_candidates(jobs, nodes)
+        results = self._measure_candidates(jobs, nodes, runtime=runtime, quality_required=True)
 
         for candidate_name, (candidate_state, _error) in zip(
             [job[2] for job in jobs],
@@ -1946,6 +2046,7 @@ def generate(
     reference_name: str | None = None,
     reference_kind: str | None = None,
     map_placement: MapPlacement | None = None,
+    search_seed: int | None = None,
     event_sink: Callable[[dict[str, Any]], None] | None = None,
     preview_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> WorkflowState:
@@ -1962,6 +2063,7 @@ def generate(
         reference_name=reference_name,
         reference_kind=reference_kind,
         map_placement=map_placement,
+        search_seed=search_seed,
         event_sink=event_sink,
         preview_sink=preview_sink,
     )

@@ -1,7 +1,7 @@
 """Repository hygiene guards.
 
 Ad-hoc pytest runs with custom ``--basetemp`` values historically littered the
-repo root with scratch directories (see docs/2026-07-30-lessons-learned.md).
+repo root with scratch directories (see docs/reports/2026-07-30-lessons-learned.md).
 The junk was removed once; these tests keep it from coming back unnoticed:
 
 1. legacy scratch directory names must not reappear at the repo root;

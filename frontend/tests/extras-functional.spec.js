@@ -3,19 +3,13 @@ import { expect, test } from "playwright/test";
 import {
   installCommonMocks,
   openGeneratedRoute,
+  openOptionalRouteTools,
   routePoints,
 } from "./support/functional-fixtures.js";
 
 test.beforeEach(async ({ page }) => {
   await installCommonMocks(page);
 });
-
-async function openOptionalRouteTools(page) {
-  const tools = page.locator(".route-lab");
-  if (!(await tools.locator(".route-lab-grid").isVisible())) {
-    await tools.locator("summary").click();
-  }
-}
 
 test("route-lab groups its tools under four labelled headings", async ({ page }) => {
   await openGeneratedRoute(page);

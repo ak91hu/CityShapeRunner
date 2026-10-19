@@ -265,7 +265,7 @@ def test_orchestrator_reroutes_proposal_and_restores_incumbent_on_failure(monkey
     method = {"detour": orchestrator._repair_detours,
               "reversal": orchestrator._repair_reversals}.get(repair, orchestrator._reconnect_contour)
     method(state, {"snap": SnapAgent(), "validation": ValidationAgent()},
-           SimpleNamespace(deadline_exceeded=lambda: deadline),
+           SimpleNamespace(deadline_exceeded=lambda **_kwargs: deadline),
            **({"reference_guided": True} if repair == "reference" else {}))
     if deadline:
         assert calls == []
@@ -304,7 +304,7 @@ def test_post_graph_reconnect_forwards_its_narrow_limit_and_stage(monkeypatch):
     Orchestrator()._reconnect_contour(
         state,
         {},
-        SimpleNamespace(deadline_exceeded=lambda: False),
+        SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
         reference_guided=True,
         limit=1,
         stage="post_graph",
@@ -358,7 +358,7 @@ def test_direct_turn_repair_routes_reference_guides_and_rolls_back(monkeypatch, 
     monkeypatch.setattr(ors_client, "snap_route_detailed", router)
     Orchestrator()._repair_turns_directly(
         state, {"snap": SnapAgent(), "validation": ValidationAgent()},
-        SimpleNamespace(deadline_exceeded=lambda: deadline),
+        SimpleNamespace(deadline_exceeded=lambda **_kwargs: deadline),
     )
     if deadline:
         assert calls == []
@@ -443,7 +443,7 @@ def test_graph_contour_repair_splices_one_local_path_and_rolls_back(monkeypatch,
     Orchestrator()._repair_contour_with_graph(
         state,
         {"snap": SnapAgent(), "validation": ValidationAgent()},
-        SimpleNamespace(deadline_exceeded=lambda: False),
+        SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
 
     assert len(graph_calls) == (2 if source == "turning" else 1)
@@ -557,7 +557,7 @@ def test_graph_contour_repair_recomputes_two_follow_ups_for_a_failed_shape_gate(
     monkeypatch.setattr(Orchestrator, "_measure_route_variants", staticmethod(measure))
 
     Orchestrator()._repair_contour_with_graph(
-        state, {}, SimpleNamespace(deadline_exceeded=lambda: False),
+        state, {}, SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
 
     assert measurements == 3
@@ -602,7 +602,7 @@ def test_graph_contour_repair_considers_length_failure_when_turns_pass(monkeypat
                         lambda *args, **kwargs: pytest.fail("turning guides are not needed"))
 
     Orchestrator()._repair_contour_with_graph(
-        state, {}, SimpleNamespace(deadline_exceeded=lambda: False),
+        state, {}, SimpleNamespace(deadline_exceeded=lambda **_kwargs: False),
     )
     assert calls == ["graph", "reconnect", "reconnect"]
 
@@ -629,6 +629,6 @@ def test_reversal_repair_skips_inapplicable_or_expired_search(monkeypatch, reaso
     def unexpected(*args, **kwargs):
         pytest.fail("No graph search or provider request should start")
     monkeypatch.setattr(street_graph, "shape_route", unexpected)
-    runtime = SimpleNamespace(deadline_exceeded=lambda: bool(calls))
+    runtime = SimpleNamespace(deadline_exceeded=lambda **_kwargs: bool(calls))
     Orchestrator()._repair_reversals(state, {}, runtime)
     assert calls == (["graph"] if reason == "expired_after_graph" else [])

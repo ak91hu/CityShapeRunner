@@ -1,5 +1,5 @@
-/* Visual identity only: the planner's state, ordering and interactions live in
-   the existing components. Kept separate from the legacy feature styles. */
+/* Shared visual identity and responsive planner layout.
+   Feature-specific styles live in styles.css. */
 :root {
   --canvas: #f3f1ea;
   --surface: #fffef9;
@@ -7,7 +7,7 @@
   --surface-tint: #eaf0eb;
   --ink: #20382f;
   --ink-soft: #44574e;
-  --muted: #617168;
+  --muted: #53645a;
   --line: #d7ddd3;
   --line-strong: #7f9285;
   --brand: #226047;
@@ -71,12 +71,17 @@ footer { min-height: 3.25rem; padding-block: 0.7rem; }
 
 .generator-stage {
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.2fr);
+  grid-template-areas: "intro form" "example form";
+  grid-template-rows: min-content 1fr;
   gap: clamp(2rem, 4vw, 3rem);
+  row-gap: 1.5rem;
   padding-block: 2.75rem 1.25rem;
   align-items: start;
 }
 
-.planner-intro { max-width: 29rem; padding-top: 0.5rem; }
+.planner-intro { grid-area: intro; max-width: 29rem; padding-top: 0.5rem; }
+.generator-stage > .studio-art { grid-area: example; width: 100%; margin: 0; }
+.generator-stage > .designer-card { grid-area: form; min-width: 0; }
 .studio-eyebrow {
   display: block;
   margin-bottom: 1.25rem;
@@ -189,6 +194,8 @@ textarea:focus, input:focus, select:focus {
   box-shadow: 0 0 0 3px var(--brand-soft);
 }
 .field-help { font-size: 0.75rem; line-height: 1.6; }
+.planner-idea-step > .prompt-actions { margin-bottom: 1.25rem; }
+.occasion-chip em { color: var(--accent-dark); }
 .idea-list { gap: 0.5rem; }
 .idea-chip {
   min-height: 2.75rem;
@@ -219,20 +226,30 @@ textarea:focus, input:focus, select:focus {
   border-radius: 1rem;
   box-shadow: var(--shadow-sm);
 }
-.gallery-heading h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -0.04em; }
+.gallery-heading :is(h1, h2) { font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -0.04em; }
 .gallery-card { overflow: hidden; background: var(--surface); }
 .gallery-card > div { padding: 1rem; }
 .gallery-state--empty { min-height: 16rem; background: var(--surface); border-style: solid; gap: 0.6rem; }
 .gallery-empty-mark { margin-bottom: 0.5rem; }
 .gallery-state--empty strong { font-family: Georgia, "Times New Roman", serif; font-size: 1.55rem; font-weight: 400; color: var(--ink); }
 .candidate-card--selected { border-color: var(--brand); background: var(--brand-soft); box-shadow: inset 3px 0 var(--brand); }
+.candidate-option { min-width: 0; }
+.candidate-option > .candidate-card { width: 100%; height: 100%; }
 .candidate-card-metrics b { font-variant-numeric: tabular-nums; }
+.candidate-card-topline { flex-wrap: wrap; font-size: 0.6875rem; }
+.candidate-card-topline b { font-size: 0.6875rem; }
+.candidate-card-metrics { font-size: 0.75rem; }
+.candidate-card-metrics b { font-size: 0.875rem; }
+.candidate-search-proof, .candidate-compare-heading > span { font-size: 0.75rem; }
+.candidate-more > summary { min-height: 2.75rem; padding-block: 0.65rem; font-size: 0.8125rem; }
 .gallery-thumbnail:focus-visible { outline-offset: -5px; }
 .gallery-lightbox { border-radius: 1.25rem; }
-.section-heading h2 { letter-spacing: -0.035em; }
+.section-heading :is(h1, h2) { letter-spacing: -0.035em; }
 
 @media (max-width: 68rem) {
-  .generator-stage { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-block: 1.75rem 1rem; }
+  .result-layout { grid-template-columns: minmax(0, 1fr); }
+  .map-card, .route-output, .result-sidebar { grid-column: 1; grid-row: auto; min-width: 0; }
+  .generator-stage { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "form" "example"; grid-template-rows: auto; gap: 1.5rem; padding-block: 1.75rem 1rem; }
   .planner-intro { max-width: none; }
   .planner-intro h1 { max-width: 22ch; font-size: clamp(2.4rem, 6vw, 3.6rem); }
   .planner-intro-copy { max-width: 65ch; }
@@ -303,4 +320,91 @@ textarea:focus, input:focus, select:focus {
   .brand-copy strong { font-size: 2.1rem; }
   .brand-copy small { font-size: 0.7rem; }
   .site-header nav a { padding-inline: 0.4rem; font-size: 0.6875rem; white-space: nowrap; }
+}
+
+/* Keep every planning method discoverable without expanding optional forms. */
+.planner-start-links { margin: 0 0 1.1rem; }
+.planner-start-links p { margin: 0 0 0.4rem; font-size: 0.78rem; color: var(--ink-soft); }
+.planner-start-links > div { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.planner-start-links button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--brand-dark);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+.planner-start-links button:hover { background: var(--brand-soft); border-color: var(--brand); }
+.planner-start-links button span { color: var(--brand); }
+[id^="planner-start-"] { scroll-margin-top: 1rem; }
+.idea-filter { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); align-items: stretch; gap: 0.4rem 0.75rem; }
+.idea-filter > label { grid-column: 1; }
+.idea-filter > input { grid-column: 1; grid-row: 2; width: 100%; }
+.idea-category-field { display: grid; gap: 0.4rem; grid-column: 2; grid-row: 1 / 3; min-width: 0; }
+.idea-category-field select { width: 100%; min-width: 0; min-height: 2.75rem; padding: 0.6rem; font: inherit; font-size: 0.8rem; }
+.idea-filter-status { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.75rem; }
+.idea-filter-status > span { padding: 0; }
+.idea-filter-status .button { padding: 0.4rem 0.7rem; }
+.error-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1rem; }
+.loading-quiet-note { padding: 0.65rem; border-left: 3px solid var(--line-strong); background: var(--surface-tint); font-size: 0.8rem; line-height: 1.5; }
+.waiting-game { margin-block: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.waiting-game summary { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; min-height: 3rem; padding: 0.7rem; cursor: pointer; list-style: none; }
+.waiting-game summary::-webkit-details-marker { display: none; }
+.waiting-game summary strong, .waiting-game summary small { display: block; }
+.waiting-game summary strong { font-size: 0.85rem; }
+.waiting-game summary small { margin-top: 0.2rem; font-size: 0.73rem; color: var(--muted); line-height: 1.4; }
+.waiting-game-body { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 0.75rem; border-top: 1px solid var(--line); padding: 0.8rem; }
+.waiting-game-body > svg { width: 4.5rem; height: 4.5rem; fill: var(--brand-soft); stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; }
+.waiting-game-body p { margin: 0 0 0.6rem; font-size: 0.8rem; line-height: 1.5; }
+.waiting-game-answers { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.waiting-game button { min-height: 2.75rem; padding: 0.4rem 0.65rem; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--brand-dark); background: var(--surface); font: inherit; font-size: 0.76rem; cursor: pointer; }
+.waiting-game button:hover, .waiting-game button[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); }
+.waiting-game button:disabled { cursor: default; }
+.waiting-game-feedback { grid-column: 1 / -1; padding: 0.65rem; background: var(--surface-tint); border-radius: var(--radius-sm); }
+.waiting-game-footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.waiting-game-footer small { color: var(--muted); font-size: 0.7rem; }
+.site-header nav a { flex: 1 1 auto; }
+@media (max-width: 48rem) {
+  .result-layout, .map-card, .route-output, .result-sidebar { min-width: 0; }
+  .readiness-heading, .readiness-subheading { flex-wrap: wrap; gap: 0.5rem; }
+  .candidate-card-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+    margin-inline: 0;
+    padding-inline: 0;
+    scroll-snap-type: none;
+  }
+  .candidate-card-topline { flex-wrap: wrap; }
+  .loading-card--journey { grid-template-rows: minmax(0, 1fr) minmax(6rem, 22dvh) auto; align-content: stretch; overflow: hidden; }
+  .loading-card--journey .loading-content { min-height: 0; height: 100%; overflow-y: auto; scroll-padding-top: 3.5rem; padding: 0.2rem 0.25rem 0.4rem; }
+  .loading-card--journey .loading-heading-row { position: sticky; top: 0; z-index: 3; padding-block: 0.3rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .loading-card--journey .loading-visual { min-height: 0; }
+  .loading-card--journey .loading-preview { grid-area: visual; min-height: 0; overflow-y: auto; }
+  .loading-preview .route-map { height: 10rem; min-height: 10rem; }
+  .waiting-game-body { grid-template-columns: 3rem minmax(0, 1fr); }
+  .waiting-game-body > svg { width: 3rem; height: 3rem; }
+  .designer-card textarea,
+  .designer-card select,
+  .designer-card input:not([type="checkbox"]):not([type="radio"]) { font-size: 1rem; }
+}
+@media (max-width: 38rem) {
+  .planner-intro h1 { font-size: 2rem; }
+  .planner-intro-copy { margin-bottom: 0.7rem; }
+  .planner-proof li { gap: 0.4rem; }
+  .planner-safety-note { margin-bottom: 0; }
+  .planner-start-links > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .planner-start-links button { gap: 0.25rem; padding: 0.5rem; font-size: 0.75rem; }
+  .planner-start-links button span { display: none; }
+  .idea-filter { grid-template-columns: minmax(0, 1fr); }
+  .idea-category-field { grid-column: 1; grid-row: 3; }
 }

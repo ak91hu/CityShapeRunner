@@ -7,6 +7,7 @@ small, typed operational record and a shared budget for optional LLM calls.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
@@ -19,6 +20,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+
+import httpx
 
 if TYPE_CHECKING:
     from .state import WorkflowState
@@ -65,6 +68,7 @@ class WorkflowTrace:
     started_at: str
     max_duration_seconds: float
     max_llm_calls: int
+    optimization_budget_seconds: float | None = None
     duration_ms: int | None = None
     step_attempts: dict[str, int] = field(default_factory=dict)
     step_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -105,6 +109,7 @@ class WorkflowTrace:
             "limits": {
                 "max_duration_seconds": self.max_duration_seconds,
                 "max_llm_calls": self.max_llm_calls,
+                "optimization_budget_seconds": self.optimization_budget_seconds,
             },
             "steps": {
                 "attempts": dict(self.step_attempts),
@@ -172,6 +177,28 @@ _ACTIVE_RUNTIME: ContextVar[WorkflowRuntime | None] = ContextVar(
 _ACTIVE_STAGES: ContextVar[tuple[str, ...]] = ContextVar(
     "gps_art_workflow_stages", default=()
 )
+_CANCELLATION_SIGNAL: ContextVar[threading.Event | None] = ContextVar(
+    "gps_art_cancellation", default=None
+)
+
+
+class WorkflowCancelledError(asyncio.CancelledError):
+    """Cancellation is control flow; provider fallback handlers must not swallow it."""
+
+
+@contextmanager
+def cancellation_scope(signal: threading.Event):
+    token = _CANCELLATION_SIGNAL.set(signal)
+    try:
+        yield
+    finally:
+        _CANCELLATION_SIGNAL.reset(token)
+
+
+def check_cancellation() -> None:
+    signal = _CANCELLATION_SIGNAL.get()
+    if signal is not None and signal.is_set():
+        raise WorkflowCancelledError()
 
 
 def active_workflow_runtime() -> WorkflowRuntime | None:
@@ -190,6 +217,7 @@ class WorkflowRuntime:
         max_duration_seconds: float,
         max_llm_calls: int,
         max_events: int = 256,
+        optimization_budget_seconds: float | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], datetime] | None = None,
         event_sink: Callable[[dict[str, Any]], None] | None = None,
@@ -210,6 +238,8 @@ class WorkflowRuntime:
         self._event_sink = event_sink
         self._preview_sink = preview_sink
         self._preview_sent = False
+        self._connected_routes: set[int] = set()
+        self._routing_client: httpx.Client | None = None
         # A caller may reuse its request ID; memoised routing must never cross
         # the boundary between two distinct workflow executions.
         self.cache_scope = uuid.uuid4().hex
@@ -223,6 +253,10 @@ class WorkflowRuntime:
             # -1 is the explicit unlimited sentinel used by cost-zero models.
             # Zero remains useful for deterministic-only runs and tests.
             max_llm_calls=max(-1, int(max_llm_calls)),
+            optimization_budget_seconds=(
+                min(max(1.0, float(optimization_budget_seconds)), max(1.0, float(max_duration_seconds)))
+                if optimization_budget_seconds is not None else None
+            ),
         )
         state.workflow = self.trace
         log.info(
@@ -253,6 +287,28 @@ class WorkflowRuntime:
                 )
                 requests = metric["routing_requests"]
                 requests[endpoint] = requests.get(endpoint, 0) + 1
+            stages = _ACTIVE_STAGES.get()
+            active_stage = stages[-1] if stages else None
+            attempt = self.trace.step_attempts.get(active_stage, 1) if active_stage else 1
+        # Publish before waiting on the provider, including retries. Otherwise
+        # the visible request count can remain at zero throughout a slow call.
+        if active_stage is not None:
+            self._emit(active_stage, attempt, StepStatus.RUNNING)
+
+    def routing_client(self) -> httpx.Client:
+        """Share HTTP connections across this run's bounded routing workers."""
+        with self._lock:
+            if self._routing_client is None:
+                self._routing_client = httpx.Client(
+                    limits=httpx.Limits(max_connections=6, max_keepalive_connections=6),
+                )
+            return self._routing_client
+
+    def close_routing_client(self) -> None:
+        with self._lock:
+            client, self._routing_client = self._routing_client, None
+        if client is not None:
+            client.close()
 
     def record_routing_failure(self, endpoint: str, category: str) -> None:
         key = f"{endpoint}.{category}"
@@ -261,8 +317,6 @@ class WorkflowRuntime:
 
     def publish_preview(self, state: WorkflowState) -> None:
         """Show only the first provider-routed, connected candidate; never expose an export."""
-        if self._preview_sink is None:
-            return
         snapped = state.snapped
         validation = state.validation
         if not snapped or not validation or not validation.on_roads or not snapped.snapped:
@@ -274,7 +328,8 @@ class WorkflowRuntime:
         ):
             return
         with self._lock:
-            if self._preview_sent:
+            self._connected_routes.add(hash(tuple(tuple(point) for point in snapped.points)))
+            if self._preview_sent or self._preview_sink is None:
                 return
             self._preview_sent = True
         payload = {
@@ -303,6 +358,7 @@ class WorkflowRuntime:
         *,
         recoverable: bool = False,
     ) -> _T:
+        check_cancellation()
         with self._lock:
             attempt = self.trace.step_attempts.get(stage, 0) + 1
             self.trace.step_attempts[stage] = attempt
@@ -389,6 +445,7 @@ class WorkflowRuntime:
             return dict(metric["routing_requests"])
 
     def llm_budget_status(self) -> tuple[bool, str | None]:
+        check_cancellation()
         if self._elapsed() >= self.trace.max_duration_seconds:
             self._note_deadline_if_needed()
             return False, "deadline_exceeded"
@@ -402,10 +459,28 @@ class WorkflowRuntime:
             return False, "call_budget_exhausted"
         return True, None
 
-    def deadline_exceeded(self) -> bool:
-        """True once the advisory wall-clock budget for this run is used up."""
+    def deadline_exceeded(self, *, quality_required: bool = False) -> bool:
+        """Stop optional optimisation without bypassing routing or export gates.
 
-        return self._elapsed() >= self.trace.max_duration_seconds
+        An in-flight provider request is allowed to finish. This is a search
+        budget, not a promise of a maximum HTTP response time.
+        """
+
+        check_cancellation()
+        # The shorter exploration budget must not take time away from repairing
+        # a weak drawing or obtaining connected Directions evidence. Those
+        # operations retain the original workflow budget.
+        budget = self.trace.max_duration_seconds if quality_required else (
+            self.trace.optimization_budget_seconds or self.trace.max_duration_seconds
+        )
+        exceeded = self._elapsed() >= budget
+        if exceeded and not quality_required and self.trace.optimization_budget_seconds is not None:
+            self._degrade("optimization_budget_exhausted")
+        return exceeded
+
+    def publish_search_progress(self) -> None:
+        """Publish real batch completions while the preflight node is running."""
+        self._emit("preflight", self.trace.step_attempts.get("preflight", 1), StepStatus.RUNNING)
 
     def record_llm_attempt(self, provider: str) -> None:
         with self._lock:
@@ -536,6 +611,9 @@ class WorkflowRuntime:
                 "duration_ms": event.duration_ms,
                 "routing_requests": dict(self.trace.routing_requests),
                 "preflight_count": self._state.preflight_count,
+                "search_areas": self._state.search_areas,
+                "connected_candidates": len(self._connected_routes),
+                "optimization_budget_seconds": self.trace.optimization_budget_seconds,
                 "phase": phase,
                 "phase_routing_requests": dict(phase_metric.get("routing_requests", {})),
             }
@@ -585,6 +663,7 @@ def trace_asdict(trace: WorkflowTrace) -> dict[str, Any]:
 
 def record_routing_request(endpoint: str) -> None:
     """Count actual attempts, including retries, without recording credentials."""
+    check_cancellation()
     runtime = _ACTIVE_RUNTIME.get()
     if runtime is not None:
         runtime.record_routing_request(endpoint)

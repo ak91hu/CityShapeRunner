@@ -68,6 +68,21 @@ def test_nearest_sorts_only_nodes_inside_search_radius(monkeypatch):
     assert sorted_lengths == [2]
 
 
+def test_cached_frames_preserve_scalar_projection_and_are_bounded():
+    from gps_art_wizzard.tools import geo
+
+    graph = build_graph([node(1, 0, 0), node(2, 400, 0), way(10, [1, 2])])
+    center = graph.nodes[1]
+    frame = graph.projection(center)
+    assert frame is graph.projection(center)
+    assert frame[2] == {identifier: geo.latlon_to_unit(*point, *center, 1)
+                        for identifier, point in graph.nodes.items()}
+    for i in range(10):
+        graph.projection((47.5 + i * 0.001, 19.0))
+    assert len(graph._frames) == 4
+    assert graph.projection(center)[2] == frame[2]
+
+
 def test_component_filter_keeps_radius_and_directed_constraints():
     graph = build_graph([
         node(1, 0, 0), node(2, 400, 0), node(3, 800, 0), way(10, [1, 2, 3], oneway="yes"),

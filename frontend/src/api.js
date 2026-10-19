@@ -1,4 +1,4 @@
-const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+const BASE = (import.meta.env?.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -17,6 +17,10 @@ export class ApiError extends Error {
 }
 
 async function readGenerationStream(response, onUpdate) {
+  const responseError = () => new ApiError(
+    "The route planner sent an invalid response. Please try again.", response.status,
+    { category: "response", requestId: response.headers.get("X-Request-ID") },
+  );
   if (!response.body) {
     throw new ApiError("The route planner did not send progress or a result.", response.status, {
       category: "response",
@@ -28,12 +32,24 @@ async function readGenerationStream(response, onUpdate) {
   let result = null;
   const handleLine = (line) => {
     if (!line.trim()) return;
-    const event = JSON.parse(line);
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      throw responseError();
+    }
+    if (!event || typeof event !== "object" || Array.isArray(event) || typeof event.type !== "string") {
+      throw responseError();
+    }
     if (event.type === "progress" || event.type === "preview") onUpdate?.(event);
-    if (event.type === "result") result = event.data;
+    if (event.type === "result") {
+      if (!event.data || typeof event.data !== "object" || Array.isArray(event.data)) throw responseError();
+      result = event.data;
+    }
     if (event.type === "error") {
       throw new ApiError(event.detail || "Route generation failed.", event.status ?? 500, {
-        category: "service",
+        category: "service", requestId: response.headers.get("X-Request-ID"),
+        retryAfter: response.headers.get("Retry-After"),
       });
     }
   };
@@ -50,6 +66,10 @@ async function readGenerationStream(response, onUpdate) {
       if (done) break;
     }
     if (pending.trim()) handleLine(pending);
+  } catch (error) {
+    // Releasing the lock alone leaves a failed response downloading in the background.
+    await reader.cancel().catch(() => {});
+    throw error;
   } finally {
     reader.releaseLock();
   }

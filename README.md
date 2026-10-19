@@ -9,8 +9,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.140-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111)](https://react.dev/)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
-[![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/deployment.md#northflank-developer-sandbox)
-[![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/deployment.md#persistent-and-searchable-grafana-cloud-logs)
+[![Northflank ready](https://img.shields.io/badge/Northflank-ready-6C5CE7)](docs/operations/deployment.md#northflank-developer-sandbox)
+[![Grafana Cloud Logs](https://img.shields.io/badge/Grafana_Cloud-logs-F46800?logo=grafana&logoColor=white)](docs/operations/deployment.md#persistent-and-searchable-grafana-cloud-logs)
 
 Turn a run or ride into a drawing. Describe an idea—or choose from 158 catalog
 options—and Paceasso tests the outline against real streets, compares
@@ -19,18 +19,22 @@ route is. Only a route returned by the connected street router can reach the
 download flow; a road-routed result that misses a quality target requires
 explicit review.
 
-The visual [engineering implementation guide](docs/implementation/index.md)
+The visual [engineering implementation guide](docs/architecture/implementation/index.md)
 documents the backend sequence, data classes, placement-search funnel, ORS
 retry state machine, quality formulas, React/Leaflet state flow, and production
 topology with Mermaid diagrams.
 
-The [algorithmic background](docs/algorithmic-background.md) follows one request
+The [documentation index](docs/index.md) organizes the maintained guides,
+architecture, references, development workflow, operations, design, research,
+dated reviews and runtime skills. New documentation belongs in those sections.
+
+The [algorithmic background](docs/architecture/algorithmic-background.md) follows one request
 from shape normalisation through geographic placement, the bounded preflight
 search, street routing, and independent quality gates. It gives the implemented
 distance and closure formulas, explains why a snapped-point proxy cannot prove
 connectivity, and records which evidence is required before GPX/TCX export.
 
-The [external API integration guide](docs/external-apis.md) maps ORS,
+The [external API integration guide](docs/reference/external-apis.md) maps ORS,
 OpenStreetMap/Nominatim, the model-provider adapters, Cloudinary, Open-Meteo,
 and public image imports with payloads, credentials, retries, policies, and
 failure boundaries.
@@ -58,14 +62,14 @@ The structured planner contains 230 unique destinations: Siófok belongs to both
 the Hungarian top-50 and official Balaton coverage, but appears only once in the
 picker. Every Balaton destination resolves locally and has its own placement
 profile for shoreline, terrain, rail, road, and wetland constraints. See
-[Lake Balaton coverage](docs/balaton-city-coverage.md) for the source, complete
+[Lake Balaton coverage](docs/guides/balaton-city-coverage.md) for the source, complete
 list, and recommendation policy.
 
 Sixteen additional one-stroke motifs—including paprika, puzzle cube, grey
 cattle, water tower, thermal bath, and folk gate—are paired with practical
 Hungarian-city starting points in the searchable catalog. Their research and
 geometry audit are documented in
-[Hungary-friendly GPS-art shapes](docs/hungarian-shape-catalog.md).
+[Hungary-friendly GPS-art shapes](docs/reference/hungarian-shape-catalog.md).
 
 Free-form prompts are not limited to the picker. Common phrases such as
 `draw a heart in Lyon, 8 km` can recover an unlisted settlement locally, then
@@ -87,13 +91,15 @@ generated shapes enter the 128-entry cache. If no model is available, the
 result uses an explicit full-word text fallback instead of reducing the request
 to its initial or relabelling a
 stock icon as the requested object. See the
-[custom-shape research and decision record](docs/custom-shape-generation.md).
+[custom-shape research and decision record](docs/architecture/custom-shape-generation.md).
 
 Route search is coarse-to-fine. Before spending Directions requests, up to three
-batched road-snap rounds share a budget of 180 city-wide
-translation/rotation/scale placements, refining promising neighbourhoods.
-A quality-and-diversity selector sends
-seven distinct alternatives to the full router, while every
+batched road-snap rounds preserve the established 180-placement search and
+add up to 90 seeded creative placements, refining each family independently.
+They share the same three Snap round trips. The established family's entire
+shortlist remains available even when creative proxy scores are higher.
+A quality-and-diversity selector keeps seven established finalists and up to
+two additional creative alternatives for the full router, while every
 preflight score remains in the diagnostics. Eighteen curvature-preserving
 guide points per placement improve the proxy without adding Directions calls.
 If Directions rejects the top-ranked placement, the orchestrator tries the
@@ -133,6 +139,60 @@ responses remain available. Final workflow metrics expose the duration and ORS
 call count of each polish pass, and unchanged geometry skips redundant late
 reconnection attempts without relaxing the route-quality gates.
 
+Repeated requests add fresh, reproducible placement samples across sixteen
+city sectors, twelve orientations and three scales. They supplement the
+established city grid rather than replacing its good placements.
+`PREFLIGHT_CREATIVE_PLACEMENTS=90` controls this additional screening budget
+(zero retains the established search alone). Manual map positions, fixed starts and requested headings
+retain their constraints. The first three shortlisted placements are measured
+together through the bounded worker pool, including when the first route already
+passes. This supplies real area alternatives rather than only local repairs.
+Comparison cards keep the best recommendation first and prefer comparable routes
+with different measured map coverage; every routed alternative remains available.
+The strongest region can still win again when the street geometry favors it.
+Measuring alternatives can add Directions calls when the primary already passes;
+the worker limit bounds concurrency, rather than promising lower provider usage.
+
+`INITIAL_PLACEMENT_CANDIDATES=3` controls that initial comparison (hard-capped at
+three); `MEASUREMENT_WORKERS` controls concurrency. `OPTIMIZATION_BUDGET_SECONDS=35`
+stops starting extra initial area comparisons and advisory AI review once the budget is reached.
+Adaptive preflight, disconnected-route recovery, failing-shape alternatives,
+recognition and distance repairs, and connectivity retries retain the original
+`WORKFLOW_MAX_DURATION_SECONDS=175` budget. A weak first route does not lose its
+repair time to the shorter exploration budget. Unmeasured queued placements
+remain available in their original priority order for quality refinement.
+Mandatory validation still finishes;
+an in-flight provider request can exceed either budget, so neither is an HTTP
+timeout. Routing/export quality gates and the ban on exporting unconnected guides remain.
+The established finalist budget is preserved; up to two additional creative
+initial alternatives cannot evict those finalists. Without an extra creative
+family, initial alternatives count against the serial placement-search budget
+to avoid extra blind refinement iterations.
+
+Directions and Snap share a bounded HTTP connection pool inside one workflow,
+closed on both success and failure. Direction/phase variants in the Fréchet
+metric are evaluated together using the same dynamic program, sample counts,
+and exact float results. This removes repeated computation without lowering
+recognition thresholds or changing the returned street geometry.
+The local OSM graph caches four exact projection frames and reuses segment
+edge-cost calculations across beam states. Turn restrictions, previous-edge
+reversal costs and reuse penalties remain state-dependent. Connectivity
+screening uses a fixed candidate/expansion bound, avoiding hardware-dependent
+partial ranking from a short wall-clock cutoff.
+
+The NDJSON progress feed also reports measured search areas and unique connected
+candidates. Request counters update before each provider call, including retries.
+The waiting screen provides an eight-sketch, keyboard-accessible challenge with a score,
+explains quiet periods without inventing percentage progress, and keeps Cancel
+reachable on mobile. Games never submit another generation request.
+
+For reproducible placement experiments, `/generate` accepts a 32-bit integer
+`search_seed` and returns the chosen seed. It reproduces sampling, not live road
+data or model output. The paired benchmark runner fixes the seed per case and
+marks budget-limited searches incomplete. To isolate scheduling without any
+provider call, run `python scripts/benchmark_search_scheduling.py`; its synthetic
+latency results do not predict complete production response times.
+
 ## GPS Art Intelligence
 
 The result view now turns route generation into a repeatable local craft. Street
@@ -148,7 +208,7 @@ Mural and Art Rescue return HTTP 503 and no file if ORS cannot prove one complet
 road/path route; raw uploads, independent nearest-edge snaps and straight
 connectors are never accepted as export evidence. The remaining analyses need no
 paid map call or account. The privacy model and endpoint contracts are in
-[GPS Art Intelligence](docs/gps-art-intelligence.md).
+[GPS Art Intelligence](docs/guides/gps-art-intelligence.md).
 
 Every new generation workflow requests fresh ORS Directions evidence. Identical
 route attempts may reuse a response only inside that one workflow; a later user
@@ -156,7 +216,7 @@ request never inherits an earlier workflow's road result.
 
 ## Research basis
 
-The [September generation improvements](docs/generation-development.md) add
+The [September generation improvements](docs/reports/generation-development.md) add
 adaptive placement, bounded shape-aware OSM graph proposals, early connectivity
 and detour checks, semantic feature preservation and repair, cached final-route
 AI review, and a 200-case comparison runner. Graph proposals still pass through
@@ -175,17 +235,17 @@ to operations available through the hosted OpenRouteService API.
 | Turning angles, approximate road polylines, and internal length ratios help retrieve recognisable graphics and reject stretched lookalikes in road networks ([Li & Fu, 2026](https://doi.org/10.3390/ijgi15030098)). | Preflight and final validation score angular relations, extent, segment proportions, coverage, and collapse instead of accepting nearest-road distance alone. |
 | European street networks vary substantially in orientation order, connectivity, segment length, and circuity ([Boeing, 2019](https://doi.org/10.1007/s41109-019-0189-1)). | Every catalogued city has a bounded local search area and obstacle-aware context; the transform search measures several positions and bearings rather than labelling an entire city “grid-like”. |
 | Walkable and drivable networks can differ materially in circuity even within one city ([Boeing, 2017](https://arxiv.org/abs/1708.00836)). | Shape detail capacity is calculated separately for running and cycling and is combined with requested distance rather than treating activity as a display label. |
-| Useful alternative sets must control overlap, or a top-*k* list can contain near-duplicates ([Nassir et al., 2014](https://doi.org/10.3141/2430-18)). | The seven expensive routing slots balance proxy quality with separation in position, rotation, and scale. |
+| Useful alternative sets must control overlap, or a top-*k* list can contain near-duplicates ([Nassir et al., 2014](https://doi.org/10.3141/2430-18)). | Seven established finalists remain available; up to two additional creative finalists balance road-fit evidence with separation in position, rotation, and scale. |
 | Map matching requires plausible transitions and sequence continuity, not only independent nearest points ([Newson & Krumm, 2009](https://doi.org/10.1145/1653771.1653818); [Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Batched snapping is treated only as a cheap proxy. Guides are submitted to activity-specific Directions routing and whole-curve validation before they are labelled road-routed; failed placements trigger the remaining shortlist, and an exhausted search returns no GPS export. |
 
 These studies justify the architecture and metrics, but they do not prove that
 a generated route is recognisable, safe, legal, or optimal in every city.
 Thresholds remain engineering heuristics and should be calibrated with
 labelled human-recognition tests. See the
-[research notes](docs/gps-art-research.md) for the full evidence-to-algorithm
+[research notes](docs/research/gps-art-research.md) for the full evidence-to-algorithm
 mapping and production funnel. The latest method-by-method review and the
 implemented geometry changes are recorded in the
-[August 2026 algorithm audit](docs/gps-art-algorithm-audit-2026-08.md).
+[August 2026 algorithm audit](docs/reports/gps-art-algorithm-audit-2026-08.md).
 
 ## Understanding and editing results
 
@@ -249,9 +309,9 @@ The platform's native Loki log sink forwards that stream to Grafana Cloud,
 where entries can be searched by request ID, event, severity, environment, or
 release revision without placing Grafana credentials in the application.
 
-Start with the [complete project guide](docs/project-overview.md). Production operators
-should also read the [deployment guide](docs/deployment.md). The dated
-[2026-07-30 development and production lessons](docs/2026-07-30-lessons-learned.md)
+Start with the [complete project guide](docs/guides/project-overview.md). Production operators
+should also read the [deployment guide](docs/operations/deployment.md). The dated
+[2026-07-30 development and production lessons](docs/reports/2026-07-30-lessons-learned.md)
 record the first Northflank incidents, measured performance fix, Grafana
 queries, and the operational troubleshooting checklist.
 
@@ -286,7 +346,7 @@ not guarantees: the result still depends on local connectivity, access rules,
 and route-provider coverage. Cat, dog, bird, and bat now have separate
 route-readable outlines and distinct catalog markers. A rotation-, scale-,
 start-, and direction-independent audit checks every pair in the 145-template
-registry; see the [shape-template research and uniqueness guard](docs/shape-template-uniqueness.md).
+registry; see the [shape-template research and uniqueness guard](docs/skills/shape-template-uniqueness.md).
 
 The structured city picker follows the [KSH 2025 list of Hungary's 50 largest
 settlements](https://www.ksh.hu/stadat_files/fol/en/fol0014.html). Each resolves locally without a public-geocoder call and has a
@@ -306,7 +366,7 @@ Smart suggestions no longer use a fixed city mascot. The planner measures all
 order, aspect ratio, and routeability with the selected city's street context,
 activity, and distance, then sends three diverse continuous shapes through the
 real placement and routing checks. The result explains why the winning shape
-was shortlisted. See the [city–shape recommendation audit](docs/city-shape-recommendations.md).
+was shortlisted. See the [city–shape recommendation audit](docs/guides/city-shape-recommendations.md).
 
 ```bash
 python -m venv .venv
@@ -320,6 +380,12 @@ from `frontend/`, or directly from FastAPI after `frontend/dist` has been built.
 
 ## Testing
 
+Development follows the project-local [Ponytail method](docs/development/workflow.md): reuse
+existing code, make small complete changes, run focused checks during iteration,
+and retain the full release gate. Pinned development/review/audit/debt skills
+are included in `.agents/skills/`; [AGENTS.md](AGENTS.md) records the GPS accuracy
+and accessibility invariants.
+
 The backend suite is deterministic and runs without paid providers. The UI
 suite uses Playwright with mocked API, map-tile, and gallery responses, and runs
 every functional scenario in desktop/mobile Chromium, Firefox, and WebKit.
@@ -331,14 +397,15 @@ python -m mypy --ignore-missing-imports gps_art_wizzard
 
 cd frontend
 npm ci
-npm run build
+npm run check
+npm run test:smoke
 npm run test:e2e
 npm run test:cross-browser
 ```
 
 On Windows PowerShell, use `$env:GEOCODE_OFFLINE = "1"` before pytest. Install
 the browsers once with `cd frontend && npx playwright install chromium firefox webkit`. See the
-[testing guide](docs/testing.md) for targeted commands, suite ownership,
+[testing guide](docs/development/testing.md) for targeted commands, suite ownership,
 Playwright debugging, and the Windows temporary-directory workaround.
 
 The second command exercises the required desktop Firefox and WebKit (Safari's
@@ -357,11 +424,11 @@ is built with warnings treated as errors on every CI run and deployed to GitHub
 Pages only after backend quality/tests, the production frontend, all four
 browser profiles, the production container smoke, and documentation jobs pass
 on `master`. For local authoring, install `.[docs]` and run
-`python -m mkdocs serve`; the [CI/CD guide](docs/ci-cd.md) documents the release
+`python -m mkdocs serve`; the [CI/CD guide](docs/operations/ci-cd.md) documents the release
 gate and one-time Pages configuration.
 
 The recommended hobby deployment is the
-[Northflank Developer Sandbox with Grafana Cloud Logs](docs/deployment.md#northflank-developer-sandbox).
+[Northflank Developer Sandbox with Grafana Cloud Logs](docs/operations/deployment.md#northflank-developer-sandbox).
 A Northflank combined service builds the repository's multi-stage Dockerfile,
 serves the SPA and API from one HTTPS `*.code.run` endpoint, and accepts only
 the exact tested `master` SHA from the GitHub deployment job. Direct Northflank

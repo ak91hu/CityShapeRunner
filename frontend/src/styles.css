@@ -364,8 +364,8 @@ main {
 }
 
 .card-heading h1,
-.section-heading h2,
-.loading-card h2,
+.section-heading :is(h1, h2),
+.loading-card :is(h1, h2),
 .error-card h2,
 .empty-card h2 {
   margin-bottom: 0;
@@ -917,7 +917,7 @@ input:disabled {
   padding: clamp(1.25rem, 3vw, 2rem);
 }
 
-.loading-card h2,
+.loading-card :is(h1, h2),
 .error-card h2 {
   margin-bottom: 0.45rem;
 }
@@ -1016,7 +1016,7 @@ input:disabled {
   margin-bottom: 1rem;
 }
 
-.section-heading h2 {
+.section-heading :is(h1, h2) {
   font-size: clamp(1.7rem, 4vw, 2.6rem);
 }
 
@@ -1855,7 +1855,7 @@ input:disabled {
   align-items: end;
 }
 
-.gallery-heading h2 {
+.gallery-heading :is(h1, h2) {
   font-size: clamp(1.7rem, 4vw, 2.6rem);
 }
 
@@ -3294,7 +3294,7 @@ input:focus {
   margin-bottom: 1.25rem;
 }
 
-.section-heading h2 {
+.section-heading :is(h1, h2) {
   font-size: clamp(1.85rem, 3.5vw, 2.75rem);
   letter-spacing: -0.045em;
 }
@@ -3566,7 +3566,7 @@ table {
   border-top: 1px solid var(--line);
 }
 
-.gallery-heading h2 {
+.gallery-heading :is(h1, h2) {
   font-size: clamp(1.85rem, 3.5vw, 2.75rem);
 }
 
@@ -3814,7 +3814,7 @@ footer {
     min-height: 3rem;
   }
 
-  .section-heading h2 {
+  .section-heading :is(h1, h2) {
     font-size: 2rem;
   }
 
@@ -4135,7 +4135,7 @@ footer {
   align-items: flex-start;
 }
 
-.loading-heading-row h2 {
+.loading-heading-row :is(h1, h2) {
   margin-top: 0.12rem;
 }
 
@@ -4721,8 +4721,8 @@ input,
   border-radius: var(--radius-lg);
 }
 
-.section-heading h2,
-.gallery-heading h2 {
+.section-heading :is(h1, h2),
+.gallery-heading :is(h1, h2) {
   font-size: clamp(1.75rem, 3vw, 2.35rem);
   letter-spacing: -0.035em;
 }
@@ -5517,7 +5517,7 @@ input,
   gap: 1rem;
 }
 
-.request-summary-heading h3 {
+.request-summary-heading :is(h2, h3) {
   margin: 0.15rem 0 0;
   font-size: clamp(1rem, 2.2vw, 1.25rem);
 }
@@ -6715,7 +6715,7 @@ textarea {
     margin-bottom: 0.75rem;
   }
 
-  .result .section-heading h2 {
+  .result .section-heading :is(h1, h2) {
     font-size: clamp(1.55rem, 7vw, 2rem);
     line-height: 1.08;
   }

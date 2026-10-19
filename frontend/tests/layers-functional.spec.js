@@ -4,6 +4,7 @@ import {
   buildRouteResult,
   installCommonMocks,
   openGeneratedRoute,
+  openOptionalRouteTools,
   routePoints,
 } from "./support/functional-fixtures.js";
 
@@ -44,13 +45,6 @@ const OCCASIONS = {
     },
   ],
 };
-
-async function openOptionalRouteTools(page) {
-  const tools = page.locator(".route-lab");
-  if (!(await tools.locator(".route-lab-grid").isVisible())) {
-    await tools.locator("summary").click();
-  }
-}
 
 test("upcoming occasions fill the prompt with a dated drawing", async ({ page }) => {
   await page.route("**/occasions*", (route) =>

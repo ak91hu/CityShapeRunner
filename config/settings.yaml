@@ -22,10 +22,16 @@ workflow:
   # then spend Directions calls only on the best ranked placements.
   preflight_enabled: true
   preflight_max_placements: 180
+  # Additional seeded city sectors; preserve the established 180-cell search.
+  preflight_creative_placements: 90
   preflight_shortlist: 7
   preflight_guide_points: 18
-  # Up to three measured rounds share the same placement budget.
+  # Up to three measured rounds share both placement-family budgets.
   preflight_adaptive: true
+  # Stop extra initial area comparisons/advisory AI review after this budget.
+  # Accuracy search/recovery/repairs retain max_duration_seconds. In-flight calls finish.
+  optimization_budget_seconds: 35
+  initial_placement_candidates: 3
   # Candidate measurements (road recovery, suggestion/fallback searches) run
   # through this bounded worker pool. Keep <=4 for public API rate limits.
   measurement_workers: 3

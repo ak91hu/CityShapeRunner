@@ -322,6 +322,11 @@ export function galleryAsset(character = "a", imageName = "gallery-map") {
 }
 
 export async function installCommonMocks(page) {
+  for (const path of ["occasions", "destinations"]) {
+    await page.route(`**/${path}*`, route => route.fulfill({
+      contentType: "application/json", body: JSON.stringify({ [path]: [] }),
+    }));
+  }
   await page.route("https://tile.openstreetmap.org/**", (route) =>
     route.fulfill({
       status: 200,
@@ -393,7 +398,18 @@ export async function openGeneratedRoute(page, result = buildRouteResult()) {
   await page.goto("/");
   await reviewAndFindRoutes(page);
   await expect(page.locator(".result")).toBeVisible();
+  // Lazy panels above later controls must finish moving their click targets.
+  await expect(page.locator(".street-route-line")).toBeVisible();
+  await expect(page.locator(".walkthrough > summary")).toBeVisible();
   return capture;
+}
+
+export async function openOptionalRouteTools(page) {
+  const tools = page.locator(".route-lab");
+  if (!(await tools.evaluate(element => element.open))) {
+    await tools.locator(":scope > summary").click();
+  }
+  await expect(tools).toHaveAttribute("open", "");
 }
 
 export function buildEditedRoute({ passed = true, distanceKm = 20.05 } = {}) {
