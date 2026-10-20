@@ -42,7 +42,7 @@ from ..tools import geo, shape_library, shape_program, shape_uniqueness, text_sh
 from .base import BaseAgent
 
 _CUSTOM_SHAPE_CACHE_SIZE = 128
-_CUSTOM_SHAPE_CACHE_VERSION = "v31-final-semantic-scaffolds"
+_CUSTOM_SHAPE_CACHE_VERSION = "v32-contextual-candidate-selection"
 _CUSTOM_SHAPE_CACHE: OrderedDict[tuple[str, str], Shape] = OrderedDict()
 _CUSTOM_SHAPE_CACHE_LOCK = Lock()
 _FULL_SEMANTIC_SCAFFOLD_MODES = {
@@ -396,7 +396,10 @@ class ShapeAgent(BaseAgent):
             if state.reference_image_data_url
             else ""
         )
-        cache_key = _custom_shape_cache_key(idea, style, reference_digest)
+        route_context = _route_context(state)
+        cache_key = _custom_shape_cache_key(
+            idea, style, reference_digest, route_context=route_context,
+        )
         cached = _get_cached_custom_shape(
             cache_key,
             name=state.reference_name or idea,
@@ -405,7 +408,6 @@ class ShapeAgent(BaseAgent):
             return cached
 
         system = self.system_prompt
-        route_context = _route_context(state)
         geometry_response: LLMResponse | None = None
         spec_response: LLMResponse | None = None
         if reference_images:
@@ -1604,6 +1606,17 @@ def _select_candidate(
     def score(candidate: _GeneratedCandidate) -> tuple[float, float, float, float, float, float, float]:
         review = reviews.get(candidate.index)
         rendered = bool(review and _is_rendered_visual_review(review))
+        if not rendered:
+            # Density and stroke count do not prove a scaffold matches the request better.
+            return (
+                0.0,
+                1.0 if not candidate.feature_warnings else 0.0,
+                0.0,
+                1.0 if not candidate.feature_warnings and candidate.index == preferred else 0.0,
+                0.0,
+                candidate.local_score,
+                0.0,
+            )
         semantic = review.score if rendered and review and review.score is not None else candidate.local_score
         cue_defects = _visual_defect_count(review) if rendered and review else 0
         relation_defects = len(review.wrong_relations) if rendered and review else 0
@@ -3572,12 +3585,15 @@ def _custom_shape_cache_key(
     idea: str,
     style: str,
     reference_digest: str = "",
+    *,
+    route_context: dict[str, object],
 ) -> tuple[str, str]:
     normalized = "\0".join(
         (
             " ".join(idea.casefold().split()),
             " ".join(style.casefold().split()),
             reference_digest,
+            json.dumps(route_context, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         )
     )
     return _CUSTOM_SHAPE_CACHE_VERSION, hashlib.sha256(normalized.encode()).hexdigest()

@@ -106,8 +106,10 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
   Route-length-centred normalisation is insensitive to uneven control density;
   bounded multi-stroke requests receive globally minimal connector ordering.
   Centripetal, corner-protecting smoothing cannot introduce a crossing. Only
-  successful model geometry is stored in the 128-entry versioned cache; callers
-  receive fresh path lists.
+  successful model geometry is stored in the 128-entry versioned cache, keyed
+  by request, style, reference digest and shape-stage route context; callers
+  receive fresh path lists. Without rendered reviews, complete cue spans and
+  the generator's preference precede stroke-count and point-density priors.
 
 ### PlacementAgent
 - **Input:** `Intent` + `Shape` + `Plan`.
@@ -188,9 +190,12 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
   simplify_tolerance).
 - **Logic:** deterministic, measurement-driven candidate generation. It first
   consumes the remaining preflight-ranked placements, but reserves the last two
-  configured iteration slots for measured correction while distance exceeds
+  effective iteration slots for measured correction while distance exceeds
   the 20% target tolerance.
-  Untested placements remain queued; the total iteration budget does not grow.
+  Untested placements remain queued. Completed initial alternatives count
+  against the base refinement budget; extra creative finalists retain up to
+  two additional slots within the same full workflow deadline. A zero base
+  budget disables refinement.
   Once the shortlist is exhausted or distance correction is due, it tests
   `target / actual`; because road distance is
   discontinuous, a lower-scoring full correction is followed by a damped

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-const SKETCHES = [
+export const SKETCHES = [
   {
     answer: "Heart",
     options: ["Heart", "Butterfly", "Leaf"],
@@ -56,6 +56,34 @@ const SKETCHES = [
     clue: "Two rounded loops share one crossing in a continuous line. Which symbol is it?",
     path: "M50 50C25 10 5 30 10 55C15 80 35 80 50 50C65 20 85 20 90 45C95 70 75 90 50 50Z",
     tip: "A crossing on a sketch is easy. On the map, a bridge and the street beneath it may never connect.",
+  },
+  {
+    answer: "Tree",
+    options: ["Arrow", "Tree", "House"],
+    clue: "Three tiers of branches sit above a short trunk. What is growing here?",
+    path: "M50 8L73 35L63 35L84 60L68 60L90 80L59 80L59 94L41 94L41 80L10 80L32 60L16 60L37 35L27 35Z",
+    tip: "Branch tips need room on the street grid. A larger drawing can preserve more of them.",
+  },
+  {
+    answer: "Fish",
+    options: ["Fish", "Leaf", "Moon"],
+    clue: "A rounded body meets a triangular tail. Which animal is swimming?",
+    path: "M12 50Q44 5 75 40L95 23L90 50L95 77L75 60Q44 95 12 50Z",
+    tip: "A fish needs a distinct tail. Its outline still has to follow connected paths on land.",
+  },
+  {
+    answer: "Lightning",
+    options: ["Star", "Arrow", "Lightning"],
+    clue: "A sharp zigzag falls from top to bottom. What flashes in the sky?",
+    path: "M57 5L18 57L44 57L36 95L83 39L56 39Z",
+    tip: "Long straight sections and clear corners help a lightning bolt survive street detours.",
+  },
+  {
+    answer: "Crown",
+    options: ["Mountain", "Crown", "Sailboat"],
+    clue: "Three high points sit above one broad base. What would a king wear?",
+    path: "M12 25L32 48L50 12L68 48L88 25L78 85L22 85Z",
+    tip: "A crown needs the gaps between its points as much as the points themselves.",
   },
 ];
 

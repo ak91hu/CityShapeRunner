@@ -36,10 +36,11 @@ class RefinementAgent(BaseAgent):
         # six-iteration workflow, starving measured distance correction.
         # Reserve the final two existing slots only while distance fails;
         # leave untested placements queued if the correction solves it.
+        limit = state.refinement_limit if state.refinement_limit is not None else get_settings().workflow.max_refinement_iterations
         distance_due = (
             state.validation.on_roads
             and state.validation.distance_fit < distance_fit_minimum(state.validation.target_distance_km)
-            and state.iterations >= max(1, get_settings().workflow.max_refinement_iterations - 1)
+            and state.iterations >= max(1, limit - 1)
         )
         if state.placement_candidates and not distance_due:
             state.route_draft = copy.deepcopy(state.placement_candidates.pop(0))

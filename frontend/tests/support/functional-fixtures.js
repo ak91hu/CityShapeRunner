@@ -398,6 +398,8 @@ export async function openGeneratedRoute(page, result = buildRouteResult()) {
   await page.goto("/");
   await reviewAndFindRoutes(page);
   await expect(page.locator(".result")).toBeVisible();
+  // Scheduled focus also scrolls the page and can interrupt the next click.
+  await expect(page.locator(".result")).toBeFocused();
   // Lazy panels above later controls must finish moving their click targets.
   await expect(page.locator(".street-route-line")).toBeVisible();
   await expect(page.locator(".walkthrough > summary")).toBeVisible();
@@ -410,6 +412,15 @@ export async function openOptionalRouteTools(page) {
     await tools.locator(":scope > summary").click();
   }
   await expect(tools).toHaveAttribute("open", "");
+}
+
+export async function moveEditPoint(marker, key) {
+  const previous = await marker.elementHandle();
+  await marker.focus();
+  await marker.press(key);
+  // Point edits rebuild the map markers; finish that render before clicking tools.
+  await expect.poll(() => previous.evaluate(element => element.isConnected)).toBe(false);
+  await previous.dispose();
 }
 
 export function buildEditedRoute({ passed = true, distanceKm = 20.05 } = {}) {

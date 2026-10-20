@@ -17,6 +17,7 @@ from gps_art_wizzard.agents.shape_agent import (
     _linearise_curves,
     _normalise_close_commands,
     _reference_shape_payloads,
+    _select_candidate,
     _shape_spec_from_response,
     _spec_grounded_candidate,
     _split_embedded_moves,
@@ -25,7 +26,7 @@ from gps_art_wizzard.agents.shape_agent import (
 from gps_art_wizzard.ai_shape_benchmark import AI_SHAPE_BENCHMARK_CASES, passes_ai_shape_quality
 from gps_art_wizzard.llm import LLMResponse
 from gps_art_wizzard.llm import factory as llm_factory
-from gps_art_wizzard.state import Intent, Plan, Shape, WorkflowState
+from gps_art_wizzard.state import Intent, Plan, Shape, ShapeVerification, WorkflowState
 from gps_art_wizzard.tools.shape_program import (
     compile_shape_program,
     render_paths_png_data_url,
@@ -532,6 +533,95 @@ def test_candidate_count_adapts_to_ambiguity_and_is_bounded(monkeypatch):
 
     assert _adaptive_candidate_count(low) == 2
     assert _adaptive_candidate_count(high) == 4
+
+
+@pytest.mark.parametrize("defect", [None, "missing", "tiny", "visual"])
+def test_geometry_prior_does_not_replace_a_complete_preferred_drawing(defect):
+    spec = _shape_spec_from_response(
+        LLMResponse(json.dumps(_spec_payload()), "generator"), "a robot waving",
+    )
+    candidates = [
+        _candidate_from_program(
+            {"strategy": strategy, "program": _program(raised=True)},
+            index, "a robot waving", spec, LLMResponse("{}", "generator"),
+        )
+        for index, strategy in enumerate(("requested pose", "generic scaffold"))
+    ]
+    assert all(not candidate.feature_warnings for candidate in candidates)
+    # Density and stroke-count priors cannot establish which pose is recognisable.
+    candidates[0].local_score = 0.96
+    candidates[1].local_score = 1.0
+    reviews = {}
+    if defect == "missing":
+        candidates[0].feature_warnings = ["missing feature spans: raised_arm"]
+    elif defect == "tiny":
+        candidates[0].feature_warnings = ["feature raised_arm covers 1.0%; enlarge it to at least 5%"]
+    elif defect == "visual":
+        reviews = {
+            index: ShapeVerification(
+                score=score, subject_match=score, silhouette_quality=score,
+                route_readability=score, method="rendered-image-independent",
+            )
+            for index, score in enumerate((0.75, 0.9))
+        }
+
+    selected = _select_candidate(candidates, reviews, preferred=0, recommended=None)
+
+    assert selected.index == (0 if defect is None else 1)
+
+
+@pytest.mark.parametrize("changed_field", ["distance", "sport", "city", "difficulty", "placement_hints"])
+def test_custom_drawing_cache_respects_route_context(monkeypatch, changed_field):
+    _clear_custom_shape_cache()
+    calls = []
+
+    def complete(_fallback, **kwargs):
+        calls.append(kwargs)
+        if len(calls) % 2:
+            return LLMResponse(json.dumps(_spec_payload()), "generator")
+        return LLMResponse(json.dumps({
+            "name": "waving robot",
+            "variants": [{
+                "strategy": f"context-specific pose {len(calls)}",
+                "program": _program(raised=len(calls) == 2),
+            }],
+            "preferred_variant": 0,
+        }), "generator")
+
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent.try_complete", complete)
+    monkeypatch.setattr("gps_art_wizzard.agents.shape_agent._semantic_scaffold_candidate", lambda **_kwargs: None)
+    monkeypatch.setattr(ShapeAgent, "_verify_candidates", lambda self, **_kwargs: ({}, None))
+
+    def request(changed=False):
+        state = WorkflowState(
+            prompt="a robot waving",
+            intent=Intent("a robot waving", None, "Budapest", "run", 8.0, None),
+            plan=Plan(shape_strategy="llm", difficulty="medium", placement_hints="flat grid"),
+        )
+        if changed:
+            if changed_field == "distance":
+                state.intent.distance_km = 30.0
+            elif changed_field == "sport":
+                state.intent.sport = "bike"
+            elif changed_field == "city":
+                state.intent.city = "Pécs"
+            elif changed_field == "difficulty":
+                state.plan.difficulty = "hard"
+            else:
+                state.plan.placement_hints = "narrow hilly streets"
+        ShapeAgent().run(state)
+        return state.shape
+
+    first = request()
+    first_again = request()
+    assert len(calls) == 2
+    assert first is not first_again
+    assert first.paths == first_again.paths
+    changed = request(changed=True)
+    assert len(calls) == 4
+    assert changed.paths != first.paths
+    assert request(changed=True).paths == changed.paths
+    assert len(calls) == 4
 
 
 def test_compound_requests_supply_multiple_ordered_catalog_anchors():

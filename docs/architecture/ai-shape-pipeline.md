@@ -64,7 +64,11 @@ flowchart LR
    its cue verdict; the isolated result replaces the comparison only when it is
    strictly better by missing-cue count and then score.
 6. Candidate ranking first minimises missing required cues, then relationship
-   defects, before considering the aggregate visual score. Missing cues, wrong
+   defects, before considering the aggregate visual score. Without rendered
+   reviews, complete cue spans take priority over geometry warnings; among
+   complete candidates the generator's preferred variant wins before local
+   stroke-count and density priors. A simple scaffold is not evidence of a
+   better semantic match. Missing cues, wrong
    relations, a below-threshold rendered score, and geometry failures produce
    typed diagnostics for at most one targeted repair. Passing contour spans are
    preserved; optional reviewer suggestions alone do not trigger a repair.

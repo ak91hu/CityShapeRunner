@@ -272,6 +272,7 @@ test("a selected shape can be positioned on the map before street fitting", asyn
 
 test("primary planner controls keep a 44 pixel activation floor", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "Review request", exact: true })).toBeVisible();
 
   const activationFloor = 44;
   const subpixelRenderingTolerance = 0.01;
@@ -304,7 +305,7 @@ test("the route idea exposes its help and character count to assistive technolog
   const prompt = page.getByLabel("Drawing and location");
   await expect(prompt).toHaveAttribute("aria-describedby", "prompt-help prompt-count");
   await expect(page.locator("#prompt-help")).toContainText("a flying pig in Budapest");
-  await expect(page.locator("#prompt-count")).toHaveText("35/320");
+  await expect(page.locator("#prompt-count")).toHaveText(`${(await prompt.inputValue()).length}/320`);
   await expect(prompt).toBeFocused();
 });
 
@@ -313,6 +314,7 @@ test("choosing a popular idea updates the prompt and selected state", async ({ p
 
   const heart = page.getByRole("button", { name: "Heart", exact: true });
   const star = page.getByRole("button", { name: "Star", exact: true });
+  await heart.click();
   await expect(heart).toHaveAttribute("aria-pressed", "true");
   await star.click();
 
@@ -506,6 +508,7 @@ test("request review confirms interpretation without starting route generation",
   );
   await page.goto("/");
 
+  await page.getByLabel("Drawing and location").fill("a heart run in Budapest, about 8 km");
   await page.getByRole("button", { name: "Review request" }).click();
 
   const check = page.locator(".request-review-card");
@@ -528,6 +531,7 @@ test("current location replaces an entered address and reaches generation", asyn
   });
   const capture = await mockGeneration(page);
   await page.goto("/");
+  const initialPrompt = await page.getByLabel("Drawing and location").inputValue();
   await page.getByRole("button", { name: "Review request" }).click();
   await page.getByText("Route setup", { exact: true }).click();
   await page.getByRole("radio", { name: "Address or place" }).check();
@@ -540,7 +544,7 @@ test("current location replaces an entered address and reaches generation", asyn
   await expect(page.getByText("Current location selected for this request only.")).toBeVisible();
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => capture.lastPayload()).toEqual({
-    prompt: "a heart run in Budapest, about 8 km",
+    prompt: initialPrompt,
     start_point: {
       latitude: 47.497913,
       longitude: 19.040236,

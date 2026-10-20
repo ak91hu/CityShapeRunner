@@ -1,5 +1,5 @@
 import { expect, test } from "playwright/test";
-import { buildEditedRoute } from "./support/functional-fixtures.js";
+import { buildEditedRoute, moveEditPoint } from "./support/functional-fixtures.js";
 
 const transparentTile = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -562,8 +562,7 @@ test("an edit API failure keeps the editor open and allows another attempt", asy
   await findRoutes(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const firstEditPoint = page.locator(".route-edit-marker").first();
-  await firstEditPoint.focus();
-  await firstEditPoint.press("ArrowUp");
+  await moveEditPoint(firstEditPoint, "ArrowUp");
   await page.getByRole("button", { name: "Apply changes" }).click();
 
   await expect.poll(() => editAttempts).toBe(1);
@@ -666,8 +665,7 @@ test("unfinished point edits block every export and can be discarded", async ({ 
   await page.getByRole("button", { name: "Edit this route" }).click();
 
   const firstEditPoint = page.locator(".route-edit-marker").first();
-  await firstEditPoint.focus();
-  await firstEditPoint.press("ArrowRight");
+  await moveEditPoint(firstEditPoint, "ArrowRight");
 
   await expect(page.getByRole("button", { name: "Discard point changes" })).toBeVisible();
   await expect(page.getByText("Apply or discard your changes before downloading.")).toBeVisible();
@@ -741,8 +739,7 @@ test("switching route options clears an unfinished editor session", async ({ pag
   await page.getByRole("button", { name: "Edit this route" }).click();
 
   const firstEditPoint = page.locator(".route-edit-marker").first();
-  await firstEditPoint.focus();
-  await firstEditPoint.press("ArrowUp");
+  await moveEditPoint(firstEditPoint, "ArrowUp");
   await expect(page.getByRole("button", { name: "Discard point changes" })).toBeVisible();
 
   await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
