@@ -2145,10 +2145,12 @@ def test_preflight_shortlist_prefers_a_diverse_high_quality_alternative():
     assert [result.candidate_index for result in selected] == [0, 2]
 
 
-@pytest.mark.parametrize("iteration,distance_fit,corrected", [
-    (0, 0.4, False), (4, 0.4, False), (5, 0.4, True), (6, 0.4, True), (5, 0.8, False),
+@pytest.mark.parametrize("iteration,distance_fit,corrected,limit", [
+    (0, 0.4, False, None), (4, 0.4, False, None), (5, 0.4, True, None),
+    (6, 0.4, True, None), (5, 0.8, False, None),
+    (6, 0.4, False, 8), (7, 0.4, True, 8), (3, 0.4, True, 4),
 ])
-def test_refinement_reserves_final_slots_for_failed_distance(monkeypatch, iteration, distance_fit, corrected):
+def test_refinement_reserves_final_slots_for_failed_distance(monkeypatch, iteration, distance_fit, corrected, limit):
     from gps_art_wizzard.config import get_settings
     monkeypatch.setattr(get_settings().workflow, "max_refinement_iterations", 6)
     current = RouteDraft(
@@ -2185,6 +2187,7 @@ def test_refinement_reserves_final_slots_for_failed_distance(monkeypatch, iterat
         validation=Validation(0.5, 1.0, distance_fit, 0.45, on_roads=True),
         placement_candidates=[shortlisted],
         iterations=iteration,
+        refinement_limit=limit,
     )
 
     RefinementAgent().run(state)

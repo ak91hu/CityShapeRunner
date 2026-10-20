@@ -91,7 +91,7 @@ Responses are cached in-process per rounded bounding box for ten minutes.
 
 | Variable | Effective default | Description |
 | --- | --- | --- |
-| `MAX_REFINEMENT_ITERATIONS` | `6` | Upper bound for route refinement passes |
+| `MAX_REFINEMENT_ITERATIONS` | `6` | Base refinement budget; completed initial alternatives count against it, while extra creative finalists retain up to two additional slots within the full workflow deadline |
 | `VALIDATION_SCORE_THRESHOLD` | `0.72` | Composite quality threshold |
 | `DEFAULT_SPORT` | `run` | Sport applied when the prompt omits it |
 | `DEFAULT_CITY` | `Budapest` | City applied when the prompt omits it |

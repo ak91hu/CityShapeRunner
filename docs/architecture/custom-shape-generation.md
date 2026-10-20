@@ -160,7 +160,14 @@ not a useful city-scale scaffold.
 ### 6. Repair once, then stop
 
 ShapeAgent compiles every returned candidate and retains each valid, distinct
-result. If the selected candidate is malformed, collapsed, extremely stretched,
+result. Without a rendered visual review, candidates with complete, sufficiently
+large cue spans rank ahead of candidates with geometry warnings. Among those
+complete candidates, the generator's preferred variant takes precedence over
+stroke-count and point-density priors. Those priors alone cannot establish that
+a generic scaffold expresses the requested pose better. Rendered visual reviews
+still take precedence over the generator's preference.
+
+If the selected candidate is malformed, collapsed, extremely stretched,
 duplicated, self-crossing, missing required cues, or receives a below-threshold
 rendered review, it can send one low-temperature repair request with typed
 diagnostics. A fixed single repair prevents accidental latency and cost loops.
@@ -188,8 +195,11 @@ important curvature while respecting the routing provider's waypoint budget.
 ### 8. Cache only successful custom drawings
 
 A 128-entry process-local least-recently-used cache keys successful generated
-geometry by a SHA-256 digest of the normalized request and style plus a schema
-version. Validation or prompt-contract changes bump that version. The raw
+geometry by a SHA-256 digest of the normalized request, style, reference-image
+digest and complete shape-stage route context: city, activity, target distance,
+difficulty and placement hints. Changing that context requests a fresh drawing
+instead of reusing a silhouette designed for another route. The schema version
+also participates; validation or prompt-contract changes bump it. The raw
 custom wording is not retained in the cache key or value.
 Callers receive fresh path lists so one route cannot mutate another. Provider
 failures and deterministic fallbacks are never cached, so a short outage cannot

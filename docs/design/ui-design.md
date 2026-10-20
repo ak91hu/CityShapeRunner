@@ -1,5 +1,20 @@
 # Paceasso: cartographic studio
 
+## Planner examples and waiting games
+
+Each page load selects a complete random request from the catalog. Session
+storage excludes the previous example in that tab; blocked storage falls back
+to random selection. Only the initial catalog example is saved. User edits and
+view changes preserve the current sentence, and campaign links keep their preset.
+
+The waiting screen offers twelve guessing sketches and an optional Shape Sprint
+runner using the same twelve outlines. Players jump over three obstacle types
+with touch, Space or Arrow Up, choose a runner, pause and restart. Animation
+starts only on request and pauses on disclosure close or backgrounding the tab.
+Finishing or cancelling generation removes the game.
+Mobile Cancel stays outside the scrollable game content. Late tool responses
+cannot reopen dialogs while the result view is inactive.
+
 ## October 19 update: usability review across mobile and desktop
 
 The main review action now follows the idea field before optional examples.

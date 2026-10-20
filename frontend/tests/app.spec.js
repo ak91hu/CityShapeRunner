@@ -554,6 +554,7 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
     });
   });
   await page.goto("/");
+  const initialPrompt = await page.getByLabel("Drawing and location").inputValue();
 
   await findRoutes(page);
 
@@ -575,7 +576,7 @@ test("API failures show a focused actionable error and allow retry", async ({ pa
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.getByRole("button", { name: "Change request" }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
-    "a heart run in Budapest, about 8 km",
+    initialPrompt,
   );
 });
 

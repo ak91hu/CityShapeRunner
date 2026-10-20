@@ -372,6 +372,18 @@ textarea:focus, input:focus, select:focus {
 .waiting-game-feedback { grid-column: 1 / -1; padding: 0.65rem; background: var(--surface-tint); border-radius: var(--radius-sm); }
 .waiting-game-footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .waiting-game-footer small { color: var(--muted); font-size: 0.7rem; }
+.runner-body { display: grid; gap: 0.65rem; min-width: 0; padding: 0.8rem; border-top: 1px solid var(--line); }
+.runner-body p { margin: 0; font-size: 0.78rem; line-height: 1.5; color: var(--muted); }
+.runner-character { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; font-weight: 650; }
+.runner-character select { min-height: 2.75rem; min-width: 0; max-width: 100%; padding: 0.4rem; font: inherit; color: var(--brand-dark); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
+.waiting-game .runner-track { display: block; width: 100%; padding: 0; overflow: hidden; touch-action: manipulation; background: var(--surface-tint); }
+.runner-track > svg { display: block; width: 100%; }
+.runner-ground { stroke: var(--brand); stroke-width: 2; }
+.runner-skyline { fill: none; stroke: var(--line-strong); stroke-width: 2; }
+.runner-player { fill: var(--brand); stroke: var(--brand-dark); stroke-width: 3; }
+.runner-obstacle { fill: var(--accent); stroke: var(--brand-dark); stroke-width: 3; }
+.runner-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; }
+.runner-track:focus-visible, .waiting-game button:focus-visible, .runner-character select:focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
 .site-header nav a { flex: 1 1 auto; }
 @media (max-width: 48rem) {
   .result-layout, .map-card, .route-output, .result-sidebar { min-width: 0; }

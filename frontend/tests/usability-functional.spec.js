@@ -3,11 +3,44 @@ import { expect, test } from "playwright/test";
 import {
   installCommonMocks,
   mockGeneration,
+  moveEditPoint,
   openGeneratedRoute,
+  openOptionalRouteTools,
 } from "./support/functional-fixtures.js";
 
 test.beforeEach(async ({ page }) => {
   await installCommonMocks(page);
+});
+
+test("each page load samples a complete example and ordinary rerenders preserve edits", async ({ page }) => {
+  await page.addInitScript(() => {
+    Math.random = () => sessionStorage.getItem("example-test-roll") === "next" ? 0.9 : 0;
+  });
+  await page.goto("/");
+  const prompt = page.getByLabel("Drawing and location");
+  const first = await prompt.inputValue();
+  expect(first).toBe("a heart run in Budapest, about 8 km");
+  await page.evaluate(() => sessionStorage.setItem("example-test-roll", "next"));
+  await page.reload();
+  const another = await prompt.inputValue();
+  expect(another).not.toBe(first);
+  expect(another).toMatch(/.+ in .+, about \d+ km$/);
+  await page.reload();
+  expect(await prompt.inputValue()).not.toBe(another);
+  await prompt.fill("a fox in Sopron, running, 12 km");
+  await page.getByText("More shapes, letters, and numbers").click();
+  await expect(prompt).toHaveValue("a fox in Sopron, running, 12 km");
+  expect(await page.evaluate(() => sessionStorage.getItem("gps-art-example-prompt-v1"))).not.toBe("a fox in Sopron, running, 12 km");
+});
+
+test("random examples remain usable when session storage is unavailable", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "sessionStorage", { get() { throw new DOMException("Storage disabled", "SecurityError"); } });
+  });
+  await page.goto("/");
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(/.+ in .+, about \d+ km$/);
+  await page.getByRole("button", { name: "Review request", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Check your request" })).toBeVisible();
 });
 
 for (const [label, panel, field] of [
@@ -86,7 +119,7 @@ test("a review candidate stays selected after visiting the gallery", async ({ pa
 test("unfinished map edits remain intact and block download after leaving the result", async ({ page }) => {
   const capture = await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
-  await page.locator(".route-edit-marker").first().press("ArrowUp");
+  await moveEditPoint(page.locator(".route-edit-marker").first(), "ArrowUp");
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeDisabled();
 
   await page.getByRole("link", { name: "Create route", exact: true }).click();
@@ -155,6 +188,37 @@ test("a failed generation provides a focused editing path without retrying", asy
   await expect(prompt).toHaveValue(idea);
   await expect(page.locator(".error-card")).toHaveCount(0);
   expect(attempts).toBe(1);
+});
+
+test("a worksheet response after leaving the result cannot lock the gallery", async ({ page }) => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route("**/lesson-pack", async route => {
+    await pending;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({
+      available: true, title: "Star worksheet", waypoint_count: 3, waypoints: [],
+      total_distance_km: 1, scale_ratio: 5000, notes: [],
+    }) });
+  });
+  await openGeneratedRoute(page);
+  await openOptionalRouteTools(page);
+  const requested = page.waitForRequest("**/lesson-pack");
+  await page.getByRole("button", { name: "Build worksheet", exact: true }).click();
+  await requested;
+  await page.getByRole("link", { name: "Gallery", exact: true }).click();
+  const received = page.waitForResponse("**/lesson-pack");
+  release();
+  await received;
+  await expect(page.getByRole("button", { name: "Build worksheet", includeHidden: true })).toBeEnabled();
+  await expect(page.getByRole("dialog", { includeHidden: true })).toHaveCount(0);
+  await expect(page.locator("[inert]")).toHaveCount(0);
+  expect(await page.locator("body").evaluate(element => element.style.overflow)).not.toBe("hidden");
+  const returnLink = page.getByRole("link", { name: "Your route", exact: true });
+  await returnLink.focus();
+  await returnLink.press("Enter");
+  await expect(page.locator(".result")).toBeFocused();
+  await page.getByRole("button", { name: "Build worksheet", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Classroom worksheet preview" })).toBeVisible();
 });
 
 test("compact layouts put the planner before the gallery and fit a 320px viewport", async ({ page }) => {

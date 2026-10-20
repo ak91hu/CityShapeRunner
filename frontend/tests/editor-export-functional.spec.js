@@ -3,6 +3,7 @@ import { expect, test } from "playwright/test";
 import {
   buildEditedRoute,
   installCommonMocks,
+  moveEditPoint,
   openGeneratedRoute,
   routePoints,
 } from "./support/functional-fixtures.js";
@@ -55,8 +56,7 @@ test("ArrowRight changes longitude in the edit request", async ({ page }) => {
   await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const marker = page.locator(".route-edit-marker").first();
-  await marker.focus();
-  await marker.press("ArrowRight");
+  await moveEditPoint(marker, "ArrowRight");
   await page.getByRole("button", { name: "Apply changes" }).click();
 
   await expect.poll(() => editPayload()).not.toBeNull();
@@ -68,8 +68,7 @@ test("Shift plus an arrow key makes the documented larger adjustment", async ({ 
   await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const marker = page.locator(".route-edit-marker").first();
-  await marker.focus();
-  await marker.press("Shift+ArrowUp");
+  await moveEditPoint(marker, "Shift+ArrowUp");
   await page.getByRole("button", { name: "Apply changes" }).click();
 
   await expect.poll(() => editPayload()).not.toBeNull();
@@ -83,8 +82,7 @@ test("moving the first point of a closed route keeps the last point synchronized
   await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const marker = page.locator(".route-edit-marker").first();
-  await marker.focus();
-  await marker.press("ArrowLeft");
+  await moveEditPoint(marker, "ArrowLeft");
   await page.getByRole("button", { name: "Apply changes" }).click();
 
   await expect.poll(() => editPayload()).not.toBeNull();
@@ -96,8 +94,7 @@ test("Start over restores the original control points before applying", async ({
   await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const marker = page.locator(".route-edit-marker").first();
-  await marker.focus();
-  await marker.press("ArrowDown");
+  await moveEditPoint(marker, "ArrowDown");
   await page.getByRole("button", { name: "Start over" }).click();
   await page.getByRole("button", { name: "Apply changes" }).click();
 
@@ -109,8 +106,7 @@ test("resetting dirty edits restores downloads while the editor stays open", asy
   await openGeneratedRoute(page);
   await page.getByRole("button", { name: "Edit this route" }).click();
   const marker = page.locator(".route-edit-marker").first();
-  await marker.focus();
-  await marker.press("ArrowUp");
+  await moveEditPoint(marker, "ArrowUp");
 
   await expect(page.getByRole("button", { name: "Download GPX", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Download TCX", exact: true })).toBeDisabled();

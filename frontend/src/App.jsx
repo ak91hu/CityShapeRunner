@@ -23,6 +23,7 @@ import {
 } from "./api.js";
 import RouteSetupPanel from "./RouteSetupPanel.jsx";
 import WaitingSketchGame from "./WaitingSketchGame.jsx";
+import WaitingRunnerGame from "./WaitingRunnerGame.jsx";
 import {
   EMPTY_ROUTE_PREFERENCES,
   buildRouteSetupPayload,
@@ -33,6 +34,7 @@ const RouteWalkthrough = lazy(() => import("./RouteWalkthrough.jsx"));
 const ShapePlacementMap = lazy(() => import("./ShapePlacementMap.jsx"));
 const GALLERY_REMOVAL_STORAGE_KEY = "gps-art-gallery-removal-tokens-v1";
 const FEATURED_GALLERY_STORAGE_KEY = "gps-art-featured-gallery-id-v1";
+const EXAMPLE_PROMPT_STORAGE_KEY = "gps-art-example-prompt-v1";
 
 const CORE_IDEAS = [
   { glyph: "♥", label: "Heart", category: "Simple shapes", featured: true, prompt: "a heart run in Budapest, about 8 km" },
@@ -205,6 +207,15 @@ const HUNGARIAN_SHAPE_IDEAS = [
 ];
 
 const QUICK_IDEAS = [...CORE_IDEAS, ...ADDITIONAL_SHAPE_IDEAS, ...HUNGARIAN_SHAPE_IDEAS];
+// Choose once per page, including React's development remounts and fast reloads.
+const INITIAL_EXAMPLE_PROMPT = (() => {
+  let previous;
+  try { previous = window.sessionStorage.getItem(EXAMPLE_PROMPT_STORAGE_KEY); } catch { /* Storage may be disabled. */ }
+  const choices = QUICK_IDEAS.filter(idea => idea.prompt !== previous);
+  const prompt = choices[Math.floor(Math.random() * choices.length)].prompt;
+  try { window.sessionStorage.setItem(EXAMPLE_PROMPT_STORAGE_KEY, prompt); } catch { /* Random selection still works. */ }
+  return prompt;
+})();
 
 const IDEA_CATEGORIES = [
   "Hungarian ideas",
@@ -2773,6 +2784,7 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
     <section
       ref={setLoadingRef}
       className="loading-card loading-card--journey"
+      id="route-generation"
       role={compact ? "dialog" : undefined}
       aria-modal={compact ? true : undefined}
       aria-labelledby="loading-title"
@@ -2909,6 +2921,7 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
         )}
 
         <WaitingSketchGame />
+        <WaitingRunnerGame />
 
         <p className="loading-fact">
           <span>While you wait</span>
@@ -3322,7 +3335,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       setReelOpen(false);
       setLessonOpen(false);
     }
-  }, [active]);
+  }, [active, posterOpen, reelOpen, lessonOpen]);
 
   const startReelCapture = useCallback(
     () => mapCaptureRef.current?.startReelCapture(),
@@ -4572,7 +4585,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       )}
 
       <GiftPosterOverlay
-        open={posterOpen}
+        open={active && posterOpen}
         imageDataUrl={posterImage}
         dedication={posterDedication}
         onDedicationChange={setPosterDedication}
@@ -4587,7 +4600,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       />
 
       <ReelOverlay
-        open={reelOpen}
+        open={active && reelOpen}
         onClose={() => setReelOpen(false)}
         startCapture={startReelCapture}
         shapeName={shapeName}
@@ -4595,7 +4608,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       />
 
       <LessonSheetOverlay
-        open={lessonOpen}
+        open={active && lessonOpen}
         pack={lessonPack}
         points={lessonPoints}
         dedication={lessonDedication}
@@ -4607,7 +4620,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
 }
 
 export default function App() {
-  const [prompt, setPrompt] = useState(QUICK_IDEAS[0].prompt);
+  const [prompt, setPrompt] = useState(INITIAL_EXAMPLE_PROMPT);
   const [plannerStep, setPlannerStep] = useState("idea");
   const [appView, setAppView] = useState(() =>
     typeof window !== "undefined" && window.location.hash === "#gallery" ? "gallery" : "planner",
@@ -5263,8 +5276,8 @@ export default function App() {
     distanceLimits(suggestSport);
   return (
     <div className="app-shell">
-      <a className="skip-link" href={appView === "gallery" ? "#gallery" : plannerStep === "result" ? "#route-result" : "#route-designer"}>
-        {appView === "gallery" ? "Skip to gallery" : plannerStep === "result" ? "Skip to your route" : "Skip to route planner"}
+      <a className="skip-link" href={appView === "gallery" ? "#gallery" : loading ? "#route-generation" : plannerStep === "result" ? "#route-result" : "#route-designer"}>
+        {appView === "gallery" ? "Skip to gallery" : loading ? "Skip to route progress" : plannerStep === "result" ? "Skip to your route" : "Skip to route planner"}
       </a>
 
       <header className="site-header">

@@ -20,7 +20,7 @@ combined even if each uses one worker. CI jobs on separate machines can remain
 parallel. Keep failed reports and rerun only the checks affected by the fix or
 resource failure.
 
-Generated-route fixtures wait for the street map and lazy walkthrough header
+Generated-route fixtures wait for result focus, the street map and lazy walkthrough header
 before returning. Without these signals a late panel can move a pointer target
 between mouse-down and mouse-up. The delayed-module regression in
 `generation-experience.spec.js` keeps this readiness contract checked. Tests of

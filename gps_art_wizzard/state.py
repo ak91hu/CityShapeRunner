@@ -342,6 +342,7 @@ class WorkflowState:
     reference_kind: str | None = None
     map_placement: MapPlacement | None = None
     workflow: WorkflowTrace | None = None
+    refinement_limit: int | None = None
 
     def snapshot(self) -> dict[str, Any]:
         """Compact, JSON-friendly snapshot for the API / history."""

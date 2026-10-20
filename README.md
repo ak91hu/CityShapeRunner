@@ -48,6 +48,10 @@ or greener walking streets. Result alternatives appear together as comparison
 cards; route-readiness issues can be selected to zoom the map to their exact
 preview segments.
 
+The idea field starts with a random complete catalog example on each page load.
+When session storage is available, the previous example in that tab is excluded;
+editing the request or switching views does not randomize it again.
+
 The project combines 145 deterministic shape templates, a complete A–Z/0–9
 vector font, local profiles for 50 major Hungarian cities, all 45 official Lake
 Balaton shore municipalities, and 136 other European cities, optional LLM planning,
@@ -161,6 +165,8 @@ recognition and distance repairs, and connectivity retries retain the original
 `WORKFLOW_MAX_DURATION_SECONDS=175` budget. A weak first route does not lose its
 repair time to the shorter exploration budget. Unmeasured queued placements
 remain available in their original priority order for quality refinement.
+Unstarted creative alternatives retain their extra measurement slots instead
+of consuming the established finalists' attempts, within the same full deadline.
 Mandatory validation still finishes;
 an in-flight provider request can exceed either budget, so neither is an HTTP
 timeout. Routing/export quality gates and the ban on exporting unconnected guides remain.
@@ -182,9 +188,12 @@ partial ranking from a short wall-clock cutoff.
 
 The NDJSON progress feed also reports measured search areas and unique connected
 candidates. Request counters update before each provider call, including retries.
-The waiting screen provides an eight-sketch, keyboard-accessible challenge with a score,
-explains quiet periods without inventing percentage progress, and keeps Cancel
-reachable on mobile. Games never submit another generation request.
+The waiting screen provides a twelve-sketch guessing challenge and Shape Sprint,
+an optional jumping runner with twelve selectable shapes, three obstacle types,
+scoring, pause and restart. It supports keyboard and touch, pauses when closed
+or backgrounded, and stops when generation finishes. The screen explains quiet
+periods without inventing percentage progress and keeps Cancel reachable on
+mobile. Games never submit another generation request.
 
 For reproducible placement experiments, `/generate` accepts a 32-bit integer
 `search_seed` and returns the chosen seed. It reproduces sampling, not live road

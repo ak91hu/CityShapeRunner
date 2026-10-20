@@ -4,12 +4,14 @@ from __future__ import annotations
 import copy
 import threading
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from gps_art_wizzard.agents.placement_agent import PlacementAgent
 from gps_art_wizzard.agents.preflight_agent import PreflightAgent
+from gps_art_wizzard.agents.refinement_agent import RefinementAgent
 from gps_art_wizzard.api.routes import GenerateRequest
 from gps_art_wizzard.config import get_settings
 from gps_art_wizzard.orchestrator import Orchestrator
@@ -155,6 +157,65 @@ def test_expired_budget_does_not_start_queued_alternatives(monkeypatch):
     assert state.candidate_count == 1
     assert state.validation.on_roads
     assert [draft.lon_offset_m for draft in state.placement_candidates] == [1000, 2000, 3000]
+
+
+@pytest.mark.parametrize("initial_measured", [1, 2, 3])
+@pytest.mark.parametrize("distance_failing", [False, True])
+@pytest.mark.parametrize("refinement_budget", [0, 6])
+def test_unstarted_creative_finalists_cannot_displace_established_quality_attempts(monkeypatch, initial_measured, distance_failing, refinement_budget):
+    cfg = get_settings().workflow
+    for name, value in {"measurement_workers": 1, "initial_placement_candidates": 3,
+                        "max_refinement_iterations": refinement_budget, "preflight_shortlist": 7,
+                        "ai_route_verifier_enabled": False}.items():
+        monkeypatch.setattr(cfg, name, value)
+    state = search_state()
+    elapsed, measured = [0.0], []
+
+    def preflight(trial):
+        trial.placement_candidates = [replace(trial.route_draft, lon_offset_m=i * 1000)
+                                      for i in (7, 8, 1, 2, 3, 4, 5, 6)]
+        if initial_measured == 1:
+            elapsed[0] = 40
+
+    def snap(trial):
+        measured.append(trial.route_draft.lon_offset_m / 1000)
+        trial.candidate_count += 1
+        trial.snapped = SnappedRoute(trial.route_draft.waypoints, 3000, True)
+        if len(measured) >= initial_measured:
+            elapsed[0] = 40
+
+    def validate(trial):
+        winner = 4000 if distance_failing else 6000
+        fidelity = 0.99 if trial.route_draft.lon_offset_m == winner else 0.5
+        distance_fit = 0.4 if distance_failing and fidelity < 0.99 else 1
+        trial.validation = Validation(
+            fidelity, 1, distance_fit, fidelity, on_roads=True,
+            spatial_similarity=fidelity, coverage_similarity=fidelity,
+            turning_similarity=fidelity, landmark_similarity=fidelity,
+            length_similarity=fidelity, extent_similarity=fidelity,
+        )
+
+    nodes = {name: SimpleNamespace(run=lambda trial: trial)
+             for name in ("intent", "planning", "shape", "placement", "export")}
+    nodes.update(preflight=SimpleNamespace(run=preflight), snap=SimpleNamespace(run=snap),
+                 validation=SimpleNamespace(run=validate), refinement=RefinementAgent())
+    orchestrator = Orchestrator(nodes)
+    # Isolate shortlist scheduling: later local repairs do not consume this queue.
+    for method in ("_polish_shape", "_repair_reversals", "_repair_detours", "_reconnect_contour",
+                   "_repair_turns_directly", "_repair_contour_with_graph", "_repair_distance",
+                   "_evaluate_fallback_candidates"):
+        monkeypatch.setattr(orchestrator, method, lambda *args, **kwargs: None)
+    runtime = WorkflowRuntime(state, max_duration_seconds=175, max_llm_calls=0,
+                              optimization_budget_seconds=35, clock=lambda: elapsed[0])
+    orchestrator._run_workflow(state, runtime)
+    if refinement_budget == 0:
+        assert measured == [0, 7, 8][:initial_measured]
+        assert state.iterations == state.refinement_limit == 0
+        return
+    assert measured == ([0, 7, 8, 1, 2, 3, 4] if distance_failing else [0, 7, 8, 1, 2, 3, 4, 5, 6])
+    assert state.validation.shape_fidelity == 0.99
+    assert state.validation.distance_fit == 1
+    assert len(state.placement_candidates) == (2 if distance_failing else 0)
 
 
 @pytest.mark.parametrize(("elapsed_seconds", "expected_batches"), [(36, 3), (175, 1)])

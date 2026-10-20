@@ -282,12 +282,15 @@ class Orchestrator:
         self._evaluate_suggestion_candidates(state, n, runtime=runtime)
 
         threshold = cfg.validation_score_threshold
-        # Additional creative initial placements do not displace established
-        # finalists. Constrained searches without that extra family retain
-        # one combined budget and avoid extra blind refinement iterations.
+        # Unstarted creative finalists retain their slots after the shorter
+        # exploration deadline; they cannot consume established quality attempts.
+        # Searches without extra finalists keep one combined measurement budget.
         extra_finalists = max(0, len(state.placement_candidates) + initial_extra
                               - max(0, cfg.preflight_shortlist - 1))
-        max_iter = max(0, cfg.max_refinement_iterations - max(0, initial_extra - extra_finalists))
+        state.refinement_limit = (
+            max(0, cfg.max_refinement_iterations + extra_finalists - initial_extra)
+            if cfg.max_refinement_iterations > 0 else 0
+        )
 
         best_v = state.validation
         best_snapped = copy.deepcopy(state.snapped)
@@ -309,7 +312,7 @@ class Orchestrator:
             best_v.on_roads
             and not self._passes_quality(best_v)
             and not runtime.deadline_exceeded(quality_required=True)
-            and state.iterations < max_iter
+            and state.iterations < state.refinement_limit
         ):
             state.iterations += 1
             log.info(
