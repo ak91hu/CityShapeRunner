@@ -61,7 +61,7 @@ def test_mural_plan_refuses_unrouted_geometry(monkeypatch):
     )
     monkeypatch.setattr(
         niche.gpx_writer,
-        "to_gpx",
+        "to_segmented_gpx",
         lambda *_args, **_kwargs: pytest.fail(
             "unrouted mural geometry must never reach GPX serialisation"
         ),
@@ -378,7 +378,7 @@ def test_art_rescue_preserves_pen_up_gaps_and_exports_only_routed_missing_ink(
     assert body["missing_segments"]
     assert body["missing_ink_gpx"].count("<trkseg>") == 1
     assert body["merged_recording_gpx"].count("<trkseg>") == 2
-    assert "Directions-verified road/path route" in body["authenticity"]
+    assert "Directions-verified street reconstruction" in body["authenticity"]
     assert "not stored" in body["privacy"]
 
 

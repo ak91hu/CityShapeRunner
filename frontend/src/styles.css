@@ -5222,6 +5222,73 @@ input,
 }
 
 .mural-controls input { width: 4.2rem; }
+
+.planning-mode {
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+.planning-mode legend { margin-bottom: 0.35rem; font-size: 0.85rem; font-weight: 700; }
+.planning-mode > div, .group-event-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; }
+.planning-mode label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.planning-mode label:has(input:checked) { border-color: var(--brand); background: var(--surface-raised); }
+.planning-mode input { width: 1rem; height: 1rem; margin: 0; flex-shrink: 0; accent-color: var(--brand); }
+.group-entry { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+.generator-stage:has(.group-entry:not([hidden])) > .designer-card { grid-column: 2; grid-row: 1; }
+.group-workspace {
+  min-width: 0;
+  margin: 1rem 0;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.group-workspace h2 { margin-top: 0; }
+.group-workspace p { line-height: 1.55; }
+.group-import { position: relative; cursor: pointer; }
+.group-import input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.group-import:focus-within { outline: 3px solid var(--brand); outline-offset: 3px; }
+.group-plan-form { margin-top: 1rem; }
+.group-plan-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.group-plan-form label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 700; }
+.group-plan-form input:not([type="checkbox"]) {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+.group-members { list-style: none; margin: 1rem 0; padding: 0; }
+.group-members li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.7rem; align-items: end; margin-bottom: 0.75rem; }
+.group-plan-form .group-meeting { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; margin-top: 1rem; }
+.group-meeting input { flex-shrink: 0; width: 1.2rem; height: 1.2rem; }
+.group-assignments li { display: grid; grid-template-columns: minmax(0, 1fr); font-size: 0.85rem; overflow-wrap: anywhere; padding: 1rem 0; }
+.group-workspace .route-map { margin: 1rem 0; }
+.group-workspace .button { min-height: 44px; }
+.personal-rescue { grid-column: 1 / -1; min-width: 0; }
+
+@media (max-width: 900px) {
+  .generator-stage:has(.group-entry:not([hidden])) > .designer-card { grid-column: 1; grid-row: auto; }
+  .group-entry { grid-column: 1; grid-row: auto; }
+}
+@media (max-width: 540px) {
+  .group-members li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 0.75rem; border-bottom: 1px solid var(--line); }
+  .group-members li > button { grid-column: 1 / -1; justify-self: start; }
+  .group-workspace .group-event-actions > .button { width: 100%; }
+}
 .timed-readiness-result {
   display: grid;
   gap: 0.2rem;
@@ -7244,6 +7311,7 @@ textarea {
 
 .art-rescue-controls {
   align-items: end;
+  flex-wrap: wrap;
 }
 
 .art-rescue-file-label {
@@ -7255,6 +7323,8 @@ textarea {
 }
 
 .art-rescue-file-label input {
+  width: 100%;
+  min-height: 44px;
   max-width: 15rem;
   font-size: 0.64rem;
 }

@@ -210,7 +210,7 @@ test("combined recordings produce scores, merged GPX, and missing ink", async ({
         merged_recording_gpx: "<gpx><trkseg /></gpx>",
         missing_ink_gpx: "<gpx><trkseg /><trkseg /></gpx>",
         message: "1 separate repair mission(s) can complete the drawing.",
-        authenticity: "The combined GPX contains recorded points only.",
+        authenticity: "Coverage uses the uploaded recordings. The combined GPX is a street reconstruction.",
         privacy: "Files were analysed in memory and were not stored.",
       }),
     });
@@ -227,7 +227,7 @@ test("combined recordings produce scores, merged GPX, and missing ink", async ({
 
   await expect(rescue).toContainText("68%");
   await expect(rescue).toContainText("repair mission");
-  await expect(rescue.getByRole("button", { name: "Combined GPX" })).toBeVisible();
+  await expect(rescue.getByRole("button", { name: "Combined street GPX" })).toBeVisible();
   await expect(rescue.getByRole("button", { name: "Missing-ink mission" })).toBeVisible();
   await rescue.getByRole("button", { name: "Show missing parts on map" }).click();
   await expect(page.locator(".route-analysis-segment--missing")).toHaveCount(1);

@@ -24,7 +24,9 @@ class Recording:
     segments: list[list[LatLon]]
 
 
-def _densify(points: list[LatLon], *, preferred_step_m: float, max_points: int = 5_000) -> list[LatLon]:
+def _densify(
+    points: list[LatLon], *, preferred_step_m: float, max_points: int = 5_000
+) -> list[LatLon]:
     if len(points) < 2:
         return list(points)
     total_distance = geo.path_distance_m(points)
@@ -159,12 +161,9 @@ def inkproof_analysis(points: list[LatLon], accuracy_m: float) -> dict:
         scale = accuracy_m / max(float(np.quantile(deviation, 0.95)), 1e-6)
         noisy_xy = points_xy + drift * scale
         noisy = [
-            geo.unit_to_latlon(float(x), float(y), center[0], center[1], 1.0)
-            for x, y in noisy_xy
+            geo.unit_to_latlon(float(x), float(y), center[0], center[1], 1.0) for x, y in noisy_xy
         ]
-        simulated_fidelity.append(
-            shape_similarity.fidelity_between_routes(sampled, noisy, n=96)
-        )
+        simulated_fidelity.append(shape_similarity.fidelity_between_routes(sampled, noisy, n=96))
 
     fragile_distance = sum(
         length
@@ -178,7 +177,13 @@ def inkproof_analysis(points: list[LatLon], accuracy_m: float) -> dict:
         1.0,
         max(0.0, 0.72 * expected_fidelity + 0.28 * (1.0 - fragile_share)),
     )
-    rating = "durable" if resilience_score >= 0.84 else "watch" if resilience_score >= 0.68 else "fragile"
+    rating = (
+        "durable"
+        if resilience_score >= 0.84
+        else "watch"
+        if resilience_score >= 0.68
+        else "fragile"
+    )
 
     fragile_segments = []
     ranked_runs = sorted(
@@ -209,9 +214,13 @@ def inkproof_analysis(points: list[LatLon], accuracy_m: float) -> dict:
     tips = ["Wait for a stable GPS lock before starting the activity."]
     if fragile_segments:
         tips.append("Slow down at the highlighted details so the recorder captures more points.")
-        tips.append("If possible, enlarge the drawing or choose a Street Canvas area with wider separation.")
+        tips.append(
+            "If possible, enlarge the drawing or choose a Street Canvas area with wider separation."
+        )
     if accuracy_m >= 15:
-        tips.append("Buildings and dense tree cover can exceed this accuracy profile; dual-band GPS can help.")
+        tips.append(
+            "Buildings and dense tree cover can exceed this accuracy profile; dual-band GPS can help."
+        )
     return {
         "accuracy_m": accuracy_m,
         "resilience_score": resilience_score,
@@ -246,6 +255,15 @@ def parse_recording(name: str, xml: str) -> Recording:
             segments.append(points)
     if not segments:
         raise ValueError(f"{name}: no track or route with at least two points was found")
+    if any(
+        not math.isfinite(latitude)
+        or not math.isfinite(longitude)
+        or not -90 <= latitude <= 90
+        or not -180 <= longitude <= 180
+        for segment in segments
+        for latitude, longitude in segment
+    ):
+        raise ValueError(f"{name}: GPX coordinates must be finite, valid latitude/longitude pairs")
     return Recording(name=name, segments=segments)
 
 
@@ -253,6 +271,7 @@ def rescue_analysis(
     planned_points: list[LatLon],
     recordings: list[Recording],
     *,
+    export_recordings: list[Recording],
     tolerance_m: float,
     name: str,
     sport: str,
@@ -327,7 +346,7 @@ def rescue_analysis(
         "missing_segments": missing_segments,
         "recorded_segments_preview": [_downsample(segment, 260) for segment in original_segments],
         "merged_recording_gpx": gpx_writer.to_segmented_gpx(
-            original_segments,
+            [segment for recording in export_recordings for segment in recording.segments],
             name=f"{name} - combined recordings",
             sport=sport,
         ),
@@ -345,6 +364,6 @@ def rescue_analysis(
             if not missing_segments
             else f"{len(missing_segments)} separate repair mission(s) can complete the drawing."
         ),
-        "authenticity": "Every exported segment is a Directions-verified road/path route; repair routes are separate and untimed.",
+        "authenticity": "Coverage uses the uploaded recordings. The combined GPX is a Directions-verified street reconstruction, not the original recording or proof of participation. Gaps remain separate; repair routes are untimed.",
         "privacy": "Files were analysed in memory and were not stored.",
     }

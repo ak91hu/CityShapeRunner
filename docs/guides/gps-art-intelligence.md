@@ -18,13 +18,42 @@ guidance only after street snapping has weakened the visible outline.
 
 ## Community GPS mural
 
-`POST /mural-plan` splits one continuous route by travelled distance. Each
-participant receives a contiguous GPX section, so the completed group activity
-reconstructs the source drawing without arbitrary jumps between sections. The
-result page exposes the split as "Make it together" and completes the loop with
-"Combine finished runs": the Missing Ink rescue below now accepts the group's
-finished GPX files in the browser, scores how much of the drawing is covered,
-and exports one honest combined track plus a separate missing-ink mission.
+The native **Personal / Group** radio controls select separate workflows without
+resetting the prompt, selected route, or a prepared group roster. Personal is the
+default and keeps group administration out of the route tools. Group explains
+that the requested distance is for the whole drawing, then exposes **Create
+together** on the result page, outside the optional-tools disclosure. Campaign
+links include `mode=group`; classroom worksheets remain available in route tools.
+
+`POST /mural-plan` splits one provider-routed line into contiguous sections for
+2–24 named participants or teams. Maximum distances determine proportional
+shares: a person with a shorter limit gets a shorter drawing section. Each
+assignment includes its start/finish coordinates, drawing distance, travel
+distance, total distance, and GPX. The old numeric `participants` request still
+produces equal sections.
+
+An optional shared meeting point uses the drawing's start. Directions separately
+routes each outward and return connection using the selected route preferences.
+These distances count towards each person's limit; over-limit allocations are
+rejected rather than silently extending a person's outing. Proportional splitting
+is not a search for every feasible allocation, so another distribution could fit
+when the initial one fails. With no shared meeting point, each section starts
+where the previous one finishes: getting there and returning home are explicitly
+unplanned and excluded. Travel and art remain separate GPX segments to preserve
+snapped endpoint gaps. Record the entire outing; transfer paths can add visible
+lines outside the intended drawing.
+
+**Save event plan** downloads a local JSON file containing the submitted drawing guide,
+roster, limits, meeting-point choice, and preferences, without recordings or
+credentials. **Open saved event** resumes it without generating a new drawing.
+Saved coordinates are treated as untrusted input: assignments are street-routed
+again, and the organiser must review the restored drawing before GPX downloads
+or completion tools become available. Names and coordinates are present in the
+file, so share it deliberately. No server-side event account is created.
+
+After the event, **Combine finished runs** compares the group's uploaded GPX
+recordings with the plan. It maps missing sections and offers individual repair
+GPX files as well as a combined missing-ink pack.
 
 ## Night-run readiness
 
@@ -84,14 +113,14 @@ Source: [GPS.gov — GPS Accuracy](https://www.gps.gov/index.php/gps-accuracy-0)
 
 ## Multi-session Missing Ink rescue
 
-`POST /art-rescue` accepts one to twelve completed GPX files and compares them
+`POST /art-rescue` accepts one to twenty-four completed GPX files and compares them
 with the selected routed artwork. It reports planned-line coverage, recorded
 line precision, and their harmonic art-match score. Missing runs are returned
 as map overlays, individual GPX files, and one segmented repair pack. The
-result page now exposes this as "Combine finished runs" next to the mural
-splitter, completing the group workflow: split the drawing, run the sections,
-upload the recordings, and hand every artist either the combined track or a
-missing-ink mission.
+personal route tools expose this as **Finish your drawing** for multiple outings;
+the group workspace calls it **Combine finished runs** after assignments are ready.
+The group workflow is: assign sections, record outings, upload the recordings,
+then collect the street reconstruction or separate missing-ink missions.
 
 The combined export keeps each source track segment separate. A gap between
 two activity files is therefore a real GPX “pen-up” gap, not a fabricated line
@@ -100,10 +129,13 @@ and analysed in memory and are neither written to disk nor published.
 
 This addresses a repeated workflow documented by activity users: Strava does
 not merge activities directly, so people otherwise download, combine, and
-re-upload files using separate tools. Missing Ink deliberately does no silent
-reconstruction. Its combined file contains only points that were actually
-recorded; the uncovered artwork becomes a separate, untimed course for a
-future physical repair activity.
+re-upload files using separate tools. Coverage, recorded distance, and precision
+are measured from the uploaded recordings, before map matching: a router detour
+cannot fill missing artwork in those metrics. **Combined street GPX** is explicitly
+labelled as a Directions-verified reconstruction, rather than the original
+recording or proof of participation. The uncovered artwork becomes a separate,
+untimed course for a future physical repair activity. The existing limits of 48
+track segments and 80,000 aggregate points remain enforced before routing.
 
 Sources: [Strava community example](https://www.reddit.com/r/Strava/comments/so9tu8/merging_activities/),
 [Footpath pricing and feature comparison](https://footpathapp.com/pricing/),

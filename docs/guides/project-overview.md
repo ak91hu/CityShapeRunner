@@ -218,11 +218,14 @@ request ID, GPX/TCX, or user identity. Removal tokens are stored only in the
 publishing browser; local-storage failure does not misreport a completed
 server-side upload or deletion as failed.
 
-The optional tools below the result add group and context layers. "Make it
-together" splits one drawing into balanced per-artist GPX sections, and
-"Combine finished runs" accepts the group's finished GPX files, scores the
-covered ink, and exports one honest merged track plus a separate missing-ink
-mission. A night-run check aggregates OpenStreetMap `lit` tags and road
+Personal and Group modes separate individual planning from event organisation.
+The group workspace assigns contiguous sections to named participants according
+to their distance limits, optionally includes routed shared-start travel, and
+saves a local event file for a later return. Restoring an event requires fresh
+street routing and a visual review. "Combine finished runs" measures covered ink
+from uploaded recordings and offers a labelled street reconstruction plus
+individual missing-ink missions. Personal route tools offer the same completion
+analysis for one person's multiple outings. A night-run check aggregates OpenStreetMap `lit` tags and road
 classes into lit/unlit shares, traffic exposure, and mappable unlit stretches.
 A sightseeing list names attractions within ~90 m of the line in running
 order. Upcoming occasions (Hungarian national days, movable feasts, and

@@ -271,7 +271,27 @@ Requires a `public_id` matching `gps-art-gallery/<32 lowercase hex characters>` 
 
 ### `POST /mural-plan`
 
-Splits 4–2,000 points by traveled distance among 2–24 participants. Accepts `name` and `sport`; returns per-participant previews, distances, and GPX. A route too short to produce all sections returns `422`.
+Splits 4–2,000 points by traveled distance among 2–24 participants. Supply either
+the legacy numeric `participants` (equal sections) or `members`, a list of distinct
+names (1–80 characters) and `max_distance_km` (0.05–500). If both are supplied,
+the count must match. Named members receive proportional sections based on their
+limits. Accepts `name`, `sport` (`run` for running/walking or `bike`), and
+`route_preferences`.
+
+`return_to_start: true` uses the routed drawing's start as the shared meeting
+point. Separate provider-routed access/return legs count towards each limit.
+Insufficient combined capacity, over-limit allocations, or a route too short to
+produce all sections return `422`; provider failures or connection endpoints
+missed by more than one metre return `503`. Splitting is proportional, not a
+global allocation optimiser. At most one base routing call and two connector
+calls per participant are made, excluding provider-internal retries.
+Client disconnection stops subsequent event routing calls; an already-running
+provider call retains its normal timeout. This also applies to recording rescue.
+
+Returns `points_preview`, `meeting_point`, `travel_note`, and sections containing
+`label`, `start`, `finish`, `art_distance_km`, `travel_distance_km`, total
+`distance_km`, `max_distance_km`, drawing/travel previews and segmented `gpx`.
+Unplanned travel is explicitly excluded when `return_to_start` is false.
 
 ### `POST /timed-readiness`
 
@@ -283,7 +303,14 @@ Accepts 4–5,000 points and `accuracy_m` from 3 to 50 (default 10). It estimate
 
 ### `POST /art-rescue`
 
-Accepts 4–5,000 planned points, 1–12 named GPX recordings (each at most 2,000,000 characters), tolerance 5–100 metres, name, and sport. Malformed GPX/domain data returns `422`.
+Accepts 4–5,000 planned points, 1–24 named GPX recordings (each at most 2,000,000
+characters), tolerance 5–100 metres, name, and sport. Malformed GPX/domain data,
+more than 48 track segments, or more than 80,000 aggregate recording points
+returns `422` before routing. Coverage/precision and recorded distances use the
+original recordings. The combined GPX uses separately provider-routed recording
+segments and is labelled as a street reconstruction, not proof of participation.
+Missing segments include individually downloadable GPX; all exports retain
+the fail-closed provider-routing requirement.
 
 ### `POST /recognition-repair`
 

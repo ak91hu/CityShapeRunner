@@ -1,10 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   analyseInkproof,
   buildLessonPack,
   editRoute,
   generate as generateRoute,
-  createMuralPlan,
   fetchDestinations,
   fetchOccasions,
   fetchShapePlacementPreview,
@@ -22,6 +21,7 @@ import {
   rescueArtwork,
 } from "./api.js";
 import RouteSetupPanel from "./RouteSetupPanel.jsx";
+import GroupWorkspace from "./GroupWorkspace.jsx";
 import WaitingSketchGame from "./WaitingSketchGame.jsx";
 import WaitingRunnerGame from "./WaitingRunnerGame.jsx";
 import {
@@ -1121,47 +1121,6 @@ function TimedReadinessCard({ points }) {
   );
 }
 
-function CommunityMuralCard({ activeRoute, shapeName, city, sport }) {
-  const [participants, setParticipants] = useState(4);
-  const [plan, setPlan] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const create = async () => {
-    setBusy(true); setError("");
-    try {
-      setPlan(await createMuralPlan({
-        points: activeRoute.points_preview,
-        participants: Number(participants),
-        name: `${shapeName} mural in ${city}`,
-        sport: sport === "bike" ? "bike" : "run",
-      }));
-    } catch (requestError) {
-      setError(requestError.message || "We couldn’t split this mural.");
-    } finally { setBusy(false); }
-  };
-  return (
-    <section className="mural-card" aria-labelledby="mural-title">
-      <div>
-        <span className="eyebrow">Community GPS mural</span>
-        <h3 id="mural-title">Make it together</h3>
-        <p>Split this drawing into balanced, continuous sections for a group.</p>
-      </div>
-      <div className="mural-controls">
-        <label>Artists
-          <input type="number" min="2" max="24" value={participants} onChange={(event) => setParticipants(event.target.value)} />
-        </label>
-        <button type="button" className="button button--secondary" onClick={create} disabled={busy}>
-          {busy ? "Splitting..." : "Create mural plan"}
-        </button>
-      </div>
-      {plan && <ul className="mural-sections">{plan.sections.map((section) => (
-        <li key={section.id}><span>{section.label}, {formatMetric(section.distance_km)} km</span><button type="button" onClick={() => saveFile(`${safeFilePart(section.label)}.gpx`, section.gpx, "application/gpx+xml")}>GPX</button></li>
-      ))}</ul>}
-      {error && <p className="editor-error" role="alert">{error}</p>}
-    </section>
-  );
-}
-
 function formatOccasionDate(isoDate) {
   const date = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(date.getTime())) return isoDate;
@@ -1684,17 +1643,22 @@ function LessonPackCard({ activeRoute, shapeName, city, onOpen }) {
   );
 }
 
-function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOverlayChange }) {
+function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOverlayChange, group = false }) {
+  const titleId = useId();
   const [files, setFiles] = useState([]);
   const [analysis, setAnalysis] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const active = overlayType === "rescue";
+  const requestRef = useRef(null);
+  useEffect(() => () => requestRef.current?.abort(), []);
   const plannedPoints = Array.isArray(activeRoute.points_preview) ? activeRoute.points_preview : [];
   const compare = async () => {
     if (!files.length || plannedPoints.length < 4) return;
     setBusy(true);
     setError("");
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
       const recordings = [];
       for (const file of files) {
@@ -1704,15 +1668,16 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
         planned_points: plannedPoints,
         recordings,
         tolerance_m: 25,
-        name: `${shapeName} mural in ${city}`,
+        name: (city ? `${shapeName} in ${city}` : shapeName).slice(0, 100),
         sport: sport === "bike" ? "bike" : "run",
-      });
+      }, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       setAnalysis(response);
       onOverlayChange(null);
     } catch (requestError) {
-      setError(requestError.message || "We couldn’t compare those recordings.");
+      if (!controller.signal.aborted) setError(requestError.message || "We couldn’t compare those recordings.");
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   };
   const toggleMissing = () => {
@@ -1732,13 +1697,12 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
     );
   };
   return (
-    <section className="art-rescue-card" aria-labelledby="rescue-title">
+    <section className="art-rescue-card" aria-labelledby={titleId}>
       <div>
-        <span className="eyebrow">Finish the mural</span>
-        <h3 id="rescue-title">Combine finished runs</h3>
+        <span className="eyebrow">{group ? "Finish the mural" : "Multi-session drawing"}</span>
+        <h3 id={titleId}>{group ? "Combine finished runs" : "Finish your drawing"}</h3>
         <p>
-          Upload the group’s GPX files to see how much of the drawing is done and export only the
-          missing ink.
+          {group ? "Upload the group’s GPX files" : "Upload GPX files from your outings"} to see how much of the drawing is done and plan the missing parts. Up to 24 files, 2 MB each.
         </p>
       </div>
       <div className="mural-controls art-rescue-controls">
@@ -1747,11 +1711,15 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
           <input
             type="file"
             multiple
+            disabled={busy}
             accept=".gpx,application/gpx+xml,text/xml"
             onChange={(event) => {
-              setFiles(Array.from(event.target.files ?? []));
+              const selected = Array.from(event.target.files ?? []);
               setAnalysis(null);
-              setError("");
+              onOverlayChange(null);
+              const invalid = selected.length > 24 || selected.some(file => file.size > 2_000_000);
+              setFiles(invalid ? [] : selected);
+              setError(invalid ? "Choose at most 24 GPX files, each no larger than 2 MB." : "");
             }}
           />
         </label>
@@ -1763,6 +1731,9 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
         >
           {busy ? "Comparing..." : "Compare recordings"}
         </button>
+        {busy && <button type="button" className="button button--quiet" onClick={() => {
+          requestRef.current?.abort(); setBusy(false);
+        }}>Cancel comparison</button>}
       </div>
       {files.length > 0 && (
         <p className="mural-note">
@@ -1786,6 +1757,7 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
             </div>
           </dl>
           <p className="mural-note">{analysis.message}</p>
+          <p className="mural-note">{analysis.authenticity}</p>
           <div className="download-actions art-rescue-actions">
             {analysis.merged_recording_gpx && (
               <button
@@ -1793,7 +1765,7 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
                 className="button button--secondary"
                 onClick={() => saveFile(`${safeFilePart(`${shapeName}-${city}`)}-combined.gpx`, analysis.merged_recording_gpx, "application/gpx+xml")}
               >
-                Combined GPX
+                Combined street GPX
               </button>
             )}
             {analysis.missing_ink_gpx && (
@@ -1811,6 +1783,12 @@ function ArtRescueCard({ activeRoute, shapeName, city, sport, overlayType, onOve
               </button>
             )}
           </div>
+          <ul className="mural-sections">
+            {analysis.missing_segments.map(segment => <li key={segment.id}>
+              <span>{segment.label}: {formatMetric(segment.distance_m / 1000)} km</span>
+              <button type="button" className="button button--secondary" onClick={() => saveFile(`${safeFilePart(segment.label)}.gpx`, segment.gpx, "application/gpx+xml")}>GPX for {segment.label}</button>
+            </li>)}
+          </ul>
         </>
       )}
       {error && <p className="editor-error" role="alert">{error}</p>}
@@ -2384,6 +2362,7 @@ function buildCampaignLink({ name, shape, hashtag, until }) {
   const params = new URLSearchParams();
   params.set("campaign", name);
   params.set("shape", shape);
+  params.set("mode", "group");
   if (hashtag) params.set("hashtag", hashtag.startsWith("#") ? hashtag : `#${hashtag}`);
   if (until) params.set("until", until);
   return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
@@ -3295,7 +3274,7 @@ function GallerySection({ refreshKey = 0, publishedAsset = null, campaignSlug = 
   );
 }
 
-function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null, active = true }) {
+function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, focusRef, campaignSlug = null, active = true, planningMode = "personal", onOpenCampaignBuilder }) {
   const candidates = result.candidates ?? [];
   const [selectedCandidateId, setSelectedCandidateId] = useState(
     candidates[0]?.id ?? "best",
@@ -4243,6 +4222,19 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
               </dl>
           </details>
 
+          <div hidden={planningMode !== "group"}>
+            <GroupWorkspace
+              key={`group-${result.request_id ?? result.prompt}`}
+              activeRoute={activeRoute}
+              name={`${shapeName} in ${city}`}
+              sport={result.intent?.sport}
+              routePreferences={result.planning_options?.route_preferences ?? {}}
+              eligible={exportReady && !exportBlockedByPendingEdits}
+              saveFile={saveFile}
+              onOpenCampaignBuilder={onOpenCampaignBuilder}
+              renderCompletion={props => <ArtRescueCard {...props} />}
+            />
+          </div>
           <details
             className="route-lab"
             key={result.request_id ?? result.prompt}
@@ -4252,7 +4244,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 <span className="eyebrow">Optional tools</span>
                 <h3 id="route-lab-title">More tools for this route</h3>
               </div>
-              <p>Plan the day, improve the drawing, or prepare a group or classroom activity.</p>
+              <p>Plan the day, improve the drawing, or prepare a classroom activity.</p>
               <span className="route-lab-marker" aria-hidden="true">+</span>
             </summary>
             <div className="route-lab-grid">
@@ -4301,22 +4293,18 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                 {repairNotice && <p className="editor-success" role="status">{repairNotice}</p>}
               </section>
 
-              <h4 className="route-lab-group-title">Plan with a group</h4>
-              <CommunityMuralCard
-                activeRoute={activeRoute}
-                shapeName={shapeName}
-                city={city}
-                sport={result.intent?.sport}
-              />
-              <ArtRescueCard
-                key={`rescue-${activeRouteId}`}
-                activeRoute={activeRoute}
-                shapeName={shapeName}
-                city={city}
-                sport={result.intent?.sport}
-                overlayType={labOverlay?.type}
-                onOverlayChange={updateLabOverlay}
-              />
+              <div className="personal-rescue" hidden={planningMode !== "personal"}>
+                <h4 className="route-lab-group-title">Finish your drawing</h4>
+                <ArtRescueCard
+                  key={`rescue-${activeRouteId}`}
+                  activeRoute={activeRoute}
+                  shapeName={shapeName}
+                  city={city}
+                  sport={result.intent?.sport}
+                  overlayType={labOverlay?.type}
+                  onOverlayChange={updateLabOverlay}
+                />
+              </div>
 
               <h4 className="route-lab-group-title">Classroom resources</h4>
               <LessonPackCard
@@ -4620,6 +4608,16 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
 }
 
 export default function App() {
+  const [planningMode, setPlanningMode] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "group" ? "group" : "personal",
+  );
+  const changePlanningMode = mode => {
+    setPlanningMode(mode);
+    const url = new URL(window.location.href);
+    if (mode === "group") url.searchParams.set("mode", "group");
+    else url.searchParams.delete("mode");
+    window.history.replaceState(null, "", url);
+  };
   const [prompt, setPrompt] = useState(INITIAL_EXAMPLE_PROMPT);
   const [plannerStep, setPlannerStep] = useState("idea");
   const [appView, setAppView] = useState(() =>
@@ -5347,6 +5345,13 @@ export default function App() {
       )}
 
       <main>
+        <fieldset className="planning-mode">
+          <legend>Planning mode</legend>
+          <div>
+            <label><input type="radio" name="planning-mode" value="personal" checked={planningMode === "personal"} onChange={() => changePlanningMode("personal")} />Personal</label>
+            <label><input type="radio" name="planning-mode" value="group" checked={planningMode === "group"} onChange={() => changePlanningMode("group")} />Group</label>
+          </div>
+        </fieldset>
         {appView === "planner" && !loading && plannerStep !== "result" && (
         <section
           className="workspace generator-stage"
@@ -5354,10 +5359,11 @@ export default function App() {
           aria-labelledby="designer-title"
         >
           <div className="planner-intro">
-            <h1 id="designer-title">Create GPS art on real streets.</h1>
+            <h1 id="designer-title">{planningMode === "group" ? "Create a drawing with your group." : "Create GPS art on real streets."}</h1>
             <p className="planner-intro-copy">
-              Describe a drawing and a place. We’ll fit it to connected streets, compare the
-              strongest routes, and prepare the one you can actually follow.
+              {planningMode === "group"
+                ? "Plan one connected street drawing, then assign distances that fit your group and combine the recorded outings. The route distance below is for the whole drawing."
+                : "Describe a drawing and a place. We’ll fit it to connected streets, compare the strongest routes, and prepare the one you can actually follow."}
             </p>
             <ol className="planner-proof planner-progress" aria-label="Route creation progress">
               <li aria-current={plannerStep === "idea" ? "step" : undefined}>
@@ -5366,13 +5372,17 @@ export default function App() {
               <li aria-current={plannerStep === "review" ? "step" : undefined}>
                 <strong>2</strong><span>Review the request</span>
               </li>
-              <li><strong>3</strong><span>Choose and download</span></li>
+              <li><strong>3</strong><span>{planningMode === "group" ? "Choose and assign sections" : "Choose and download"}</span></li>
             </ol>
             <p className="planner-safety-note">
               You can compare the street route with the original drawing before downloading anything.
             </p>
+            {planningMode === "group" && <a className="button button--secondary" href="#group-event-resume">Open a saved event</a>}
           </div>
 
+          <div className="group-entry" id="group-event-resume" hidden={planningMode !== "group"}>
+            <GroupWorkspace saveFile={saveFile} onOpenCampaignBuilder={() => setCampaignBuilderOpen(true)} renderCompletion={props => <ArtRescueCard {...props} />} />
+          </div>
           <div className="designer-card">
             <div className="card-heading">
               <div>
@@ -6209,6 +6219,8 @@ export default function App() {
               onEditRequest={focusPrompt}
               focusRef={resultRef}
               campaignSlug={campaign?.slug ?? null}
+              planningMode={planningMode}
+              onOpenCampaignBuilder={() => setCampaignBuilderOpen(true)}
             />
           </div>
         )}

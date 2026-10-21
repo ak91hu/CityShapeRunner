@@ -235,7 +235,7 @@ export function requestTimedReadiness(payload, options = {}) {
 export function createMuralPlan(payload, options = {}) {
   return request("/mural-plan", {
     ...options,
-    timeoutMs: 20_000,
+    timeoutMs: 180_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -297,7 +297,7 @@ export function fetchOccasions(options = {}) {
 export function rescueArtwork(payload, options = {}) {
   return request("/art-rescue", {
     ...options,
-    timeoutMs: 45_000,
+    timeoutMs: 180_000,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
