@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import L from "leaflet-rotate-map";
+import { tooltipText } from "./mapText.js";
 
 const DEFAULT_CENTER = [47.4979, 19.0402];
 
@@ -332,7 +333,7 @@ const RouteMap = forwardRef(function RouteMap({
         lineJoin: "round",
         className: `route-concern-segment route-concern-segment--${segment.severity}${isActive ? " route-concern-segment--active" : ""}`,
       })
-        .bindTooltip(segment.label)
+        .bindTooltip(tooltipText(segment.label))
         .addTo(routeLayer);
       concernLines.push({ ...segment, line: concernLine, isActive });
     });
@@ -353,7 +354,7 @@ const RouteMap = forwardRef(function RouteMap({
           lineJoin: "round",
           className: `route-analysis-segment route-analysis-segment--${segment.kind}`,
         })
-          .bindTooltip(segment.label)
+          .bindTooltip(tooltipText(segment.label))
           .addTo(routeLayer),
       };
     });
@@ -394,7 +395,7 @@ const RouteMap = forwardRef(function RouteMap({
         className: "route-sight-marker",
       })
         .bindTooltip(
-          `${marker.name}${Number.isFinite(marker.offset_km) ? ` · ${marker.offset_km.toFixed(1)} km` : ""}`,
+          tooltipText(`${marker.name}${Number.isFinite(marker.offset_km) ? ` · ${marker.offset_km.toFixed(1)} km` : ""}`),
           { direction: "top" },
         )
         .addTo(routeLayer);

@@ -208,8 +208,12 @@ The result view now turns route generation into a repeatable local craft. Street
 Canvas marks the strongest nearby placement areas from the preflight search;
 Recognition Repair re-routes a drawing through its highest-information visual
 anchors; and Time-aware Readiness combines daylight with an optional hourly
-weather check. Groups can split one continuous route into balanced Community
-GPS Mural sections with a GPX for each participant. Inkproof runs correlated
+weather check. Personal mode keeps individual route planning and multi-session
+completion together. Group mode assigns named participants different distances,
+optionally counts shared-start travel in their limits, and saves a local event
+file for later completion. Uploaded recordings measure covered ink; the combined
+download is explicitly a street reconstruction, with separate missing-ink missions.
+Inkproof runs correlated
 GPS-drift simulations before departure and highlights details likely to blur.
 Every download-producing Intelligence action re-routes its submitted geometry
 through activity-specific Directions first. Recognition Repair, Community GPS

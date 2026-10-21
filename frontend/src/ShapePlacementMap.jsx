@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import L from "leaflet-rotate-map";
+import { tooltipText } from "./mapText.js";
 
 const EARTH_RADIUS_M = 6_371_000;
 const DEFAULT_CENTER = [47.4979, 19.0402];
@@ -127,7 +128,7 @@ function ShapePlacementMap({
         iconAnchor: [22, 22],
       }),
     }).addTo(layer);
-    marker.bindTooltip(`Drag to move ${shapeLabel}`, { direction: "top" });
+    marker.bindTooltip(tooltipText(`Drag to move ${shapeLabel}`), { direction: "top" });
     marker.on("drag", () => {
       const position = marker.getLatLng();
       const liveCenter = [position.lat, position.lng];

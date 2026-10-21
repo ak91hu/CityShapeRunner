@@ -7,7 +7,8 @@ from dataclasses import asdict
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from starlette.concurrency import run_in_threadpool
 
 from ..state import RoutePreferences, RouteReadiness
 from ..tools import (
@@ -48,9 +49,7 @@ def _route_or_fail(
     except Exception as error:  # noqa: BLE001 - external routing boundary
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Connected street routing is unavailable, so no GPS file was created."
-            ),
+            detail=("Connected street routing is unavailable, so no GPS file was created."),
         ) from error
     if not route_safety.is_provider_routed_geometry(
         routed,
@@ -84,11 +83,38 @@ def _points(value: list[list[float]]) -> list[tuple[float, float]]:
     return result
 
 
+class MuralMember(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    max_distance_km: float = Field(ge=0.05, le=500, allow_inf_nan=False)
+
+    @field_validator("name")
+    @classmethod
+    def nonblank_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Enter a participant name.")
+        return value.strip()
+
+
 class MuralPlanRequest(BaseModel):
     points: list[list[float]] = Field(min_length=4, max_length=2_000)
-    participants: int = Field(ge=2, le=24)
+    participants: int | None = Field(default=None, ge=2, le=24)
+    members: list[MuralMember] | None = Field(default=None, min_length=2, max_length=24)
     name: str = Field(default="Community GPS mural", min_length=1, max_length=100)
     sport: str = Field(default="run", pattern="^(run|bike)$")
+    return_to_start: bool = False
+    route_preferences: RoutePreferences = Field(default_factory=RoutePreferences)
+
+    @model_validator(mode="after")
+    def validate_roster(self):
+        if self.members is None and self.participants is None:
+            raise ValueError("Supply participants or a named member roster.")
+        if self.members is not None:
+            if self.participants is not None and self.participants != len(self.members):
+                raise ValueError("Participant count must match the member roster.")
+            names = [member.name.casefold() for member in self.members]
+            if len(names) != len(set(names)):
+                raise ValueError("Participant names must be distinct.")
+        return self
 
     @field_validator("points")
     @classmethod
@@ -98,12 +124,16 @@ class MuralPlanRequest(BaseModel):
 
 
 def _split_by_distance(
-    points: list[tuple[float, float]], participants: int
+    points: list[tuple[float, float]], weights: list[float]
 ) -> list[list[tuple[float, float]]]:
     total = geo.path_distance_m(points)
     if total <= 0:
         return []
-    targets = [index * total / participants for index in range(participants + 1)]
+    targets = [0.0]
+    total_weight = sum(weights)
+    for weight in weights:
+        targets.append(targets[-1] + total * weight / total_weight)
+    targets[-1] = total
     pieces, current, covered, target_index = [], [points[0]], 0.0, 1
     for start, end in zip(points, points[1:], strict=False):
         segment = geo.haversine(*start, *end)
@@ -118,37 +148,107 @@ def _split_by_distance(
         covered += segment
     if len(current) > 1:
         pieces.append(current)
-    return [piece for piece in pieces if len(piece) > 1][:participants]
+    return [piece for piece in pieces if len(piece) > 1][: len(weights)]
+
+
+async def _event_route(
+    http_request: Request,
+    points: list[tuple[float, float]],
+    *,
+    sport: str,
+    closed: bool,
+    route_preferences: RoutePreferences | None = None,
+) -> tuple[list[tuple[float, float]], float, RouteReadiness]:
+    # Stop starting participant routes when the organiser leaves or cancels.
+    if await http_request.is_disconnected():
+        raise HTTPException(status_code=499, detail="The event request was cancelled.")
+    return await run_in_threadpool(
+        _route_or_fail,
+        points,
+        sport=sport,
+        closed=closed,
+        route_preferences=route_preferences,
+    )
 
 
 @router.post("/mural-plan")
-def mural_plan(request: MuralPlanRequest) -> dict:
+async def mural_plan(request: MuralPlanRequest, http_request: Request) -> dict:
     guides = _points(request.points)
-    points, routed_distance_m, readiness = _route_or_fail(
+    points, routed_distance_m, readiness = await _event_route(
+        http_request,
         guides,
         sport=request.sport,
         closed=guides[0] == guides[-1],
+        route_preferences=request.route_preferences,
     )
-    pieces = _split_by_distance(points, request.participants)
-    if len(pieces) != request.participants:
+    members = request.members or [
+        MuralMember(name=f"Artist {index + 1}", max_distance_km=500)
+        for index in range(request.participants or 0)
+    ]
+    if request.members and sum(
+        member.max_distance_km for member in members
+    ) * 1000 < geo.path_distance_m(points):
+        raise HTTPException(
+            status_code=422,
+            detail="The drawing exceeds the group's combined distance limits. Choose a shorter route or raise the limits.",
+        )
+    # shortcut: allocate proportionally before travel; revisit if shared-start events need redistribution.
+    pieces = _split_by_distance(points, [member.max_distance_km for member in members])
+    if len(pieces) != len(members) or any(len(set(piece)) < 2 for piece in pieces):
         raise HTTPException(
             status_code=422,
             detail="The route is too short to divide into that many mural sections.",
         )
     sections = []
-    for index, piece in enumerate(pieces, start=1):
-        distance_m = geo.path_distance_m(piece)
+    for index, (piece, member) in enumerate(zip(pieces, members, strict=True), start=1):
+        art_distance_m = geo.path_distance_m(piece)
+        approach: list[tuple[float, float]] = []
+        return_path: list[tuple[float, float]] = []
+        for endpoints, path in (
+            ([points[0], piece[0]], approach),
+            ([piece[-1], points[0]], return_path),
+        ):
+            if request.return_to_start and endpoints[0] != endpoints[1]:
+                connector, _, _ = await _event_route(
+                    http_request,
+                    endpoints,
+                    sport=request.sport,
+                    closed=False,
+                    route_preferences=request.route_preferences,
+                )
+                if (
+                    geo.haversine(*connector[0], *endpoints[0]) > 1
+                    or geo.haversine(*connector[-1], *endpoints[-1]) > 1
+                ):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="A meeting-point connection missed its endpoint; no group GPS files were created.",
+                    )
+                path.extend(connector)
+        # Keep connector snaps as separate tracks: never invent a line across a gap.
+        paths = [path for path in (approach, piece, return_path) if path]
+        distance_m = sum(geo.path_distance_m(path) for path in paths)
+        if request.members and distance_m > member.max_distance_km * 1000 + 0.01:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{member.name}'s allocation needs {distance_m / 1000:.2f} km including meeting-point travel, above their {member.max_distance_km:g} km limit. Raise the limit, disable the shared meeting point, or choose a shorter drawing.",
+            )
         sections.append(
             {
                 "id": f"mural-{index}",
-                "label": f"Artist {index}",
+                "label": member.name,
                 "points_preview": [[lat, lon] for lat, lon in piece],
                 "distance_km": distance_m / 1000,
-                "gpx": gpx_writer.to_gpx(
-                    piece,
-                    name=f"{request.name} - Artist {index}",
+                "art_distance_km": art_distance_m / 1000,
+                "travel_distance_km": (distance_m - art_distance_m) / 1000,
+                "max_distance_km": member.max_distance_km if request.members else None,
+                "start": piece[0],
+                "finish": piece[-1],
+                "travel_segments_preview": [path for path in (approach, return_path) if path],
+                "gpx": gpx_writer.to_segmented_gpx(
+                    paths,
+                    name=f"{request.name} - {member.name}",
                     sport=request.sport,
-                    total_distance_m=distance_m,
                 ),
             }
         )
@@ -156,6 +256,11 @@ def mural_plan(request: MuralPlanRequest) -> dict:
         "name": request.name,
         "participant_count": len(sections),
         "total_distance_km": routed_distance_m / 1000,
+        "points_preview": points,
+        "meeting_point": points[0] if request.return_to_start else None,
+        "travel_note": "Meeting-point travel is included in each limit. Record the whole outing; access tracks may add lines outside the drawing."
+        if request.return_to_start
+        else "Meet at each section's start. Travel to the start and home from the finish is not planned or included in the distance limit.",
         "snapped": True,
         "readiness": asdict(readiness),
         "sections": sections,
@@ -353,7 +458,7 @@ class RecordedGPX(BaseModel):
 
 class ArtRescueRequest(BaseModel):
     planned_points: list[list[float]] = Field(min_length=4, max_length=5_000)
-    recordings: list[RecordedGPX] = Field(min_length=1, max_length=12)
+    recordings: list[RecordedGPX] = Field(min_length=1, max_length=24)
     tolerance_m: float = Field(default=25.0, ge=5.0, le=100.0)
     name: str = Field(default="GPS art rescue", min_length=1, max_length=100)
     sport: str = Field(default="run", pattern="^(run|bike)$")
@@ -366,18 +471,29 @@ class ArtRescueRequest(BaseModel):
 
 
 @router.post("/art-rescue")
-def rescue_recordings(request: ArtRescueRequest) -> dict:
+async def rescue_recordings(request: ArtRescueRequest, http_request: Request) -> dict:
     """Merge sessions and isolate missing ink only on provider-routed geometry."""
 
     try:
-        recordings = [
-            art_rescue.parse_recording(recording.name, recording.gpx)
-            for recording in request.recordings
-        ]
-        segment_count = sum(len(recording.segments) for recording in recordings)
-        if segment_count > 48:
-            raise ValueError("The recordings contain more than 48 track segments.")
-        routed_plan, _, _ = _route_or_fail(
+        recordings = []
+        segment_count, point_count = 0, 0
+        for upload in request.recordings:
+            recording = await run_in_threadpool(
+                art_rescue.parse_recording,
+                upload.name,
+                upload.gpx,
+            )
+            segment_count += len(recording.segments)
+            point_count += sum(len(segment) for segment in recording.segments)
+            if segment_count > 48:
+                raise ValueError("The recordings contain more than 48 track segments.")
+            if point_count > 80_000:
+                raise ValueError(
+                    "The recordings contain more than 80,000 points; simplify them first."
+                )
+            recordings.append(recording)
+        routed_plan, _, _ = await _event_route(
+            http_request,
             _points(request.planned_points),
             sport=request.sport,
             closed=request.planned_points[0] == request.planned_points[-1],
@@ -385,19 +501,22 @@ def rescue_recordings(request: ArtRescueRequest) -> dict:
         routed_recordings = []
         for recording in recordings:
             routed_segments = [
-                _route_or_fail(
-                    segment,
-                    sport=request.sport,
-                    closed=segment[0] == segment[-1],
+                (
+                    await _event_route(
+                        http_request,
+                        segment,
+                        sport=request.sport,
+                        closed=segment[0] == segment[-1],
+                    )
                 )[0]
                 for segment in recording.segments
             ]
-            routed_recordings.append(
-                art_rescue.Recording(recording.name, routed_segments)
-            )
-        return art_rescue.rescue_analysis(
+            routed_recordings.append(art_rescue.Recording(recording.name, routed_segments))
+        return await run_in_threadpool(
+            art_rescue.rescue_analysis,
             routed_plan,
-            routed_recordings,
+            recordings,
+            export_recordings=routed_recordings,
             tolerance_m=request.tolerance_m,
             name=request.name,
             sport=request.sport,

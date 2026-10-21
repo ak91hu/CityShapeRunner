@@ -19,7 +19,7 @@ test("route-lab groups its tools under four labelled headings", async ({ page })
   await expect(titles).toHaveCount(4);
   await expect(titles.first()).toHaveText("Plan the day");
   await expect(titles.nth(1)).toHaveText("Improve the drawing");
-  await expect(titles.nth(2)).toHaveText("Plan with a group");
+  await expect(titles.nth(2)).toHaveText("Finish your drawing");
   await expect(titles.nth(3)).toHaveText("Classroom resources");
 });
 

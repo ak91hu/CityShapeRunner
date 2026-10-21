@@ -5,6 +5,7 @@ import {
   installCommonMocks,
   openGeneratedRoute,
   openOptionalRouteTools,
+  routePoints,
 } from "./support/functional-fixtures.js";
 
 test.beforeEach(async ({ page }) => {
@@ -146,8 +147,11 @@ test("optional route tools sit directly below Route details", async ({ page }) =
   const lastPrimaryCard = page.locator(".route-output .route-facts");
   const lab = page.locator(".route-output > .route-lab");
   await expect(lab).toHaveCount(1);
-  expect(await lab.evaluate((tools) =>
-    tools.previousElementSibling?.matches(".route-facts"))).toBe(true);
+  expect(await lab.evaluate((tools) => {
+    let previous = tools.previousElementSibling;
+    while (previous?.hidden) previous = previous.previousElementSibling;
+    return previous?.matches(".route-facts");
+  })).toBe(true);
   const [primaryBox, labBox] = await Promise.all([
     lastPrimaryCard.boundingBox(),
     lab.boundingBox(),
@@ -454,7 +458,7 @@ test("post-activity Missing Ink rescue is offered for combining finished runs", 
   await openOptionalRouteTools(page);
 
   const rescue = page.locator(".art-rescue-card");
-  await expect(rescue.getByRole("heading", { name: "Combine finished runs" })).toBeVisible();
+  await expect(rescue.getByRole("heading", { name: "Finish your drawing" })).toBeVisible();
   await expect(rescue.getByRole("button", { name: "Compare recordings" })).toBeDisabled();
 });
 
@@ -463,18 +467,19 @@ test("community mural creates separate downloadable artist sections", async ({ p
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
+        points_preview: routePoints,
         sections: [
-          { id: "mural-1", label: "Artist 1", distance_km: 4.2, gpx: "<gpx />" },
-          { id: "mural-2", label: "Artist 2", distance_km: 4.1, gpx: "<gpx />" },
+          { id: "mural-1", label: "Artist 1", distance_km: 4.2, art_distance_km: 4.2, travel_distance_km: 0, max_distance_km: 10, start: routePoints[0], finish: routePoints[1], gpx: "<gpx />" },
+          { id: "mural-2", label: "Artist 2", distance_km: 4.1, art_distance_km: 4.1, travel_distance_km: 0, max_distance_km: 10, start: routePoints[1], finish: routePoints.at(-1), gpx: "<gpx />" },
         ],
       }),
     });
   });
   await openGeneratedRoute(page);
-  await openOptionalRouteTools(page);
+  await page.getByRole("radio", { name: "Group", exact: true }).check();
   await page.getByRole("button", { name: "Create mural plan" }).click();
 
-  const mural = page.locator(".mural-card");
+  const mural = page.locator(".group-event-result");
   await expect(mural).toContainText("Artist 1, 4.20 km");
   await expect(mural).toContainText("Artist 2, 4.10 km");
 });
