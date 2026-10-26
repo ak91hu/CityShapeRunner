@@ -420,3 +420,16 @@ textarea:focus, input:focus, select:focus {
   .idea-filter { grid-template-columns: minmax(0, 1fr); }
   .idea-category-field { grid-column: 1; grid-row: 3; }
 }
+.idea-refresh {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-top: 0.75rem;
+}
+
+.idea-refresh .field-help { margin: 0; }
+
+.candidate-location { display: block; font-size: 0.8rem; line-height: 1.5; }
+.candidate-choice-help, .candidate-selection { font-size: 0.85rem; line-height: 1.5; }
+.candidate-selection { margin: 0.5rem 0; font-weight: 600; }

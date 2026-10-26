@@ -312,17 +312,39 @@ test("the route idea exposes its help and character count to assistive technolog
 test("choosing a popular idea updates the prompt and selected state", async ({ page }) => {
   await page.goto("/");
 
-  const heart = page.getByRole("button", { name: "Heart", exact: true });
-  const star = page.getByRole("button", { name: "Star", exact: true });
-  await heart.click();
-  await expect(heart).toHaveAttribute("aria-pressed", "true");
-  await star.click();
+  const ideas = page.locator(".idea-picker .idea-chip");
+  await ideas.nth(0).click();
+  await expect(ideas.nth(0)).toHaveAttribute("aria-pressed", "true");
+  const firstPrompt = await page.getByLabel("Drawing and location").inputValue();
+  await ideas.nth(1).click();
+  await expect(ideas.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await expect(ideas.nth(0)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByLabel("Drawing and location")).not.toHaveValue(firstPrompt);
+  await expect(page.getByLabel("Drawing and location")).toBeFocused();
+});
 
-  await expect(star).toHaveAttribute("aria-pressed", "true");
-  await expect(heart).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(
-    "a star bike route in Debrecen, about 20 km",
-  );
+test("refreshing ideas keeps the edited request and shows six unseen choices", async ({ page }) => {
+  await page.goto("/");
+  const prompt = page.getByLabel("Drawing and location");
+  await prompt.fill("a fish in Szeged, running, 10 km");
+  const seen = new Set();
+  const refresh = page.getByRole("button", { name: "Show different ideas" });
+  for (let batch = 0; batch < 4; batch += 1) {
+    const labels = await page.locator(".idea-picker .idea-chip").allTextContents();
+    expect(labels).toHaveLength(6);
+    for (const label of labels) { expect(seen.has(label)).toBe(false); seen.add(label); }
+    if (batch % 2 === 0) {
+      await refresh.focus();
+      await refresh.press("Enter");
+      await expect(refresh).toBeFocused();
+    } else {
+      await refresh.click();
+    }
+    await expect(page.locator(".idea-refresh [role=status]")).toContainText(`Idea set ${batch + 2}.`);
+    await expect(prompt).toHaveValue("a fish in Szeged, running, 10 km");
+  }
+  await expect(page.locator(".idea-refresh [role=status]")).toContainText("Your request is unchanged");
+  await page.locator(".idea-picker").screenshot({ path: test.info().outputPath("fresh-ideas.png") });
 });
 
 test("the full idea catalogue exposes every category and all 158 options", async ({ page }) => {
@@ -353,7 +375,7 @@ test("the expanded catalogue filters by name and selects a detailed shape", asyn
   await filter.fill("turtle");
   await expect(page.locator(".idea-filter")).toContainText("1 option");
   await expect(page.locator(".idea-group").getByRole("button")).toHaveCount(1);
-  await page.getByRole("button", { name: "Turtle", exact: true }).click();
+  await page.locator(".idea-catalog").getByRole("button", { name: "Turtle", exact: true }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
     "a turtle run in Keszthely, about 14 km",
   );

@@ -36,11 +36,19 @@ class PreflightAgent(BaseAgent):
         # are an additional family, not replacements for its promising cells.
         # Both families share each Snap request, so breadth costs coordinates,
         # rather than another round trip per placement.
+        from ..tools.street_graph import contour_support, graph_for_state
+        graph = graph_for_state(state) if hasattr(get_settings(), "routing") else None
         legacy = self._candidate_drafts(state, legacy=True)
-        creative = self._candidate_drafts(state) if (
-            state.map_placement is None and state.route_draft.anchored_start is None
-        ) else []
         creative_limit = max(0, getattr(workflow, "preflight_creative_placements", 90))
+        street_drafts = self._street_aligned_drafts(state, graph) if creative_limit else []
+        creative = (street_drafts or self._candidate_drafts(state)) if (
+            creative_limit and state.map_placement is None and state.route_draft.anchored_start is None
+        ) else []
+        support_cache: dict[tuple, float] | None = {} if street_drafts else None
+        if street_drafts and graph is not None:
+            support = contour_support(graph, [draft.waypoints for draft in street_drafts],
+                                      radius_m=get_settings().routing.snap_radius_m, cache=support_cache)
+            creative = [draft for _, draft in sorted(zip(support, street_drafts, strict=True), key=lambda pair: -pair[0])]
         families = [(legacy, workflow.preflight_max_placements, False)]
         if creative and creative_limit:
             families.append((creative, creative_limit, True))
@@ -71,14 +79,12 @@ class PreflightAgent(BaseAgent):
         results = self._valid_results(results, len(drafts))
         # Graph evidence complements independent point snaps. A local snapshot
         # can improve ranking without changing the export authority.
-        from ..tools.street_graph import graph_for_state
-        graph = graph_for_state(state) if hasattr(get_settings(), "routing") else None
         family_results = []
         offset = 0
-        for group in family_drafts:
+        for index, group in enumerate(family_drafts):
             local = [replace(r, candidate_index=r.candidate_index - offset) for r in results
                      if offset <= r.candidate_index < offset + len(group)]
-            family_results.append(self._network_rank(local, group, graph))
+            family_results.append(self._network_rank(local, group, graph, support_cache=support_cache if index else None))
             offset += len(group)
         if adaptive:
             for round_index in (1, 2):
@@ -114,7 +120,7 @@ class PreflightAgent(BaseAgent):
                 for index, group in enumerate(fine_groups):
                     local = [replace(r, candidate_index=r.candidate_index - offset) for r in measured
                              if offset <= r.candidate_index < offset + len(group)]
-                    local = self._network_rank(local, group, graph)
+                    local = self._network_rank(local, group, graph, support_cache=support_cache if index else None)
                     base = len(family_drafts[index])
                     family_drafts[index].extend(group)
                     family_results[index].extend(replace(r, candidate_index=base + r.candidate_index) for r in local)
@@ -234,11 +240,17 @@ class PreflightAgent(BaseAgent):
             runtime.publish_search_progress()
 
     @staticmethod
-    def _network_rank(results, drafts, graph):
+    def _network_rank(results, drafts, graph, *, support_cache=None):
         if graph is None:
             return results
         from ..tools.street_graph import connectivity_proxy
         ranked = list(results)
+        if support_cache is not None:
+            from ..tools.street_graph import contour_support
+            support = contour_support(graph, [drafts[r.candidate_index].waypoints for r in ranked],
+                                      radius_m=get_settings().routing.snap_radius_m, cache=support_cache)
+            ranked = [replace(r, score=r.score * score) for r, score in zip(ranked, support, strict=True)]
+            ranked.sort(key=lambda result: (-result.score, result.candidate_index))
         # Bound work by candidates and graph expansions, not machine speed.
         # A partial wall-clock-dependent prefix changed the winning placement
         # between identical requests and penalised only whichever rows fit.
@@ -397,6 +409,77 @@ class PreflightAgent(BaseAgent):
         )
         return 0.50 * spatial + 0.30 * rotation + 0.20 * scale
 
+    def _street_aligned_drafts(self, state: WorkflowState, graph) -> list[RouteDraft]:
+        """Place a salient drawing corner on legal street turns before screening."""
+        shape, base = state.shape, state.route_draft
+        if (graph is None or not graph.nodes or shape is None or base is None or not shape.closed
+                or len(shape.paths) != 1 or state.map_placement is not None
+                or base.anchored_start is not None or base.preferred_start_direction_deg is not None):
+            return []
+        path = shape.paths[0]
+        ring = path[:-1] if path and path[0] == path[-1] else path
+        corners = []
+        for index, point in enumerate(ring):
+            before, after = ring[index - 1], ring[(index + 1) % len(ring)]
+            if point == before or point == after:
+                continue
+            arriving = math.atan2(point[1] - before[1], point[0] - before[0])
+            leaving = math.atan2(after[1] - point[1], after[0] - point[0])
+            turn = math.remainder(leaving - arriving, math.tau)
+            if math.radians(30) <= abs(turn) <= math.radians(150):
+                corners.append((turn, point, leaving))
+        if not corners:
+            return []
+        turn, corner, leaving = max(corners, key=lambda item: abs(item[0]))
+        _, _, xy = graph.projection((base.center_lat, base.center_lon))
+        incoming: dict[int, list[tuple[int, int]]] = {}
+        for node, edges in graph.edges.items():
+            for edge in edges:
+                incoming.setdefault(edge.target, []).append((node, edge.way))
+        turns = []
+        for node, edges in graph.edges.items():
+            x, y = xy[node]
+            seen_targets = set()
+            for edge in edges:
+                if edge.target in seen_targets:
+                    continue
+                tx, ty = xy[edge.target]
+                angle = math.atan2(ty - y, tx - x)
+                for previous, way in incoming.get(node, ()):
+                    if previous == edge.target or not graph.turn_allowed(way, node, edge.way, previous, edge.target):
+                        continue
+                    px, py = xy[previous]
+                    arriving = math.atan2(y - py, x - px)
+                    if abs(math.remainder(angle - arriving - turn, math.tau)) <= math.radians(15):
+                        turns.append((node, math.degrees(angle - leaving) % 360))
+                        seen_targets.add(edge.target)
+                        break
+        random.Random(state.search_seed).shuffle(turns)
+        perimeter = geo.unit_path_length(geo.stitch_paths(shape.paths))
+        target_scale = base.target_distance_km * 1000 / perimeter if base.target_distance_km and perimeter > 0 else base.scale_m
+        scales = (base.scale_m, base.scale_m * 1.15, target_scale)
+        drafts = []
+        signatures = set()
+        projector = PlacementAgent()
+        for index, (node, angle) in enumerate(turns):
+            draft = copy.copy(base)
+            draft.scale_m = max(25.0, scales[index % len(scales)])
+            draft.rotation_deg = angle
+            x, y = geo.rotate_point(*corner, math.radians(angle))
+            draft.lon_offset_m = xy[node][0] - x * draft.scale_m
+            draft.lat_offset_m = xy[node][1] - y * draft.scale_m
+            draft.waypoints = projector.project(shape, draft)
+            if state.plan and state.plan.city_bbox and not self._inside_bbox(draft, state.plan.city_bbox):
+                continue
+            signature = self._signature(draft)
+            if signature in signatures:
+                continue
+            signatures.add(signature)
+            drafts.append(draft)
+            if len(drafts) >= get_settings().workflow.preflight_max_placements:
+                break
+        return drafts
+
     def _candidate_drafts(self, state: WorkflowState, *, legacy: bool = False) -> list[RouteDraft]:
         if state.route_draft is None or state.shape is None:
             return []
@@ -445,6 +528,13 @@ class PreflightAgent(BaseAgent):
             offsets = ((0.0, 0.0),)
         elif len(offsets) < 5:
             offsets = local_offsets
+            if varied and not legacy:
+                rng = random.Random(state.search_seed)
+                offsets = (offsets[0], *(
+                    (north + rng.uniform(-0.25, 0.25) * step,
+                     east + rng.uniform(-0.25, 0.25) * step)
+                    for north, east in offsets[1:]
+                ))
         rotation_deltas = (
             (0.0,)
             if base.preferred_start_direction_deg is not None
@@ -454,6 +544,24 @@ class PreflightAgent(BaseAgent):
                 else tuple(float(angle) for angle in range(0, 180 if legacy else 360, 30))
             )
         )
+        if varied and not legacy and state.shape.closed and len(state.shape.paths) == 1 and not state.shape.feature_paths:
+            # Cyclic rotations of a symmetric outline spend search slots on
+            # the same footprint. Ignore trig noise only; never round route coordinates.
+            path = state.shape.paths[0]
+            ring = path[:-1] if path and path[0] == path[-1] else path
+            outlines = set()
+            unique_rotations = []
+            for angle in rotation_deltas:
+                points = tuple((round(x, 12), round(y, 12)) for x, y in
+                               geo.rotate_shape([ring], math.radians(angle))[0])
+                if not points:
+                    continue
+                first = min(points)
+                outline = min(points[i:] + points[:i] for i, point in enumerate(points) if point == first)
+                if outline not in outlines:
+                    outlines.add(outline)
+                    unique_rotations.append(angle)
+            rotation_deltas = tuple(unique_rotations)
         scale_factors = (1.0, 0.90, 1.10) if manual is not None else (1.0, 0.85, 1.15)
         city_bbox = (
             None

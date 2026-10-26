@@ -669,12 +669,13 @@ def test_fallback_search_skips_measurement_after_the_workflow_deadline():
     assert state.fit_decision.candidates_tested == []
 
 
+@pytest.mark.parametrize("first_fidelity", [0.58, 0.74])
 def test_suggestion_search_selects_the_strongest_template_through_the_pool(
-    three_workers,
+    three_workers, first_fidelity,
 ):
     state, plan = _suggestion_state(validation_score=0.44)
     points = [(47.0, 19.0), (47.01, 19.01)]
-    fidelity_by_shape = {"triangle": 0.58, "diamond": 0.76}
+    fidelity_by_shape = {"triangle": first_fidelity, "diamond": 0.76}
     measured: list[str] = []
     lock = threading.Lock()
 

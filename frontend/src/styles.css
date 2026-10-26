@@ -36,7 +36,8 @@
 html {
   min-width: 20rem;
   min-height: 100%;
-  scroll-behavior: smooth;
+  /* Focus navigation must settle before a following pointer activation. */
+  scroll-behavior: auto;
 }
 
 body {

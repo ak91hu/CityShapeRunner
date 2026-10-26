@@ -1985,8 +1985,6 @@ class Orchestrator:
                 best_snapped = copy.deepcopy(candidate_state.snapped)
                 best_validation = copy.deepcopy(candidate_validation)
                 best_errors = list(candidate_state.errors)
-                if self._passes_quality(best_validation):
-                    break
 
         state.shape = best_shape
         state.route_draft = best_draft

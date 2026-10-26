@@ -52,9 +52,11 @@ test("checking a request prevents duplicate submissions and recovers cleanly", a
 test("choosing an example reveals its complete request before review", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".idea-picker")).toContainText("Examples include a place, activity, and distance");
-  await page.getByRole("button", { name: "Star", exact: true }).click();
+  const chosen = page.locator(".idea-picker .idea-chip").first();
+  await chosen.click();
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
-  await expect(page.getByLabel("Drawing and location")).toHaveValue("a star bike route in Debrecen, about 20 km");
+  await expect(chosen).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Drawing and location")).toHaveValue(/.+(?:in|GPS art).+\d+ km/);
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Review request", exact: true })).toBeFocused();
 });

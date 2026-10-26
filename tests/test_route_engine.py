@@ -73,6 +73,7 @@ from gps_art_wizzard.tools.hungarian_shape_catalog import (
     HUNGARIAN_OUTLINES,
     HUNGARIAN_SHAPE_ALIASES,
 )
+from gps_art_wizzard.workflow_runtime import WorkflowRuntime
 
 EXTENDED_SHAPE_NAMES = frozenset(
     {
@@ -1235,6 +1236,76 @@ class _FakeClient:
         return _FakeResponse()
 
 
+@pytest.mark.parametrize("endpoint", ["snap", "directions"])
+def test_provider_quota_stops_later_calls_only_in_the_same_workflow(monkeypatch, endpoint):
+    calls = []
+
+    def limited_post(*args, **kwargs):
+        calls.append(True)
+        return SimpleNamespace(status_code=429, text="Quota exceeded", json=lambda: {})
+
+    monkeypatch.setattr(ors_client.httpx, "post", limited_post)
+
+    def request():
+        if endpoint == "snap":
+            return ors_client._snap_request("https://example.test", {}, [[19, 47]], radius=80)
+        return ors_client._ors_request(
+            "https://example.test", {}, [[19, 47], [19.001, 47]],
+            preference="recommended", continue_straight=True, radius=80,
+        )
+
+    for _ in range(2):
+        runtime = WorkflowRuntime(WorkflowState("heart"), max_duration_seconds=175, max_llm_calls=0)
+        with runtime.activate():
+            first = request()
+            second = request()
+        assert first is None if endpoint == "snap" else first.status_code == 429
+        assert second is None if endpoint == "snap" else second.status_code == 429
+        assert runtime.trace.routing_requests == {endpoint: 1}
+        assert runtime.trace.routing_failures == {f"{endpoint}.http_429": 1}
+        assert not runtime.routing_rate_limited("directions" if endpoint == "snap" else "snap")
+    assert len(calls) == 2
+
+
+def test_quota_keeps_cached_provider_geometry_and_cancellation(monkeypatch):
+    import threading
+
+    from gps_art_wizzard.workflow_runtime import WorkflowCancelledError, cancellation_scope
+
+    monkeypatch.setattr(ors_client.get_settings().routing, "ors_api_key", "test-no-network")
+    responses = iter([
+        _FakeResponse(),
+        SimpleNamespace(status_code=429, text="Quota exceeded", json=lambda: {}),
+    ])
+    calls = []
+
+    def post(*args, **kwargs):
+        calls.append(True)
+        return next(responses)
+
+    monkeypatch.setattr(ors_client.httpx.Client, "post", post)
+    runtime = WorkflowRuntime(WorkflowState("heart"), max_duration_seconds=175, max_llm_calls=0)
+    first = [(47, 19), (47, 19.001), (47, 19.002)]
+    changed = [(47.001, 19), *first[1:]]
+    try:
+        with runtime.activate():
+            routed = ors_client.snap_route_detailed(first)
+            assert routed[2] is True
+            assert ors_client.snap_route_detailed(changed)[2] is False
+            assert ors_client.snap_route_detailed(changed)[2] is False
+            assert ors_client.snap_route_detailed(first) == routed
+            cancelled = threading.Event()
+            cancelled.set()
+            with cancellation_scope(cancelled), pytest.raises(WorkflowCancelledError):
+                ors_client.snap_route_detailed(changed)
+        assert len(calls) == 2
+        assert runtime.trace.routing_requests == {"directions": 2}
+        assert runtime.trace.routing_failures == {"directions.http_429": 1}
+    finally:
+        runtime.close_routing_client()
+        ors_client.clear_directions_cache()
+
+
 def test_ors_request_uses_boolean_and_sums_all_segment_distances():
     client = _FakeClient()
     result = ors_client._ors_request(
@@ -1704,6 +1775,51 @@ def test_snap_preflight_keeps_original_index_when_an_invalid_route_is_skipped(
 
     assert results is not None
     assert [result.candidate_index for result in results] == [1]
+
+
+def test_preflight_shared_points_use_one_lookup_without_merging_nearby_points(monkeypatch):
+    routing = SimpleNamespace(ors_base_url="http://localhost:8080/ors", ors_api_key="", snap_radius_m=120)
+    monkeypatch.setattr(ors_client, "get_settings", lambda: SimpleNamespace(routing=routing))
+    monkeypatch.setattr(ors_client, "_MAX_SNAP_LOCATIONS", 5)
+    square = [(47.0, 19.0), (47.0, 19.001), (47.001, 19.001), (47.001, 19.0), (47.0, 19.0)]
+    nearby = [square[0], (47.00000001, 19.001), *square[2:]]
+    batches = []
+
+    def snap(_url, _headers, locations, **kwargs):
+        batches.append(locations)
+        return [{"location": point, "snapped_distance": 0} for point in locations]
+
+    monkeypatch.setattr(ors_client, "_snap_request", snap)
+    results = ors_client.preflight_route_candidates([square, square, nearby], closed=True, max_guide_points=5)
+    by_index = {result.candidate_index: result for result in results}
+    assert len(batches) == 1
+    assert len(batches[0]) == len({tuple(point) for point in batches[0]}) == 5
+    assert [19.001, 47.00000001] in batches[0]
+    assert set(by_index) == {0, 1, 2}
+    assert all(result.snap_coverage == 1 and result.shape_fidelity > 0.99 for result in results)
+    assert by_index[0].score == by_index[1].score
+
+
+def test_preflight_missing_tip_is_measured_against_the_complete_contour(monkeypatch):
+    routing = SimpleNamespace(ors_base_url="http://localhost:8080/ors", ors_api_key="", snap_radius_m=120)
+    monkeypatch.setattr(ors_client, "get_settings", lambda: SimpleNamespace(routing=routing))
+    # Losing a straight-edge guide and losing the salient tip have equal Snap
+    # coverage, but only the latter destroys this house-shaped silhouette.
+    guide = [(47.0, 19.0), (47.0, 19.001), (47.0, 19.002),
+             (47.001, 19.002), (47.002, 19.001), (47.001, 19.0), (47.0, 19.0)]
+    measured = []
+    for missing in (guide[1], guide[4]):
+        def snap(_url, _headers, locations, *, missing=missing, **kwargs):
+            return [None if (point[1], point[0]) == missing else
+                    {"location": point, "snapped_distance": 0} for point in locations]
+
+        monkeypatch.setattr(ors_client, "_snap_request", snap)
+        measured.append(ors_client.preflight_route_candidates([guide], closed=True, max_guide_points=7)[0])
+    edge, tip = measured
+    assert edge.snap_coverage == tip.snap_coverage == 6 / 7
+    assert edge.shape_fidelity > tip.shape_fidelity
+    assert edge.score > tip.score
+    assert tip.shape_fidelity < 0.9
 
 
 def test_connectivity_retry_drops_reported_via_point_before_success(monkeypatch):

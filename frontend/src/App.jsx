@@ -24,6 +24,8 @@ import RouteSetupPanel from "./RouteSetupPanel.jsx";
 import GroupWorkspace from "./GroupWorkspace.jsx";
 import WaitingSketchGame from "./WaitingSketchGame.jsx";
 import WaitingRunnerGame from "./WaitingRunnerGame.jsx";
+import { shuffled } from "./inspiration.js";
+import { distanceMetres } from "./routeWalkthrough.js";
 import {
   EMPTY_ROUTE_PREFERENCES,
   buildRouteSetupPayload,
@@ -226,7 +228,6 @@ const IDEA_CATEGORIES = [
   "Symbols",
   "Letters, numbers & text",
 ];
-const FEATURED_IDEAS = QUICK_IDEAS.filter((idea) => idea.featured).slice(0, 6);
 const MAP_PLACEMENT_FALLBACK_SHAPES = [
   { id: "heart", label: "Heart" },
   { id: "star", label: "Star" },
@@ -3638,6 +3639,9 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   const renderCandidateCard = (candidate, index) => {
     const candidateReadiness = candidate.details?.readiness ?? {};
     const selected = selectedCandidate?.id === candidate.id;
+    const start = candidate.points_preview?.[0];
+    const recommendedStart = candidates[0]?.points_preview?.[0];
+    const startDistance = start && recommendedStart ? distanceMetres(start, recommendedStart) : null;
     return (
       <div className="candidate-option" role="listitem" key={candidate.id}>
       <button
@@ -3656,6 +3660,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         <strong>
           {index === 0 ? "Best overall route" : normaliseLabel(candidate.shape_name)}
         </strong>
+        <span className="candidate-location">
+          {index === 0 ? "Highest-ranked measured option" : Number.isFinite(startDistance)
+            ? startDistance >= 500
+              ? `Starts ${(startDistance / 1000).toFixed(1)} km from the recommended start`
+              : "Nearby start; compare the outline on the map"
+            : "Compare this outline on the map"}
+        </span>
         <span className="candidate-card-metrics">
           <span><b>{formatPercent(candidate.validation?.shape_fidelity)}</b> likeness</span>
           <span><b>{formatMetric(candidate.distance_km)}</b> km</span>
@@ -3788,9 +3799,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
             </div>
             {candidates.length > 0 ? (
               <>
+                <p className="candidate-choice-help">Choose a card to compare its street route. Likeness measures the drawing; “Ready to download” means all automatic checks passed.</p>
                 <div className="candidate-card-list" role="list">
                   {visibleCandidates.map(renderCandidateCard)}
                 </div>
+                <p className="candidate-selection" role="status">
+                  Selected: {selectedCandidateId === candidates[0]?.id ? "recommended route" : `alternative ${candidates.findIndex((candidate) => candidate.id === selectedCandidateId)}`}.
+                </p>
                 {additionalCandidates.length > 0 && (
                   <details className="candidate-more">
                     <summary>
@@ -4619,6 +4634,8 @@ export default function App() {
     window.history.replaceState(null, "", url);
   };
   const [prompt, setPrompt] = useState(INITIAL_EXAMPLE_PROMPT);
+  const [ideaDeck, setIdeaDeck] = useState(() => shuffled(QUICK_IDEAS));
+  const [ideaRefreshCount, setIdeaRefreshCount] = useState(0);
   const [plannerStep, setPlannerStep] = useState("idea");
   const [appView, setAppView] = useState(() =>
     typeof window !== "undefined" && window.location.hash === "#gallery" ? "gallery" : "planner",
@@ -5481,7 +5498,7 @@ export default function App() {
                 <legend>Example requests <span className="optional-label">Optional</span></legend>
                 <p className="field-help idea-example-help">Examples include a place, activity, and distance. Edit the sentence above to make it yours.</p>
                 <div className="idea-list">
-                  {FEATURED_IDEAS.map((idea) => (
+                  {ideaDeck.slice(0, 6).map((idea) => (
                     <button
                       type="button"
                       key={idea.label}
@@ -5494,6 +5511,17 @@ export default function App() {
                       {idea.label}
                     </button>
                   ))}
+                </div>
+                <div className="idea-refresh">
+                  <button type="button" className="button button--quiet" disabled={loading}
+                    onClick={() => {
+                      setIdeaDeck((deck) => [...deck.slice(6), ...deck.slice(0, 6)]);
+                      setIdeaRefreshCount((count) => count + 1);
+                    }}>Show different ideas</button>
+                  <span className="field-help" role="status">
+                    {ideaRefreshCount > 0 && <span className="sr-only">Idea set {ideaRefreshCount + 1}. </span>}
+                    {ideaRefreshCount > 0 ? "Six new ideas. Your request is unchanged." : "Browse ideas without changing your request."}
+                  </span>
                 </div>
               </fieldset>
 
