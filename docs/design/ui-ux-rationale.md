@@ -171,7 +171,8 @@ Source: [GOV.UK Design System — Select](https://design-system.service.gov.uk/c
 ### Keep a large shape catalog findable
 
 Exposing 158 choices as one uninterrupted field of chips would make scanning
-slow and bury familiar options. Six common shapes stay beside the prompt. The
+slow and bury familiar options. Six shuffled ideas stay beside the prompt;
+refreshing them preserves the prompt and keyboard focus. The
 full catalog is grouped by plain-language category and has a labelled search
 that filters both names and categories, reports the remaining count, and gives
 an explicit empty result. This follows the W3C preference for familiar,

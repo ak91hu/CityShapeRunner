@@ -587,9 +587,12 @@ the [official restrictions](https://openrouteservice.org/restrictions/) and
 must be treated as operational constraints.
 
 The same restrictions allow 5,000 locations in one snap request. The production
-preflight uses at most 180 placements with 18 guide points each (3,240
-locations), so batching stays inside the documented limit while avoiding one
-network round trip per placement. The snap endpoint returns results in input
+preflight defaults allow 180 established plus 90 creative placements with 18
+guides each: at most 4,860 coordinates before exact-coordinate deduplication,
+spread over at most three shared adaptive rounds. The constrained production
+profile uses 90 established plus 90 creative placements (at most 3,240 guides).
+Both stay inside that batch limit while avoiding one network round trip per
+placement. The snap endpoint returns results in input
 order and may return `null` when no edge is found within the radius; candidate
 slices and coverage scoring preserve both behaviours before any Directions
 request. See the official

@@ -28,7 +28,7 @@ sequenceDiagram
     API->>O: generate(prompt, overrides, preferences)
     O->>A: intent → planning → shape → placement
     A-->>O: WorkflowState + ideal RouteDraft
-    O->>P: batch-snap up to 180 transformations
+    O->>P: batch-snap up to 180 established + 90 creative placements
     P-->>O: diverse shortlist, normally up to 7
     O->>ORS: route best guide through graph
     ORS-->>O: polyline + distance + readiness or failure
@@ -128,7 +128,9 @@ The expensive Directions endpoint is intentionally not the primary search primit
 - local 3×3 offsets when city coverage is insufficient;
 - six rotations (`0°` through `150°` in `30°` steps), unless the user fixed a start direction;
 - three scales (`1.0`, `0.85`, `1.15`);
-- a hard `PREFLIGHT_MAX_PLACEMENTS` cap, 180 by default;
+- a `PREFLIGHT_MAX_PLACEMENTS` cap of 180 for the established family, plus
+  `PREFLIGHT_CREATIVE_PLACEMENTS=90` for seeded alternatives; optional local
+  street-turn and continuous-contour support ranks creative placements;
 - only the fixed origin when the route is anchored to a user start point.
 
 ```mermaid
@@ -136,12 +138,12 @@ flowchart LR
     Base[Initial RouteDraft] --> Grid[City/local offsets]
     Grid --> Rotate[6 orientations]
     Rotate --> Scale[3 scales]
-    Scale --> Cap[Deduplicate + bbox filter<br/>cap at 180]
-    Cap --> Batch[Up to 3 adaptive batches<br/>within the same cap]
+    Scale --> Cap[Deduplicate + bbox filter<br/>180 established + 90 creative]
+    Cap --> Batch[Up to 3 shared adaptive batches<br/>within both family caps]
     Batch --> Rank[Coverage + distance +<br/>shape proxies]
     Rank --> Diverse[Greedy quality/diversity]
     Diverse --> Best[Best draft]
-    Diverse --> Rest[Up to 6 recovery/refinement drafts]
+    Diverse --> Rest[Up to 6 established + 2 creative alternatives]
 
     classDef search fill:#e7f2ed,stroke:#08705d,color:#153d35,stroke-width:2px;
     classDef narrow fill:#fff0eb,stroke:#d95d39,color:#5c2a1c,stroke-width:2px;
@@ -156,6 +158,14 @@ utility = 0.82 × preflight_score + 0.18 × minimum_diversity_to_selected
 ```
 
 Diversity combines spatial separation (50%), orientation difference (30%), and log-scale difference (20%). This avoids spending every Directions call on essentially the same block and rotation.
+
+The seven established finalists remain available; up to two creative finalists
+are additional slots, not replacements. Equivalent rotations of symmetric
+shapes and identical snap coordinates are deduplicated. The full outline stays
+the validation reference when some snap points have no nearby road. These are
+repository defaults; the [production profile](../../operations/deployment.md)
+uses 90 established placements and four established finalists, with graph
+proposals disabled on the 256 MB service. Deadlines can stop optional work early.
 
 !!! note "What preflight proves"
 
@@ -284,7 +294,7 @@ The endpoint performs one final `_has_connected_route()` check after orchestrati
 
 | Request type | Model calls | Preflight | Full Directions | Notes |
 | --- | --- | --- | --- | --- |
-| Known template with complete prompt | Usually 0 | Up to 180 transformations in batch | Best + bounded recovery/refinement | Local intent/planning/shape fast path |
+| Known template with complete prompt | Usually 0 | Up to 180 established + 90 creative placements in shared batches | Best + bounded recovery/refinement | Local intent/planning/shape fast path |
 | Free-text custom shape | Spec/generation, independent review when available or disclosed self-review, at most one repair | Same placement search | Same measured shortlist | Complexity selects 2–4 candidates; configuration may cap this to 1 for the free production profile |
 | Linked SVG | 0 for shape extraction | Same | Same | Exact vector sampling |
 | Linked raster | One primary multimodal strict-schema call | Same | Same | Local silhouette fallback, no provider cascade |

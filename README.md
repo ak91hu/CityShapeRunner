@@ -330,7 +330,9 @@ queries, and the operational troubleshooting checklist.
 
 ## Quick ideas
 
-The web app keeps six common starters beside the prompt and places a searchable
+The web app draws six shuffled starters from the catalog beside the prompt.
+“Show different ideas” refreshes them while preserving the prompt and keyboard focus.
+It places a searchable
 158-option catalog behind “More shapes, letters, and numbers”. It contains 145
 deterministic route templates plus 13 letter, number, and short-text presets:
 
@@ -434,7 +436,7 @@ npm run test:cross-browser
 
 The searchable [MkDocs technical documentation](https://ak91hu.github.io/CityShapeRunner/)
 is built with warnings treated as errors on every CI run and deployed to GitHub
-Pages only after backend quality/tests, the production frontend, all four
+Pages only after backend quality/tests, the production frontend, all five
 browser profiles, the production container smoke, and documentation jobs pass
 on `master`. For local authoring, install `.[docs]` and run
 `python -m mkdocs serve`; the [CI/CD guide](docs/operations/ci-cd.md) documents the release

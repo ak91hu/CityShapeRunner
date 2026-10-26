@@ -1,10 +1,12 @@
 # Testing guide
 
-The project has two complementary automated suites:
+The project has three complementary automated suites:
 
 - Python unit and integration tests validate configuration, request contracts,
   geometry, route selection, provider fallback, export, gallery security,
   logging, and the complete offline planning pipeline.
+- Node unit tests validate streamed responses, API proxy coverage, planning
+  payloads, saved group projects, idea shuffling and walkthrough helpers.
 - Playwright functional tests drive the React UI in desktop Chromium, a Pixel
   7-sized mobile Chromium project, desktop Firefox, and desktop/iPhone WebKit. Network
   fixtures keep these tests repeatable and prevent calls to paid or rate-limited
@@ -21,8 +23,8 @@ npm ci
 npx playwright install chromium firefox webkit
 ```
 
-Node.js 24 and Python 3.12 or newer match the supported local and CI
-environments.
+Node.js 24 and Python 3.12 or newer are supported locally; CI uses Node.js 24
+and Python 3.14.
 
 ## Run every check
 

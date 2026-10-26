@@ -10,7 +10,7 @@ This guide brings up the FastAPI service and Vite client locally, then verifies 
 | Node.js | 24; CI uses Node 24 | React client, Vite, Playwright |
 | npm | Version bundled with Node 24 | Reproducible install from `package-lock.json` |
 | Git | Current supported version | Source and change review |
-| Chromium | Installed by Playwright | Functional browser tests |
+| Chromium, Firefox, WebKit | Installed by Playwright | Functional browser tests |
 
 For usable route generation, also obtain an OpenRouteService API key. LLM credentials are optional because deterministic shape behavior remains available, but street routing is not optional for a GPX/TCX result.
 
@@ -59,7 +59,9 @@ To enable model-assisted shape generation, configure one provider as well:
 ```dotenv
 LLM_PROVIDER=opencode
 OPENCODE_API_KEY=your_server_side_key
-LLM_MODEL=glm-5.2
+OPENCODE_TRANSPORT=cli
+OPENCODE_SERVER_AUTOSTART=true
+LLM_MODEL=muse-spark-1.3-contributor-free
 ```
 
 Never put provider keys into `frontend/` or a `VITE_*` variable. Vite variables are compiled into browser assets and are public. See the [configuration reference](../reference/configuration-reference.md) for every setting and its precedence.
@@ -86,7 +88,7 @@ npm ci --no-audit --no-fund
 npm run dev
 ```
 
-Visit `http://127.0.0.1:5173`. During development, Vite proxies `/health` and `/generate` to port `8000`. The production container instead serves the compiled SPA and API from the same FastAPI origin.
+Visit `http://127.0.0.1:5173`. During development, Vite proxies all client API resources (including `/health`, `/interpret`, `/generate`, editing and gallery endpoints) to port `8000`; `frontend/vite.config.js` contains the shared path list. The production container instead serves the compiled SPA and API from the same FastAPI origin.
 
 ## 5. Exercise the API
 
@@ -126,10 +128,13 @@ python -m mypy --ignore-missing-imports gps_art_wizzard
 python -m pytest -q
 
 Set-Location frontend
-npm run build
+npx playwright install chromium firefox webkit
+npm run check
 npm run test:e2e
+npm run test:cross-browser
 
 Set-Location ..
+python scripts/check_documentation.py
 python -m mkdocs build --strict
 ```
 

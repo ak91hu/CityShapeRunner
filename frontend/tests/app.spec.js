@@ -444,7 +444,10 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
-  expect(requestPayload).toEqual({ prompt: chosenPrompt });
+  expect(requestPayload).toEqual({
+    prompt: chosenPrompt,
+    intent_override: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
+  });
   await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(
     page.locator(".metric").filter({ hasText: "Drawing likeness" }).locator("dd:not(.metric-detail)"),

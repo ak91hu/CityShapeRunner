@@ -117,13 +117,11 @@ silhouette instead of cascading through slow providers. A misplaced model
 drawing does not require another request.
 
 The optional direct OpenCode API transport defaults structured work to the
-image-capable `gpt-5.4-mini`; this is not used by the zero-cost CLI profile. A live
-minimal strict-schema probe in the development environment completed in 1.96 s
-on that model versus 9.46 s on `gpt-5.6-luna`; deployments can still override
-the model with `OPENCODE_STRUCTURED_MODEL`. The browser stops image requests
-after 120 seconds and other generation after 180 seconds, preserves the exact
-image payload for retry, and shows rotating progress messages plus elapsed time
-while work is in flight.
+image-capable `gpt-5.4-mini`; this is not used by the zero-cost CLI profile.
+Deployments can override the model with `OPENCODE_STRUCTURED_MODEL`. The browser
+allows 240 seconds for both image and ordinary generation, preserves the exact
+image payload for retry, and shows actual streamed stages plus elapsed time.
+Waiting sketches are separate entertainment, not simulated route progress.
 
 This follows OpenCode's documented image-normalisation model and image-capable
 model metadata:

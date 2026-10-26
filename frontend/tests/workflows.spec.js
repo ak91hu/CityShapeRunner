@@ -258,7 +258,10 @@ test("the prompt counter and keyboard shortcut submit a normalised idea", async 
   await page.getByRole("button", { name: "Find routes" }).click();
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
-  expect(submittedPayload()).toEqual({ prompt: "a moon run in Eger, about 8 km" });
+  expect(submittedPayload()).toEqual({
+    prompt: "a moon run in Eger, about 8 km",
+    intent_override: { shape: "star", city: "Debrecen", sport: "run", distance_km: 8 },
+  });
   await page.getByRole("button", { name: "Change request" }).click();
   await expect(page.getByLabel("Drawing and location")).toHaveValue(
     "a moon run in Eger, about 8 km",

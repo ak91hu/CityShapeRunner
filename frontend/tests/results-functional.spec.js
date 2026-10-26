@@ -1,7 +1,10 @@
 import { expect, test } from "playwright/test";
+import { readFile } from "node:fs/promises";
 
 import {
   buildRouteResult,
+  buildEditedRoute,
+  galleryAsset,
   installCommonMocks,
   openGeneratedRoute,
   openOptionalRouteTools,
@@ -291,20 +294,22 @@ test("route details expose routing, distance, placement, and closure facts", asy
   await expect(facts).toContainText("83%");
 });
 
-test("recognition repair keeps route details, downloads, and gallery sharing directly below the route", async ({ page }) => {
+for (const passed of [true, false]) {
+test(`recognition repair replaces verification and exports (${passed ? "verified" : "needs review"})`, async ({ page }) => {
+  const repaired = {
+    ...buildEditedRoute({ passed, distanceKm: 19.8 }),
+    recognition_score: passed ? 0.94 : 0.58,
+    message: "The street route was refined.",
+    tcx: passed ? "<TrainingCenterDatabase><Name>Repaired route</Name></TrainingCenterDatabase>" : null,
+    gallery_publish_token: "new-recognition-repair-token",
+  };
   await page.route("**/recognition-repair", async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      shape_name: "star", target_distance_km: 20,
+    });
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({
-        points_preview: [[47.4979, 19.0402], [47.4986, 19.0461], [47.4943, 19.0478], [47.4979, 19.0402]],
-        guide_points: [[47.4979, 19.0402], [47.4986, 19.0461], [47.4943, 19.0478], [47.4979, 19.0402]],
-        distance_km: 19.8,
-        snapped: true,
-        gpx: "<?xml version=\"1.0\"?><gpx version=\"1.1\"></gpx>",
-        recognition_score: 0.94,
-        readiness: {},
-        message: "A crisper route is ready.",
-      }),
+      body: JSON.stringify(repaired),
     });
   });
   await openGeneratedRoute(page);
@@ -316,12 +321,32 @@ test("recognition repair keeps route details, downloads, and gallery sharing dir
 
   const output = page.locator(".route-output");
   await expect(output.getByText("Route details", { exact: true })).toBeVisible();
-  await expect(output.getByRole("button", { name: "Download edited GPX" })).toBeVisible();
-  await expect(output.getByRole("button", { name: "Download TCX" })).toBeVisible();
+  await expect(page.locator(".route-state")).toContainText(passed ? "Ready to download" : "Check before downloading");
+  const downloadPromise = page.waitForEvent("download");
+  await output.getByRole("button", { name: passed ? "Download edited GPX" : "Approve and download GPX" }).click();
+  const download = await downloadPromise;
+  expect(await readFile(await download.path(), "utf8")).toBe(repaired.gpx);
+  if (passed) {
+    const tcxDownloadPromise = page.waitForEvent("download");
+    await output.getByRole("button", { name: "Download TCX" }).click();
+    expect(await readFile(await (await tcxDownloadPromise).path(), "utf8")).toBe(repaired.tcx);
+  } else {
+    await expect(output.getByRole("button", { name: "Download TCX" })).toHaveCount(0);
+  }
+  let publishToken = null;
+  await page.route("**/gallery", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    publishToken = route.request().postDataJSON().publish_token;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({
+      asset: galleryAsset("f", "repaired-map"), removal_token: "f".repeat(64),
+    }) });
+  });
   await output.getByText("Share map publicly", { exact: true }).click();
-  await expect(output.getByRole("checkbox")).toBeVisible();
-  await expect(output.getByRole("button", { name: "Publish map" })).toBeVisible();
+  await output.getByRole("checkbox").check();
+  await output.getByRole("button", { name: "Publish map" }).click();
+  await expect.poll(() => publishToken).toBe("new-recognition-repair-token");
 });
+}
 
 test("route readiness shows elevation, surfaces, and mapped concerns", async ({ page }) => {
   await openGeneratedRoute(page);

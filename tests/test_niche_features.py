@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from xml.etree import ElementTree
 
 import numpy as np
 import pytest
@@ -226,8 +227,6 @@ def test_timed_readiness_explains_dates_outside_the_forecast_window(monkeypatch)
 
 
 def test_recognition_repair_keeps_salient_anchor_route_exportable(monkeypatch):
-    # A polygon with distinct salient corners (a constant-curvature square has
-    # no privileged landmarks, so it would degenerate to a two-point guide).
     guide = [
         [47.0, 19.0],
         [47.002, 19.0005],
@@ -262,6 +261,67 @@ def test_recognition_repair_keeps_salient_anchor_route_exportable(monkeypatch):
     assert body["recognition_score"] == pytest.approx(0.9554, abs=1e-3)
     assert "<gpx" in body["gpx"]
     assert "Refined GPS art" in body["gpx"]
+
+
+@pytest.mark.parametrize("without_landmarks", [False, True])
+def test_recognition_repair_validates_and_exports_the_new_square_route(
+    monkeypatch, without_landmarks
+):
+    routed = [(lat + 0.002, lon) for lat, lon in POINTS]
+    received = []
+
+    def fake_snap(points, **_):
+        received.extend(points)
+        return routed, geo.path_distance_m(routed), True, RouteReadiness(status="ready")
+
+    monkeypatch.setattr(ors_client, "snap_route_detailed", fake_snap)
+    if without_landmarks:
+        monkeypatch.setattr(niche.shape_similarity, "salient_route_landmarks", lambda _: [])
+    monkeypatch.setattr(niche.cloudinary_gallery, "maybe_issue_publish_token", lambda: "fresh-repair-token")
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/recognition-repair",
+            json={
+                "reference_points": POINTS,
+                "target_distance_km": 8,
+                "shape_name": "square",
+            },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(set(received)) >= 3
+    assert received[0] == received[-1]
+    assert body["route_verification"]["passed"] is False
+    assert body["below_recommended"] is True
+    assert body["validation"]["distance_fit"] < 0.2
+    assert body["route_details"]["distance"]["target_km"] == 8
+    assert body["gallery_publish_token"] == "fresh-repair-token"
+    for field, tag in [("gpx", "{*}trkpt"), ("tcx", "{*}Position")]:
+        root = ElementTree.fromstring(body[field])
+        vertices = [
+            (float(point.attrib["lat"]), float(point.attrib["lon"]))
+            if field == "gpx"
+            else (
+                float(point.findtext("{*}LatitudeDegrees")),
+                float(point.findtext("{*}LongitudeDegrees")),
+            )
+            for point in root.findall(f".//{tag}")
+        ]
+        assert vertices == pytest.approx(routed)
+
+
+@pytest.mark.parametrize("closed", [True, False])
+def test_recognition_repair_rejects_coincident_points_without_routing(monkeypatch, closed):
+    def unexpected_snap(*_args, **_kwargs):
+        pytest.fail("degenerate guides must not reach the routing provider")
+
+    monkeypatch.setattr(ors_client, "snap_route_detailed", unexpected_snap)
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/recognition-repair",
+            json={"reference_points": [[47.0, 19.0]] * 4, "closed": closed},
+        )
+    assert response.status_code == 422
 
 
 def test_recognition_repair_refuses_straight_line_fallback(monkeypatch):

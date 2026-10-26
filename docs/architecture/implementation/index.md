@@ -18,10 +18,10 @@ criteria behind these stages.
 <div class="stat-strip" markdown>
 
 <div class="stat"><strong>9</strong><span>stateless agents</span></div>
-<div class="stat"><strong>≤180</strong><span>preflight placements</span></div>
-<div class="stat"><strong>≤7</strong><span>Directions shortlist</span></div>
+<div class="stat"><strong>180 + 90</strong><span>default placement budgets</span></div>
+<div class="stat"><strong>7 + 2</strong><span>established + creative finalists</span></div>
 <div class="stat"><strong>13</strong><span>independent gates</span></div>
-<div class="stat"><strong>500</strong><span>preview point cap</span></div>
+<div class="stat"><strong>500</strong><span>ideal guide point cap</span></div>
 
 </div>
 

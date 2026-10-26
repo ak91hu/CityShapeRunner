@@ -204,7 +204,7 @@ Generation is synchronous and can combine CPU-heavy geometry with sequential ups
 - proportion of client timeouts versus eventual server completion;
 - routing failure and quality-gate distribution by city.
 
-Browser timeouts are 120 seconds for image generation and 180 seconds for standard generation/editing. Hosting request timeouts must be at least compatible with those budgets, but increasing them is not a performance fix. Tune shortlist/refinement only with quality and failure-rate benchmarks.
+Browser timeouts are 240 seconds for both standard and image generation, 180 seconds for editing, recognition repair and mural planning, and 20 seconds for interpretation. The generation timeout leaves room after the advisory 175-second repository workflow budget for an in-flight provider call and response preparation. The production container uses a shorter 75-second workflow budget. Hosting request timeouts must be compatible with the active profile; increasing them is not a performance fix. Tune shortlist/refinement only with quality and failure-rate benchmarks.
 
 ## CI and release gate
 

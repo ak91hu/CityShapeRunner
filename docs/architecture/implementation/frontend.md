@@ -55,6 +55,11 @@ The `App` component owns request-level concerns:
 
 The interface allows one generation at a time. Starting a new request aborts the previous browser request, clears old result/error state, and remembers the exact payload. The `finally` block clears loading only when its controller is still the active controller, preventing an older aborted request from hiding a newer loading state.
 
+The ordinary prompt flow first calls `/interpret`. Confirmation forwards the
+reviewed normalized intent as `intent_override` alongside the prompt and start
+preferences, using the existing generation contract. Interpretation failure
+leaves the original prompt available for generation and an explicit error notice.
+
 ## Generation state machine
 
 ```mermaid
@@ -62,7 +67,10 @@ stateDiagram-v2
     [*] --> Designing
     Designing --> Invalid: submit malformed input
     Invalid --> Designing: input corrected
-    Designing --> Loading: valid prompt / suggestion / image
+    Designing --> Reviewing: interpret ordinary prompt
+    Reviewing --> Designing: change idea
+    Reviewing --> Loading: confirm reviewed intent
+    Designing --> Loading: structured suggestion / image
     Loading --> Designing: user cancels
     Loading --> Result: API success
     Loading --> Error: non-abort failure
@@ -101,13 +109,14 @@ Every call gets an internal `AbortController`. A caller-supplied signal is forwa
 | Operation | Browser timeout |
 | --- | ---: |
 | Health | 7 s |
-| Normal generation | 180 s |
-| Image generation | 120 s |
+| Interpretation | 20 s |
+| Normal generation | 240 s |
+| Image generation | 240 s |
 | Route editing/recognition repair | 180 s |
 | Gallery list/delete | 15 s |
 | Gallery publish | 45 s |
 | Timed readiness | 8 s |
-| Mural plan | 20 s |
+| Mural plan | 180 s |
 | Inkproof analysis | 30 s |
 
 !!! note "Cancellation boundary"
@@ -153,6 +162,14 @@ editedRoute
 ```
 
 Switching candidates clears editor state, consent, gallery errors, published state, concern selection, and analytical overlays. Acceptance is stored as a set of route IDs, so approval of one review candidate cannot leak to another candidate or edited version.
+
+Edits and recognition repairs share an active request controller. Switching
+candidates, resetting or moving edit points, replacing the result or unmounting
+aborts that request; controller identity also prevents late replies from
+overwriting a newer selection. Recognition repairs replace validation, quality
+gates, details and both exports together, preserve the full ideal reference and
+replace the original gallery token with the repair response's fresh capability.
+They cannot inherit another geometry's approval.
 
 ## Download gate
 
@@ -253,7 +270,10 @@ The planner homepage requests one gallery listing and features one optimized pub
 
 ## Testing seams
 
-Playwright intercepts API, gallery, and tile requests with deterministic fixtures. Tests run the same functional scenarios in desktop Chromium and Pixel 7 emulation with one worker because Leaflet/ResizeObserver teardown is more deterministic that way.
+Playwright intercepts API, gallery, and tile requests with deterministic fixtures.
+The main configuration covers desktop Chromium and Pixel 7 emulation; the
+cross-browser configuration covers desktop Firefox and desktop/iPhone WebKit.
+Both use one worker for predictable map rendering and teardown.
 
 High-value behavioral assertions include:
 

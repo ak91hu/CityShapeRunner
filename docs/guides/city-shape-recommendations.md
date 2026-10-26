@@ -4,10 +4,13 @@
 
 A recommendation is a shortlist for measurement, not a claim that a shape is
 guaranteed to work throughout a city. The application scores every one of its
-145 route templates, shortlists the best three continuous and geometrically
-diverse candidates for the existing placement/routing pipeline, and keeps the best
-candidate actually measured on the activity-specific street graph. A primary
-candidate that already passes every gate can end the search early.
+145 route templates and builds a shortlist of up to three continuous,
+geometrically diverse candidates for the existing placement/routing pipeline.
+The search seed chooses a primary among candidates within 0.03 of the strongest
+prior, while retaining that strongest prior in the shortlist. Different seeds
+can vary the proposal without weakening the routing or quality gates. The best
+candidate actually measured on the activity-specific street graph wins;
+already-measured alternatives are compared even when the primary passes.
 
 This ordering follows five research findings:
 
