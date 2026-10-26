@@ -21,7 +21,7 @@ import numpy as np
 
 from ..config import get_settings
 from ..state import RoutePreferences, WorkflowState
-from ..workflow_runtime import record_routing_request
+from ..workflow_runtime import active_workflow_runtime, check_cancellation, record_routing_request
 from . import geo, osm_data
 
 
@@ -457,6 +457,72 @@ def shape_route(graph: StreetGraph, guides: list[geo.LatLon], *, target_m: float
     if len(path) < 2:
         return None
     return GraphProposal([graph.nodes[node] for node in path], length, cost, expanded, graph.revision)
+
+
+def contour_support(
+    graph: StreetGraph, routes: list[list[geo.LatLon]], *, radius_m: float,
+    cache: dict[tuple, float] | None = None,
+) -> list[float]:
+    """Cheap contour/edge alignment for placement sampling, never routing evidence."""
+    from .shape_similarity import resample
+
+    check_cancellation()
+    runtime = active_workflow_runtime()
+    keys = [(id(graph), radius_m, tuple(route)) for route in routes]
+    if cache is not None and all(key in cache for key in keys):
+        return [cache[key] for key in keys]
+    if not graph.nodes:
+        return [0.0] * len(routes)
+    center = next(iter(graph.nodes.values()))
+    _, _, xy = graph.projection(center)
+    segments = np.asarray([(xy[node], xy[edge.target]) for node, edges in graph.edges.items() for edge in edges])
+    if not len(segments):
+        return [0.0] * len(routes)
+    starts, ends = segments[:, 0], segments[:, 1]
+    vectors = ends - starts
+    lengths = np.hypot(vectors[:, 0], vectors[:, 1])
+    minimum, maximum = np.minimum(starts, ends), np.maximum(starts, ends)
+    radius = max(1.0, radius_m)
+    scores = []
+    for route, key in zip(routes, keys, strict=True):
+        check_cancellation()
+        if runtime is not None and runtime.deadline_exceeded():
+            # An incomplete prefix must not bias selection against the rows
+            # that happened to fit in the optional exploration budget.
+            return [0.0] * len(routes)
+        if cache is not None and key in cache:
+            scores.append(cache[key])
+            continue
+        if len(route) < 2:
+            scores.append(0.0)
+            continue
+        outline = np.asarray([geo.latlon_to_unit(*point, *center, 1) for point in route])
+        active = (np.all(maximum >= outline.min(axis=0) - radius, axis=1)
+                  & np.all(minimum <= outline.max(axis=0) + radius, axis=1) & (lengths > 0))
+        if not np.any(active):
+            scores.append(0.0)
+            continue
+        a, v, length = starts[active], vectors[active], lengths[active]
+        squared_length = length ** 2
+        points = resample(outline, 64)
+        costs = []
+        for first, second in zip(points, points[1:], strict=False):
+            check_cancellation()
+            tangent = second - first
+            tangent_length = float(np.linalg.norm(tangent))
+            if tangent_length == 0:
+                continue
+            midpoint = (first + second) / 2
+            projection = np.clip(np.sum((midpoint - a) * v, axis=1) / squared_length, 0, 1)
+            distance = np.linalg.norm(midpoint - a - projection[:, None] * v, axis=1)
+            alignment = np.clip(np.sum(v * tangent, axis=1) / (length * tangent_length), -1, 1)
+            # Same displacement/direction costs as the full graph proposal,
+            # without a shortest-path search for every sampled placement.
+            costs.append(float(np.min(3 * (distance / radius) ** 2 + 0.8 * (1 - alignment))))
+        scores.append(1 / (1 + float(np.mean(costs))) if costs else 0.0)
+    if cache is not None:
+        cache.update(zip(keys, scores, strict=True))
+    return scores
 
 
 def connectivity_proxy(graph: StreetGraph, guides: list[geo.LatLon], *, max_expansions: int = 1500) -> tuple[float | None, float | None]:

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { shuffled } from "./inspiration.js";
 
 export const SKETCHES = [
   {
@@ -90,11 +91,12 @@ export const SKETCHES = [
 export default function WaitingSketchGame() {
   const [open, setOpen] = useState(() => !window.matchMedia("(max-width: 48rem)").matches);
   const [index, setIndex] = useState(0);
+  const [deck, setDeck] = useState(() => shuffled(SKETCHES));
   const [answer, setAnswer] = useState(null);
   const [score, setScore] = useState(0);
   const [answered, setAnswered] = useState(0);
   const panelRef = useRef(null);
-  const sketch = SKETCHES[index];
+  const sketch = deck[index];
   useEffect(() => {
     if (open && window.matchMedia("(max-width: 48rem)").matches) {
       panelRef.current?.scrollIntoView({ block: "nearest", behavior: "auto" });
@@ -128,6 +130,11 @@ export default function WaitingSketchGame() {
         <div className="waiting-game-footer">
           <small>Sketch {index + 1}/{SKETCHES.length} · {score}/{answered} correct<br />Illustration · your route keeps generating</small>
           <button type="button" onClick={() => {
+            if (index === deck.length - 1) {
+              const next = shuffled(SKETCHES);
+              if (next[0] === sketch) [next[0], next[1]] = [next[1], next[0]];
+              setDeck(next);
+            }
             setIndex((current) => (current + 1) % SKETCHES.length);
             setAnswer(null);
           }}>Next sketch →</button>

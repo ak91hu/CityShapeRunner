@@ -34,6 +34,91 @@ def test_bridge_crossing_does_not_create_an_intersection():
     assert shape_route(graph, [graph.nodes[1], graph.nodes[4]]) is None
 
 
+def test_contour_support_prefers_continuous_aligned_streets_to_nearby_cross_streets():
+    center = (47.5, 19.0)
+    def point(x, y):
+        return street_graph.geo.unit_to_latlon(x, y, *center, 1)
+    aligned = StreetGraph({1:point(0,0),2:point(600,0)}, {1:[street_graph.Edge(2,1,600)]})
+    crossing = StreetGraph({i:point(x,y) for i,(x,y) in enumerate(
+        [(x,y) for x in range(0,601,30) for y in (-100,100)])}, {})
+    crossing.edges = {i:[street_graph.Edge(i+1,i,200)] for i in range(0,len(crossing.nodes),2)}
+    route = [point(0,0),point(600,0)]
+    assert street_graph.contour_support(aligned,[route],radius_m=120)[0] > .999
+    assert street_graph.contour_support(crossing,[route],radius_m=120)[0] < .7
+    assert street_graph.contour_support(aligned,[list(reversed(route))],radius_m=120)[0] < .5
+
+
+def test_contour_support_keeps_long_crossing_edges_and_handles_missing_geometry():
+    graph = StreetGraph({1:(47.5,18.99),2:(47.5,19.01)}, {1:[street_graph.Edge(2,1,1500)]})
+    route = [(47.5,18.999),(47.5,19.001)]
+    assert street_graph.contour_support(graph,[route],radius_m=20)[0] > .999
+    assert street_graph.contour_support(graph,[[],[(47.5,19)],[(48,20),(48.001,20)]],radius_m=20) == [0,0,0]
+    assert street_graph.contour_support(StreetGraph({},{}),[route],radius_m=20) == [0]
+    assert street_graph.contour_support(StreetGraph({1:(47.5,19)},{}),[route],radius_m=20) == [0]
+
+
+def test_contour_support_discards_partial_budget_results_and_honours_cancellation(monkeypatch):
+    import threading
+
+    import pytest
+
+    from gps_art_wizzard.state import WorkflowState
+    from gps_art_wizzard.tools import shape_similarity
+    from gps_art_wizzard.workflow_runtime import (
+        WorkflowCancelledError,
+        WorkflowRuntime,
+        cancellation_scope,
+    )
+
+    elapsed = [0.0]
+    runtime = WorkflowRuntime(WorkflowState("square"), max_duration_seconds=175,
+                              optimization_budget_seconds=35, max_llm_calls=0, clock=lambda: elapsed[0])
+    original = shape_similarity.resample
+    measured = []
+
+    def consume_budget(*args, **kwargs):
+        measured.append(True)
+        elapsed[0] = 40
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(shape_similarity, "resample", consume_budget)
+    graph = StreetGraph({1:(47.5,18.99),2:(47.5,19.01)}, {1:[street_graph.Edge(2,1,1500)]})
+    route = [(47.5,18.999),(47.5,19.001)]
+    cache = {}
+    with runtime.activate():
+        assert street_graph.contour_support(graph, [route,route], radius_m=120, cache=cache) == [0,0]
+    assert cache == {}
+    assert measured == [True]
+    signal = threading.Event()
+    signal.set()
+    with cancellation_scope(signal), pytest.raises(WorkflowCancelledError):
+        street_graph.contour_support(graph, [route], radius_m=120)
+
+
+def test_contour_support_memo_never_merges_graph_radius_or_nearby_coordinates(monkeypatch):
+    from gps_art_wizzard.tools import shape_similarity
+
+    original = shape_similarity.resample
+    measured = []
+
+    def measure(*args, **kwargs):
+        measured.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(shape_similarity, "resample", measure)
+    graph = StreetGraph({1:(47.5,18.99),2:(47.5,19.01)}, {1:[street_graph.Edge(2,1,1500)]})
+    route = [(47.50001,18.999),(47.50001,19.001)]
+    cache = {}
+    first = street_graph.contour_support(graph, [route], radius_m=20, cache=cache)
+    assert first == street_graph.contour_support(graph, [route], radius_m=20, cache=cache)
+    nearby = [(47.50002,18.999),route[1]]
+    assert street_graph.contour_support(graph, [nearby], radius_m=20, cache=cache) != first
+    assert street_graph.contour_support(graph, [route], radius_m=120, cache=cache) != first
+    other = StreetGraph(graph.nodes, {2:[street_graph.Edge(1,1,1500)]})
+    assert street_graph.contour_support(other, [route], radius_m=20, cache=cache) != first
+    assert len(measured) == len(cache) == 4
+
+
 def test_nearby_isolated_nodes_do_not_hide_connected_guide_alternative():
     graph = build_graph([
         node(1, 0, 0), node(2, 400, 0), node(3, 800, 0), way(10, [1, 2, 3]),

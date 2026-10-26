@@ -1,4 +1,4 @@
-function distanceMetres([lat1, lon1], [lat2, lon2]) {
+export function distanceMetres([lat1, lon1], [lat2, lon2]) {
   const radians = Math.PI / 180;
   const north = (lat2 - lat1) * radians;
   const east = (lon2 - lon1) * radians;

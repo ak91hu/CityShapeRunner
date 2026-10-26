@@ -394,18 +394,19 @@ test("designer controls are accessible and fit a narrow viewport", async ({ page
   await expect(page.getByLabel("City", { exact: true }).locator('option[value="Timișoara"]')).toHaveCount(1);
   await page.getByText("More shapes, letters, and numbers").click();
   await expect(page.locator(".idea-catalog").getByRole("button")).toHaveCount(158);
-  await expect(page.getByRole("button", { name: "Letter A" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Robot" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Paprika" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Number 42" })).toBeVisible();
+  const catalogue = page.locator(".idea-catalog");
+  await expect(catalogue.getByRole("button", { name: "Letter A" })).toBeVisible();
+  await expect(catalogue.getByRole("button", { name: "Robot" })).toBeVisible();
+  await expect(catalogue.getByRole("button", { name: "Paprika" })).toBeVisible();
+  await expect(catalogue.getByRole("button", { name: "Number 42" })).toBeVisible();
   const catalogGlyphs = await page
     .locator('.idea-catalog .idea-chip span[aria-hidden="true"]')
     .allTextContents();
   expect(new Set(catalogGlyphs).size).toBe(catalogGlyphs.length);
-  await expect(page.getByRole("button", { name: "Cat", exact: true }).locator("span")).toHaveText("🐈");
-  await expect(page.getByRole("button", { name: "Dog", exact: true }).locator("span")).toHaveText("🐕");
-  await expect(page.getByRole("button", { name: "Bird", exact: true }).locator("span")).toHaveText("🐦");
-  await expect(page.getByRole("button", { name: "Bat", exact: true }).locator("span")).toHaveText("🦇");
+  await expect(catalogue.getByRole("button", { name: "Cat", exact: true }).locator("span")).toHaveText("🐈");
+  await expect(catalogue.getByRole("button", { name: "Dog", exact: true }).locator("span")).toHaveText("🐕");
+  await expect(catalogue.getByRole("button", { name: "Bird", exact: true }).locator("span")).toHaveText("🐦");
+  await expect(catalogue.getByRole("button", { name: "Bat", exact: true }).locator("span")).toHaveText("🦇");
 
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -438,12 +439,12 @@ test("quick idea generation sends the prompt and renders a usable routed result"
   });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Star" }).click();
-  await expect(page.getByLabel("Drawing and location")).toHaveValue(successfulRoute.prompt);
+  await page.locator(".idea-picker .idea-chip").first().click();
+  const chosenPrompt = await page.getByLabel("Drawing and location").inputValue();
   await findRoutes(page);
 
   await expect(page.getByRole("heading", { name: "Star in Debrecen" })).toBeVisible();
-  expect(requestPayload).toEqual({ prompt: successfulRoute.prompt });
+  expect(requestPayload).toEqual({ prompt: chosenPrompt });
   await expect(page.locator(".route-state")).toContainText("Ready to download");
   await expect(
     page.locator(".metric").filter({ hasText: "Drawing likeness" }).locator("dd:not(.metric-detail)"),

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import cmath
 import math
+import random
 import re
 from dataclasses import dataclass
 from functools import cache, lru_cache
@@ -420,6 +421,7 @@ def recommend_shapes(
     distance_km: float | None,
     *,
     limit: int = 3,
+    search_seed: int | None = None,
 ) -> list[ShapeRecommendation]:
     """Choose a strong but geometrically diverse set for live route testing."""
     if limit < 1:
@@ -437,6 +439,18 @@ def recommend_shapes(
     ]
     continuous = [item for item in eligible if item.shape.path_count == 1]
     pool = continuous or eligible
+    if search_seed is not None and pool and limit > 1:
+        # Explore similarly suitable drawings, retaining the strongest prior
+        # as a fallback. Only routed geometry can pass the final quality gates.
+        comparable = [item for item in pool if item.score >= pool[0].score - 0.03]
+        random.Random(search_seed).shuffle(comparable)
+        selected = [comparable[0]]
+        if pool[0] != selected[0]:
+            selected.append(pool[0])
+        used_families = {item.shape.family for item in selected}
+        pool = [*comparable, *pool]
+        if len(selected) == limit:
+            return selected
     for item in pool:
         if item.shape.family in used_families:
             continue

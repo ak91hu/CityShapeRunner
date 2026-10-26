@@ -2,6 +2,22 @@
 
 ## Planner examples and waiting games
 
+Quick examples draw six choices from a shuffled catalogue. **Show different
+ideas** advances to unseen choices before cycling through the catalogue; it
+keeps the user's sentence and keyboard focus intact. Choosing an example is
+still an explicit replacement of the full request. The waiting sketch challenge
+also shuffles each twelve-sketch round without repeating a sketch within it.
+
+Result cards explain their starting-point distance from the recommended route
+(straight-line distance, not travel distance), distinguish likeness from passing
+all checks, and announce the selected option. The highest-ranked measured route
+remains first; variety never overrides the final quality ranking.
+
+Document-level scrolling is immediate so keyboard focus followed by a pointer
+click cannot race an unfinished scroll and miss a disclosure. The idea-refresh
+checks exercise keyboard activation as well as pointer clicks; they do not
+assume that every browser focuses an unfocused button when clicked.
+
 Each page load selects a complete random request from the catalog. Session
 storage excludes the previous example in that tab; blocked storage falls back
 to random selection. Only the initial catalog example is saved. User edits and

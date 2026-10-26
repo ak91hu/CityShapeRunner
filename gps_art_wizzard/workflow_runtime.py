@@ -310,6 +310,12 @@ class WorkflowRuntime:
         if client is not None:
             client.close()
 
+    def routing_rate_limited(self, endpoint: str) -> bool:
+        """Stop new calls to an exhausted endpoint for this workflow only."""
+        check_cancellation()
+        with self._lock:
+            return self.trace.routing_failures.get(f"{endpoint}.http_429", 0) > 0
+
     def record_routing_failure(self, endpoint: str, category: str) -> None:
         key = f"{endpoint}.{category}"
         with self._lock:

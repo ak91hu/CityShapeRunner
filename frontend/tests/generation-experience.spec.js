@@ -63,14 +63,16 @@ test("the sketch challenge works without changing or delaying generation", async
   await startLiveGeneration(page);
   const game = page.locator(".waiting-game:not(.waiting-runner)");
   if (!(await game.evaluate((element) => element.open))) await game.locator("summary").click();
-  await game.getByRole("button", { name: "Heart", exact: true }).click();
-  await expect(game.getByRole("status")).toContainText("You got it!");
-  await expect(game.getByRole("button", { name: "Heart", exact: true })).toBeDisabled();
-  await expect(game.locator(".waiting-game-footer")).toContainText("1/1 correct");
+  const firstSketch = await game.locator("svg path").getAttribute("d");
+  await game.locator(".waiting-game-answers button").first().click();
+  await expect(game.getByRole("status")).toContainText(/You got it!|It’s a/);
+  await expect(game.locator(".waiting-game-answers button").first()).toBeDisabled();
+  await expect(game.locator(".waiting-game-footer")).toContainText(/Sketch 1\/12 · [01]\/1 correct/);
   await game.getByRole("button", { name: "Next sketch" }).click();
-  await game.getByRole("button", { name: "Flower", exact: true }).click();
-  await expect(game.getByRole("status")).toContainText("It’s a star.");
-  await expect(game.locator(".waiting-game-footer")).toContainText("Sketch 2/12 · 1/2 correct");
+  await expect(game.locator("svg path")).not.toHaveAttribute("d", firstSketch);
+  await game.locator(".waiting-game-answers button").first().click();
+  await expect(game.getByRole("status")).toContainText(/You got it!|It’s a/);
+  await expect(game.locator(".waiting-game-footer")).toContainText(/Sketch 2\/12 · [012]\/2 correct/);
   expect(await page.evaluate(() => window.generationRequestCount)).toBe(1);
 
   const cancel = page.getByRole("button", { name: "Cancel", exact: true });

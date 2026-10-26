@@ -19,6 +19,18 @@ test("a completed generation moves focus to the result region", async ({ page })
   await expect(page.locator(".result")).toHaveAttribute("aria-labelledby", "result-title");
 });
 
+test("route choices explain start differences and announce the selected option", async ({ page }) => {
+  const result = buildRouteResult();
+  result.candidates[1].points_preview = routePoints.map(([lat, lon]) => [lat + 0.02, lon]);
+  await openGeneratedRoute(page, result);
+  await expect(page.locator(".candidate-location").nth(1)).toContainText("Starts 2.2 km");
+  await expect(page.locator(".candidate-selection")).toHaveText("Selected: recommended route.");
+  await page.locator(".candidate-card").nth(1).click();
+  await expect(page.locator(".candidate-selection")).toHaveText("Selected: alternative 1.");
+  await expect(page.locator(".candidate-card").nth(1)).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".candidate-compare").screenshot({ path: test.info().outputPath("route-choices.png") });
+});
+
 test("the complete street map can be rotated and reset by hand", async ({ page }) => {
   await openGeneratedRoute(page);
   await expect(page.locator(".route-map .leaflet-overlay-pane path").first()).toBeVisible();

@@ -67,7 +67,13 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
   search areas, and geography profiles. Suggestions score all 145 templates by
   continuity, turns, directional order, aspect, complexity, city street traits,
   activity, and distance; three diverse continuous candidates proceed to live
-  route measurement. The bbox-derived city-extent heading is only a coarse
+  route measurement. Automatic suggestions use the request seed to vary the
+  first drawing among continuous shapes within 0.03 of the strongest heuristic
+  score. That strongest shape stays in the three-candidate shortlist as a
+  fallback. The unseeded catalog ranking remains deterministic. Every measured
+  alternative is compared, even when an earlier alternative passes all gates;
+  already completed better routes must not be discarded. The final routing and
+  recognition gates are unchanged. The bbox-derived city-extent heading is only a coarse
   fallback.
 - **LLM:** planning does not spend a separate model call for a named custom
   drawing; curated geography commits its placement prior deterministically.
@@ -126,15 +132,45 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
 - **Input:** `Intent` + `Shape` + the initial `RouteDraft` + city bbox.
 - **Output:** the highest-ranked `RouteDraft` and
   `WorkflowState.placement_candidates`, a bounded full-routing shortlist.
-- **Logic:** share a 180-placement budget between a diverse city-wide coarse
-  search and two measured neighbourhood refinements. Subsample each outline to
+- **Logic:** preserve the established 180-placement search and use up to 90
+  creative placements; each family shares its budget between coarse search
+  and two measured neighbourhood refinements. Subsample each outline to
   up to 18 curvature-preserving guides, with at most three ORS Snap batches.
   A bounded local graph proxy can add directed connectivity and detour evidence.
   Rank independent snaps
   using coverage, snapped distance, distinct-point ratio, perceptual fidelity,
   characteristic-turn preservation, and route-length preservation. Retain
   every proxy result, then greedily balance quality and transform diversity
-  when choosing the seven full-routing candidates.
+  when choosing the established shortlist and up to two creative finalists.
+  When a local street graph is available, creative placements align a salient
+  corner of a single closed drawing to legal directed street turns. The
+  request seed varies junctions, orientations and sizes, including the outline
+  size corresponding directly to the requested distance. No drawing vertices
+  are moved independently. Before spatial subsampling, these proposals rank
+  continuous contour support from nearby directed street segments, using the
+  graph search's displacement/direction costs. Thus a close perpendicular road
+  cannot stand in for a street following the drawing. This is only a sampling
+  proxy, using the configured snap radius; no connectivity/export gate changes.
+  This support remains part of the creative rank after neighbourhood refinement.
+  Exact contour/radius results are memoised only within one preflight run.
+  Cancellation and the existing optional exploration deadline bound scoring;
+  an incomplete batch cannot penalise only the prefix that was evaluated.
+  Missing graph/turn evidence and smooth or disconnected
+  shapes retain the seeded city-grid search. Explicit placement, start and
+  heading constraints bypass street-turn proposals. ORS still measures every
+  finalist; a local graph proposal is never route/export authority.
+  Snap batches query each exact coordinate once and map the response back to
+  every guide position, including repeated loop endpoints. Missing snaps stay
+  in the reference contour when measuring likeness, so an unsupported tip or
+  notch cannot disappear from both sides of the comparison. Without a city
+  boundary, the creative family varies its eight local search positions with
+  the request seed; the planned origin, established search and explicit start
+  constraints remain intact.
+  The city-grid creative family avoids rotations that merely cycle a single closed
+  symmetric outline, leaving more search slots for distinct footprints.
+  Open strokes, semantic feature geometry, anchored/manual placement and the
+  established search retain their rotations. Symmetry detection ignores only
+  unit-space trigonometric noise; projected/provider coordinates are unchanged.
 - **Boundary:** nearest-edge snapping is only a cheap road-fit proxy; it does
   not establish connectivity or produce an exportable route. SnapAgent and
   ValidationAgent remain authoritative. With no public ORS key, preflight
@@ -157,6 +193,10 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
   vertex is preserved: `simplify_tolerance` remains a legacy draft field but
   cannot alter street geometry. Non-LineString, zero-length and skipped-segment
   provider responses are rejected.
+  A Snap or Directions HTTP 429 suppresses further requests to that endpoint
+  within the same workflow. Already dispatched requests may finish; cached
+  provider geometry remains usable. A new workflow can try again. Suppressed
+  calls do not inflate request/failure telemetry, and cancellation still applies.
   Graph guide selection can use a common weakly connected component within
   the existing 150 m radius when nearby isolated paths crowd out alternatives.
   Directed edges and turn restrictions remain authoritative. The cheap

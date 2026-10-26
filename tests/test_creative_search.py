@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import threading
 from dataclasses import replace
 from types import SimpleNamespace
@@ -25,7 +26,7 @@ from gps_art_wizzard.state import (
     Validation,
     WorkflowState,
 )
-from gps_art_wizzard.tools import ors_client
+from gps_art_wizzard.tools import geo, ors_client
 from gps_art_wizzard.tools.route_diversity import diverse_route_order
 from gps_art_wizzard.workflow_runtime import WorkflowRuntime
 
@@ -38,6 +39,41 @@ def search_state(seed=1):
                          intent=Intent("triangle", None, "Budapest", "run", 3, None),
                          shape=shape, route_draft=draft,
                          plan=Plan("template", city_bbox=(47.47, 47.53, 18.95, 19.05)))
+
+
+def test_seeded_shape_suggestions_vary_without_losing_the_strongest_prior():
+    from gps_art_wizzard.tools.shape_recommender import recommend_shapes
+
+    args = ("Debrecen", "Flat city with a dense street grid", "run", 10)
+    baseline = recommend_shapes(*args)
+    choices = [recommend_shapes(*args, search_seed=seed) for seed in range(20)]
+    assert choices[0] == recommend_shapes(*args, search_seed=0)
+    assert len({items[0].name for items in choices}) > 1
+    for items in choices:
+        assert len(items) == len({item.name for item in items}) == 3
+        assert baseline[0] in items
+        assert items[0].score >= baseline[0].score - 0.03
+        assert all(item.shape.path_count == 1 for item in items)
+    assert recommend_shapes(*args) == baseline  # cache and default are unchanged
+
+
+def test_planning_uses_request_seed_for_suggestions_without_changing_named_drawings():
+    from gps_art_wizzard.agents.planning_agent import PlanningAgent
+
+    suggested = set()
+    for seed in range(6):
+        state = search_state(seed)
+        state.intent.distance_km = 10
+        state.intent.shape = None
+        state.intent.suggest = True
+        PlanningAgent().run(state)
+        suggested.add(state.intent.shape)
+        assert state.intent.shape in state.plan.suggestion_candidates
+        assert not state.intent.suggest
+        named = search_state(seed)
+        PlanningAgent().run(named)
+        assert named.intent.shape == "triangle"
+    assert len(suggested) > 1
 
 
 def test_seed_reproduces_search_but_new_seed_changes_city_positions():
@@ -54,6 +90,149 @@ def test_seed_reproduces_search_but_new_seed_changes_city_positions():
     assert len({draft.scale_m for draft in first}) == 3
     assert len({(draft.lat_offset_m, draft.lon_offset_m) for draft in first}) >= 16
     assert all(agent._inside_bbox(draft, search_state().plan.city_bbox) for draft in first)
+
+
+def test_missing_city_boundary_still_varies_actual_search_positions():
+    agent = PreflightAgent()
+
+    def areas(seed, *, legacy=False, anchored=False):
+        state = search_state(seed)
+        state.plan.city_bbox = None
+        if anchored:
+            state.route_draft.anchored_start = (47.501, 19.001)
+        return {(draft.lat_offset_m, draft.lon_offset_m)
+                for draft in agent._candidate_drafts(state, legacy=legacy)}
+
+    assert areas(123) == areas(123)
+    assert areas(123) != areas(456)
+    assert len(areas(123)) == len(areas(456)) == 9
+    assert (0, 0) in areas(123)
+    assert areas(123, legacy=True) == areas(456, legacy=True)
+    assert areas(123, anchored=True) == areas(456, anchored=True) == {(0, 0)}
+
+
+def test_symmetric_creative_search_spends_slots_on_distinct_outlines():
+    agent = PreflightAgent()
+    state = search_state(123)
+    state.shape = Shape("square", [[(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5), (-0.5, -0.5)]], True)
+    state.route_draft.waypoints = PlacementAgent().project(state.shape, state.route_draft)
+    drafts = agent._candidate_drafts(state)
+    footprints = [tuple(sorted(set((round(lat, 7), round(lon, 7)) for lat, lon in d.waypoints)))
+                  for d in drafts]
+    assert len(footprints) == len(set(footprints))
+    assert {d.rotation_deg for d in drafts} == {0, 30, 60}
+    assert all(d.waypoints == PlacementAgent().project(state.shape, d) for d in drafts)
+    assert {d.rotation_deg for d in agent._candidate_drafts(state, legacy=True)} == set(range(0, 180, 30))
+
+
+@pytest.mark.parametrize("distinctive", ["open", "features", "asymmetric"])
+def test_rotation_search_preserves_directional_or_asymmetric_drawings(distinctive):
+    state = search_state(123)
+    if distinctive != "asymmetric":
+        state.shape = Shape("square", [[(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5), (-0.5, -0.5)]], True)
+    if distinctive == "open":
+        state.shape.closed = False
+        state.shape.paths[0].pop()
+    elif distinctive == "features":
+        state.shape.feature_paths = {"top_marker": [[(0, 0.5), (0.1, 0.5)]]}
+    assert {d.rotation_deg for d in PreflightAgent()._candidate_drafts(state)} == set(range(0, 360, 30))
+
+
+def street_turn_fixture():
+    from gps_art_wizzard.tools.street_graph import Edge, StreetGraph
+
+    state = search_state(123)
+    state.shape = Shape("square", [[(-.5,-.5),(.5,-.5),(.5,.5),(-.5,.5),(-.5,-.5)]], True)
+    nodes, edges = {}, {}
+    for block, (east, north) in enumerate(((0,0),(1200,0),(0,1200))):
+        for corner, (x,y) in enumerate(((0,0),(600,0),(600,600),(0,600))):
+            x,y = geo.rotate_point(x+east,y+north,math.radians(17))
+            nodes[block*4+corner] = geo.unit_to_latlon(x,y,47.5,19,1)
+        for corner in range(4):
+            start, end = block*4+corner, block*4+(corner+1)%4
+            edges.setdefault(start,[]).append(Edge(end,start,600))
+            edges.setdefault(end,[]).append(Edge(start,start,600))
+    return state, StreetGraph(nodes,edges)
+
+
+def test_street_aligned_search_reproduces_seed_and_fits_real_turns_with_unchanged_outlines():
+    state, graph = street_turn_fixture()
+    agent = PreflightAgent()
+    drafts = agent._street_aligned_drafts(state,graph)
+    assert len(drafts) >= 6
+    assert drafts == agent._street_aligned_drafts(state,graph)
+    assert all(agent._inside_bbox(d,state.plan.city_bbox) for d in drafts)
+    assert all(d.waypoints == PlacementAgent().project(state.shape,d) for d in drafts)
+    assert all(min(geo.haversine(*d.waypoints[0],*point) for point in graph.nodes.values()) < 1 for d in drafts)
+    assert any(abs(d.rotation_deg / 30 - round(d.rotation_deg / 30)) > .1 for d in drafts)
+    state.search_seed = 456
+    assert {agent._signature(d) for d in drafts} != {agent._signature(d) for d in agent._street_aligned_drafts(state,graph)}
+
+
+@pytest.mark.parametrize("constraint", ["manual", "anchor", "heading", "open", "multiple_paths"])
+def test_street_turn_proposals_do_not_override_explicit_constraints_or_disconnected_drawings(constraint):
+    state,graph = street_turn_fixture()
+    if constraint == "manual":
+        state.map_placement = MapPlacement(47.5,19,600,0)
+    elif constraint == "anchor":
+        state.route_draft.anchored_start = (47.5,19)
+    elif constraint == "heading":
+        state.route_draft.preferred_start_direction_deg = 0
+    elif constraint == "open":
+        state.shape.closed = False
+    else:
+        state.shape.paths.append([(0,0),(.1,.1)])
+    assert PreflightAgent()._street_aligned_drafts(state,graph) == []
+
+
+def test_street_turn_proposals_respect_one_way_turn_restrictions_and_budget(monkeypatch):
+    from gps_art_wizzard.tools.street_graph import Edge, StreetGraph
+
+    state,graph = street_turn_fixture()
+    monkeypatch.setattr(get_settings().workflow,"preflight_max_placements",3)
+    assert len(PreflightAgent()._street_aligned_drafts(state,graph)) == 3
+    graph = StreetGraph({i:graph.nodes[i] for i in range(3)},
+                        {0:[Edge(1,10,600)],1:[Edge(2,20,600)]})
+    assert PreflightAgent()._street_aligned_drafts(state,graph)
+    graph.forbidden.add((10,1,20))
+    assert PreflightAgent()._street_aligned_drafts(state,graph) == []
+    assert PreflightAgent()._street_aligned_drafts(state,None) == []
+
+
+def test_creative_refinement_keeps_continuous_street_evidence_in_its_rank():
+    state, graph = street_turn_fixture()
+    graph.components = {node: node // 4 for node in graph.nodes}
+    agent = PreflightAgent()
+    good = next(d for d in agent._street_aligned_drafts(state, graph) if d.scale_m == 600)
+    bad = replace(good, rotation_deg=good.rotation_deg + 45)
+    bad.waypoints = PlacementAgent().project(state.shape, bad)
+    drafts = [bad, good]
+    results = [ors_client.SnapPreflightResult(i, score, 1, 0, score, 1, 1, 1)
+               for i, score in enumerate((.95, .90))]
+    assert agent._network_rank(results, drafts, graph)[0].candidate_index == 0
+    cache = {}
+    ranked = agent._network_rank(results, drafts, graph, support_cache=cache)
+    assert ranked[0].candidate_index == 1
+    assert len(cache) == 2
+    assert ranked == agent._network_rank(results, drafts, graph, support_cache=cache)
+
+
+def test_disabled_creative_budget_skips_street_proposals_and_support_work(monkeypatch):
+    state = search_state()
+    agent = PreflightAgent()
+    monkeypatch.setattr(get_settings().workflow, "preflight_creative_placements", 0)
+    monkeypatch.setattr("gps_art_wizzard.tools.street_graph.graph_for_state", lambda state: None)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("disabled creative search must not evaluate street proposals")
+
+    monkeypatch.setattr(agent, "_street_aligned_drafts", unexpected)
+    monkeypatch.setattr("gps_art_wizzard.tools.street_graph.contour_support", unexpected)
+    monkeypatch.setattr(ors_client, "preflight_route_candidates", lambda *args, **kwargs: [
+        ors_client.SnapPreflightResult(0, .9, 1, 0, .9, 1, 1, 1)
+    ])
+    agent.run(state)
+    assert state.route_draft.preflight_score == .9
 
 
 @pytest.mark.parametrize("constraint", ["manual", "anchor", "heading"])

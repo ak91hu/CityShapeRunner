@@ -95,6 +95,7 @@ class PlanningAgent(BaseAgent):
                 map_context,
                 state.intent.sport,
                 state.intent.distance_km,
+                search_seed=state.search_seed,
             )
             candidates = [item.name for item in recommendations]
             state.plan.suggested_shape = candidates[0]

@@ -248,6 +248,9 @@ def _snap_request(
     client: httpx.Client | None = None,
 ) -> list[object] | None:
     """Snap a batch of locations without calculating routes between them."""
+    runtime = active_workflow_runtime()
+    if runtime is not None and runtime.routing_rate_limited("snap"):
+        return None
     try:
         sender = client if client is not None else httpx
         record_routing_request("snap")
@@ -309,17 +312,22 @@ def preflight_route_candidates(
     )
     guides: list[list[LatLon]] = []
     flattened: list[list[float]] = []
-    slices: list[tuple[int, int]] = []
+    location_indices: dict[LatLon, int] = {}
+    guide_indices: list[list[int]] = []
     candidate_indices: list[int] = []
     for candidate_index, route in enumerate(candidate_routes):
         guide = _subsample(route, closed=closed, max_points=guide_budget)
         if len(guide) < 2:
             continue
-        if len(flattened) + len(guide) > _MAX_SNAP_LOCATIONS:
+        new_points = dict.fromkeys(point for point in guide if point not in location_indices)
+        if len(flattened) + len(new_points) > _MAX_SNAP_LOCATIONS:
             break
-        start = len(flattened)
-        flattened.extend([[lon, lat] for lat, lon in guide])
-        slices.append((start, len(flattened)))
+        # Snap is pointwise: repeated loop endpoints and shared guides need
+        # one lookup, but keep their original positions in every contour.
+        for point in new_points:
+            location_indices[point] = len(flattened)
+            flattened.append([point[1], point[0]])
+        guide_indices.append([location_indices[point] for point in guide])
         guides.append(guide)
         candidate_indices.append(candidate_index)
     if not flattened:
@@ -345,20 +353,16 @@ def preflight_route_candidates(
 
     scoring_started = time.perf_counter()
     results: list[SnapPreflightResult] = []
-    for candidate_index, guide, (start, end) in zip(
+    for candidate_index, guide, indices in zip(
         candidate_indices,
         guides,
-        slices,
+        guide_indices,
         strict=True,
     ):
-        original_valid: list[LatLon] = []
         snapped_valid: list[LatLon] = []
         snap_distances: list[float] = []
-        for original, item in zip(
-            guide,
-            response_locations[start:end],
-            strict=True,
-        ):
+        for index in indices:
+            item = response_locations[index]
             if not isinstance(item, dict):
                 continue
             location = item.get("location")
@@ -376,14 +380,15 @@ def preflight_route_candidates(
                 continue
             if not math.isfinite(snap_distance) or snap_distance < 0:
                 continue
-            original_valid.append(original)
             snapped_valid.append(snapped_point)
             snap_distances.append(snap_distance)
 
         coverage = len(snapped_valid) / len(guide)
         if len(snapped_valid) >= 2:
             diagnostics = shape_similarity.similarity_diagnostics_between_routes(
-                original_valid,
+                # Missing street support must not erase a tip or notch from
+                # the reference and turn a damaged outline into a perfect fit.
+                guide,
                 snapped_valid,
                 n=64,
                 closed_sample_floor=64,
@@ -1101,6 +1106,9 @@ def _ors_request(
     client: httpx.Client | None = None,
 ) -> _ORSRouteResult | _ORSFailure:
     """Return a route or a structured failure from one ORS request."""
+    runtime = active_workflow_runtime()
+    if runtime is not None and runtime.routing_rate_limited("directions"):
+        return _ORSFailure(429, None, "Directions quota exhausted during this workflow")
     payload = {
         "coordinates": coords,
         "preference": preference,
