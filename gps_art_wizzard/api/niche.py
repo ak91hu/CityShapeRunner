@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict
 from datetime import UTC, date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -14,6 +15,7 @@ from ..state import RoutePreferences, RouteReadiness
 from ..tools import (
     accessibility_readiness,
     art_rescue,
+    cloudinary_gallery,
     destination_catalog,
     geo,
     gpx_writer,
@@ -26,6 +28,7 @@ from ..tools import (
     shape_similarity,
 )
 from ..tools.timed_readiness import time_readiness
+from .routes import EditedRouteRequest, RoutePreferencesRequest, edit_route
 
 router = APIRouter(tags=["GPS Art Intelligence"])
 
@@ -527,10 +530,17 @@ async def rescue_recordings(request: ArtRescueRequest, http_request: Request) ->
 
 class RecognitionRepairRequest(BaseModel):
     reference_points: list[list[float]] = Field(min_length=4, max_length=500)
-    sport: str = Field(default="run", pattern="^(run|bike)$")
+    sport: Literal["run", "bike"] = "run"
     closed: bool = True
     name: str = Field(default="Refined GPS art", min_length=1, max_length=100)
+    shape_name: str = Field(default="edited", min_length=1, max_length=80)
+    target_distance_km: float | None = Field(default=None, gt=0, le=500)
     route_preferences: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("name", "shape_name")
+    @classmethod
+    def normalise_label(cls, value: str) -> str:
+        return EditedRouteRequest.normalise_label(value)
 
     @field_validator("reference_points")
     @classmethod
@@ -552,31 +562,35 @@ def recognition_repair(request: RecognitionRepairRequest) -> dict:
             deduped.append(point)
     if request.closed and deduped[0] != deduped[-1]:
         deduped.append(deduped[0])
+    if len(set(deduped)) < (3 if request.closed else 2):
+        deduped = ors_client._subsample(guide, closed=request.closed, max_points=12)
+    if len(set(deduped)) < (3 if request.closed else 2):
+        raise HTTPException(status_code=422, detail="The drawing needs distinct route points.")
     allowed_preference_keys = set(RoutePreferences.__dataclass_fields__)
     preference_values = {
         key: bool(value)
         for key, value in request.route_preferences.items()
         if key in allowed_preference_keys
     }
-    route_preferences = (
-        RoutePreferences(**preference_values) if any(preference_values.values()) else None
+    result = edit_route(
+        EditedRouteRequest(
+            control_points=[[lat, lon] for lat, lon in deduped],
+            reference_points=request.reference_points,
+            sport=request.sport,
+            closed=request.closed,
+            name=request.name,
+            shape_name=request.shape_name,
+            target_distance_km=request.target_distance_km,
+            route_preferences=RoutePreferencesRequest(**preference_values),
+        )
     )
-    routed, distance_m, readiness = _route_or_fail(
-        deduped,
-        sport=request.sport,
-        closed=request.closed,
-        route_preferences=route_preferences,
-    )
+    routed = [(lat, lon) for lat, lon in result["points_preview"]]
     fidelity = shape_similarity.fidelity_between_routes(guide, routed, n=96)
     return {
-        "points_preview": [[lat, lon] for lat, lon in routed],
+        **result,
         "guide_points": [[lat, lon] for lat, lon in deduped],
-        "distance_km": distance_m / 1000,
-        "snapped": True,
         "recognition_score": fidelity,
-        "readiness": asdict(readiness),
-        "gpx": gpx_writer.to_gpx(
-            routed, name=request.name, sport=request.sport, total_distance_m=distance_m
-        ),
+        "readiness": result["route_details"]["readiness"],
+        "gallery_publish_token": cloudinary_gallery.maybe_issue_publish_token(),
         "message": "Re-routed from the shape's strongest visual anchors.",
     }

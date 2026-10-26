@@ -98,6 +98,9 @@ Uses the same `GenerateRequest` input and `IntentAgent` as `/generate`, but stop
 ```
 
 The response includes normalized intent, `drawing_kind` (`template`, `custom`, `text`, or `suggestion`), applied defaults, confidence values, and any clarifications.
+The web review step forwards this normalized `intent` as `intent_override` when
+the user starts generation, so a second parse cannot change the reviewed fields.
+If interpretation fails, generation can still parse the original prompt.
 
 ## Generate a street route
 
@@ -314,7 +317,16 @@ the fail-closed provider-routing requirement.
 
 ### `POST /recognition-repair`
 
-Accepts 4–500 reference points, sport, closure flag, name, and route preferences. It extracts salient visual landmarks, street-routes those anchors, and returns the repaired preview, guide points, distance, recognition score, readiness, and GPX.
+Accepts 4–500 reference points, sport, closure flag, name, route preferences,
+optional `shape_name` (1–80 characters) and `target_distance_km` (greater than 0,
+at most 500). It extracts salient landmarks, falling back to a bounded
+curvature-preserving guide when too few distinct anchors exist, then routes
+through them. The full reference outline is validated using the same quality
+gates as `/edit-route`. The response includes the repaired preview, guide points,
+distance, recognition score, readiness, fresh `validation`, `route_verification`,
+`route_details`, `below_recommended`, warnings, GPX, optional TCX and a fresh
+`gallery_publish_token` when the gallery is configured. Unconnected
+provider results return `503` without GPS files; degenerate guides return `422`.
 
 ### `POST /night-readiness`
 

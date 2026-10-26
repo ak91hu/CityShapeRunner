@@ -59,7 +59,8 @@ are documented in [Lake Balaton city coverage](balaton-city-coverage.md).
 
 ## Quick-idea catalog
 
-The planner shows six common shapes first and keeps the full searchable
+The planner shows six shuffled ideas from the catalog. “Show different ideas”
+refreshes them without replacing the prompt or moving keyboard focus. It keeps the full searchable
 158-option catalog behind “More shapes, letters, and numbers” so the prompt
 remains the primary control. The catalog combines 145 deterministic route
 templates with 13 built-in vector-font presets:
@@ -121,17 +122,18 @@ uses the following evidence-to-design mapping:
 | Evidence | Result used by the application | Implementation boundary |
 |---|---|---|
 | [Waschk and Krüger's automatic GPS-art planner](https://doi.org/10.1007/s41095-019-0146-z) shows that off-the-shelf routing can create large detours and repeated U-turns when drawing points lie off-grid, and proposes a graph cost that balances endpoint progress, path length, and distance from the intended segment. | Prefer a road-compatible placement before spending full route calls; then independently reject unintended doubled-back strokes as well as detour stretch and deviation. | Hosted ORS does not expose the paper's custom edge cost. Preflight snapping plus post-route scoring is an approximation, not the same optimiser. |
-| [Powałka's shape-guided route-finding thesis](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad) separates template placement from graph routing, generates and ranks alternatives, and demonstrates move/rotate/scale interaction with route feedback. | Search a broad transform space, preserve multiple candidates, and keep a human correction loop in the product. | Automatic search uses a bounded discrete sample—up to 180 transforms and seven full routes—rather than an exhaustive city graph search. |
+| [Powałka's shape-guided route-finding thesis](https://repository.tudelft.nl/record/uuid%3A11e9b0c2-5d67-475a-8653-71c7afe03dad) separates template placement from graph routing, generates and ranks alternatives, and demonstrates move/rotate/scale interaction with route feedback. | Search a broad transform space, preserve multiple candidates, and keep a human correction loop in the product. | Automatic search uses a bounded discrete sample—180 established plus 90 creative transforms, retaining seven established finalists and up to two creative alternatives—rather than an exhaustive city graph search. |
 | [Arkin et al.](https://doi.org/10.1109/34.75509) compare polygonal shapes through turning functions that can be normalised across translation, rotation, and scale; [Feldman and Singh](https://doi.org/10.1037/0033-295X.112.1.243) show why high-curvature and concave contour regions carry disproportionate information. | Measure characteristic turns and multiscale salient corners/notches/tips in addition to shared-frame point similarity. | These are components, not substitutes for geographic displacement, access, distance, or safety checks. |
 | [Li and Fu](https://doi.org/10.3390/ijgi15030098) model road graphics with invariant turning angles and length ratios. Their experiments show that approximate line segments improve retrieval and that removing length-ratio constraints admits visibly deformed matches. | Preserve corners during guide-point reduction and score angular relations, extent, relative lengths, coverage, and collapse. | The app searches transformed templates and consumes ORS routes; it does not run the paper's road-network subgraph-retrieval algorithm. |
 | [Boeing](https://doi.org/10.1007/s41109-019-0189-1) measures substantial differences in street orientation, connectivity, circuity, and segment structure across cities. | Give every supported European city its own search bounds and barrier context, then test multiple rotations and placements. | City-level morphology does not prove neighbourhood- or activity-specific routability; preflight and Directions remain authoritative. |
 | [Nassir et al.](https://doi.org/10.3141/2430-18) treat overlap explicitly when constructing useful alternative-route choice sets. | Diversify the shortlist in transform space so scarce Directions calls cover distinct positions, orientations, and scales instead of near-duplicates. | Transform diversity is a proxy for route diversity; final candidates can still share streets where the network has few alternatives. |
 | [Newson and Krumm](https://doi.org/10.1145/1653771.1653818) show that map matching must combine observation distance with plausible network transitions; pedestrian Fréchet work likewise emphasises ordered curve continuity ([Bang et al., 2016](https://doi.org/10.3390/s16101768)). | Treat nearest-edge snapping as non-authoritative and submit every edited guide to the activity profile before recomputing quality; only a successful Directions result is labelled road-routed. | ORS Directions establishes a connected routable result for its graph snapshot, but does not guarantee current legal access, surface quality, or personal safety. |
 
-The resulting funnel is deliberately coarse-to-fine: up to 180 transforms are
-reduced to curvature-preserving 18-point guides across as many as three adaptive
-batched snap rounds that share the same total placement cap;
-a quality-and-diversity rule selects seven full Directions candidates; every
+The resulting funnel is deliberately coarse-to-fine: the repository defaults allow
+180 established transforms plus 90 creative alternatives, reduced to
+curvature-preserving 18-point guides across at most three shared adaptive snap
+rounds. A quality-and-diversity rule retains seven established Directions
+finalists plus up to two creative alternatives; every
 returned route is then evaluated using coverage, characteristic turns,
 salient curvature landmarks, extra reversal events, proportions, distance, closure, and road-routing
 evidence. A failed component cannot be hidden by the aggregate score. Weak
@@ -160,7 +162,7 @@ the [August 2026 algorithm audit](../reports/gps-art-algorithm-audit-2026-08.md)
 | **PlanningAgent** | Resolve supported cities from the local route database, study curated geography, and commit street-grid rotation, safe offsets, and a distinct city/activity suggestion. |
 | **ShapeAgent** | Turn the intent into a 2D polyline — 145 templates, a complete A–Z/0–9 vector font, short text outlines, or two schema-bounded LLM alternatives with catalog-guided structure and executable validation. |
 | **PlacementAgent** | Project the design at the target distance using sport- and shape-specific road-detour priors learned from measured ORS results. |
-| **PreflightAgent** | Generate up to 180 city-wide translation/rotation/scale placements, batch-snap 18-point guides, retain every proxy result, and select seven high-quality but spatially/orientationally diverse alternatives for full routing. |
+| **PreflightAgent** | Screen up to 180 established placements plus 90 creative alternatives, using street-turn evidence when enabled. Batch-snap 18-point guides and retain seven established finalists plus up to two creative alternatives for bounded full routing. |
 | **SnapAgent** | Route the drawing over the OpenRouteService street graph. Error-aware retries widen the radius only for missing-road errors and remove or simplify the exact unconnectable via-point for graph-connectivity errors. |
 | **ValidationAgent** | Score shared-frame shape fidelity—including multiscale salient landmarks and unintended reversal events—plus distance fit and closure. Its below-threshold cap is monotonic, so recognisable geometry cannot tie a malformed distance-only match. |
 | **RefinementAgent** | Consume the road-fit-ranked shortlist first, then bracket non-linear distance corrections and use local measured transforms only after the shortlist is exhausted. |
@@ -170,7 +172,7 @@ The graph engine (`orchestrator.py`) wires these into a state machine with:
 - a **planning step** (one strategy commit, read by shape + placement),
 - a **coarse-to-fine placement search** (city-wide grid × six orientations ×
   three scales → up to three adaptive snap batches within one shared cap →
-  diversity-aware seven-candidate full-route
+  seven established finalists plus up to two creative alternatives in the full-route
   shortlist; all proxy and fully routed attempts remain auditable, while every
   final selected-shape route remains selectable and clearly labelled),
 - a **road-recovery pass** (if the first Directions result is not connected,
@@ -286,24 +288,30 @@ downloaded as a road-following route.
 
 ## OpenCode Zen as the LLM
 
-OpenCode Zen (`https://opencode.ai/zen/v1`) is the default provider — it is an
-OpenAI-compatible gateway, so the existing OpenAI SDK is reused with a custom
-`base_url`. Get a key at <https://opencode.ai/auth> (the same key you use in
-opencode) and put it in `.env`:
+The checked-in `.env.example` selects OpenCode's local CLI transport. It can
+start a loopback-only OpenCode server and sends schema instructions in the
+prompt. Configure the server-side credential and model in `.env`:
 
 ```bash
 OPENCODE_API_KEY=zen-...
 OPENCODE_BASE_URL=https://opencode.ai/zen/v1
-OPENCODE_STRUCTURED_MODEL=gpt-5.4-mini # /v1/responses, fast multimodal strict-schema tasks
-LLM_MODEL=glm-5.2            # any /v1/chat/completions model: kimi-k2.6, deepseek-v4-flash, ...
+OPENCODE_TRANSPORT=cli
+OPENCODE_SERVER_AUTOSTART=true
+LLM_MODEL=muse-spark-1.3-contributor-free
+OPENCODE_STRUCTURED_MODEL=
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode,anthropic,openai,ollama
 ```
 
-`LLM_MODEL` remains the general chat model. Strictly structured jobs such as
-unknown-shape contour generation use `OPENCODE_STRUCTURED_MODEL` through Zen's
-Responses endpoint. This prevents a reasoning-heavy chat model from consuming
-the output limit before it emits the required coordinate JSON.
+The paid direct-API alternative uses `OPENCODE_TRANSPORT=api`, the
+OpenAI-compatible SDK and `OPENCODE_BASE_URL`. In that mode,
+`OPENCODE_STRUCTURED_MODEL` selects a separate Responses model for structured
+or visual jobs. Model availability belongs to the provider; the example names
+are configuration values, not a promise of access. The 256 MB production image
+sets `OPENCODE_SERVER_AUTOSTART=false` and disables optional model verifiers;
+it retains deterministic generation without a resident model process. See the
+[configuration reference](../reference/configuration-reference.md) and
+[deployment profile](../operations/deployment.md).
 
 Install the SDK: `pip install -e ".[opencode]"` (the `openai` package is shared
 with the OpenAI provider).
@@ -315,8 +323,9 @@ route on a rotatable Leaflet map, shows the validation score / refinement histor
 offers immediate GPX/TCX downloads for routes that pass every automatic check.
 Below-target road-routed results use the explicit acceptance flow. A non-road
 result shows a recoverable routing error and no download action. During the
-synchronous search, a GPS-art animation, elapsed timer, rotating messages,
-illustrative stages, facts, and cancellation keep the wait understandable;
+streamed search, server-reported stages, an elapsed timer, varied waiting
+activities and cancellation keep the wait understandable. Waiting sketches
+are entertainment and never stand in for measured route progress;
 `prefers-reduced-motion` removes nonessential movement.
 
 Dev (hot-reload frontend on :5173, API on :8000):

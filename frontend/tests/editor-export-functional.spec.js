@@ -164,6 +164,38 @@ test("the editor shows an applying state and prevents duplicate submission", asy
   expect(requestCount).toBe(1);
 });
 
+for (const operation of ["edit-route", "recognition-repair"]) {
+  test(`switching route options cancels an in-flight ${operation}`, async ({ page }) => {
+    let releaseResponse;
+    const gate = new Promise((resolve) => { releaseResponse = resolve; });
+    let requested = false;
+    let cancelled = false;
+    page.on("requestfailed", (request) => {
+      if (request.url().endsWith(`/${operation}`)) cancelled = true;
+    });
+    await page.route(`**/${operation}`, async (route) => {
+      requested = true;
+      await gate;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(buildEditedRoute()) });
+    });
+    await openGeneratedRoute(page);
+    if (operation === "edit-route") {
+      await page.getByRole("button", { name: "Edit this route" }).click();
+      await page.getByRole("button", { name: "Apply changes" }).click();
+    } else {
+      await page.locator(".route-lab > summary").click();
+      await page.getByRole("button", { name: "Find a crisper version" }).click();
+    }
+    await expect.poll(() => requested).toBe(true);
+    await page.locator('.candidate-card[data-candidate-id="candidate-review"]').click();
+    await expect.poll(() => cancelled).toBe(true);
+    releaseResponse();
+    await expect(page.locator(".route-state")).toContainText("Check before downloading");
+    await expect(page.locator(".editor-success")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Edit this route" })).toBeEnabled();
+  });
+}
+
 test("approval of a review candidate remains scoped to that option", async ({ page }) => {
   let acceptancePayload = null;
   await page.unroute("**/route-acceptance");

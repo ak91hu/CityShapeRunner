@@ -167,7 +167,7 @@ ORS is the only external dependency that determines whether a generated route ca
 
 | Phase | Request | Project purpose | Authoritative? |
 | --- | --- | --- | --- |
-| Placement preflight | `POST /v2/snap/{profile}/json` | cheaply measure how up to 180 transformed drawings sit near routable edges | No; it is a ranking proxy |
+| Placement preflight | `POST /v2/snap/{profile}/json` | measure up to 180 established + 90 creative placements in shared adaptive batches (repository defaults) | No; it is a ranking proxy |
 | Full routing | `POST /v2/directions/{profile}/geojson` | route ordered guide points through the connected graph and return road geometry | **Yes**, followed by local validation |
 
 Profiles are mapped in `tools/ors_client.py`: `run → foot-walking`, `bike → cycling-regular`, with explicit road-bike and mountain-bike variants available internally. Coordinates are sent to ORS as `[longitude, latitude]`; internal domain geometry remains `(latitude, longitude)`.

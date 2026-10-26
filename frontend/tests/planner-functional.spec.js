@@ -396,6 +396,7 @@ test("a custom free-text drawing is submitted without catalog selection", async 
 
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "an octopus wearing a crown in Budapest, running, 12 km",
+    intent_override: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
   });
 });
 
@@ -440,6 +441,7 @@ test("route setup sends an address, first heading, and street priorities", async
 
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: "a heart run in Tatabánya, about 8 km",
+    intent_override: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
     start_address: "Hősök tere, Budapest",
     start_direction_deg: 90,
     route_preferences: {
@@ -567,6 +569,7 @@ test("current location replaces an entered address and reaches generation", asyn
   await page.getByRole("button", { name: "Find routes" }).click();
   await expect.poll(() => capture.lastPayload()).toEqual({
     prompt: initialPrompt,
+    intent_override: { shape: "star", city: "Debrecen", sport: "bike", distance_km: 20 },
     start_point: {
       latitude: 47.497913,
       longitude: 19.040236,

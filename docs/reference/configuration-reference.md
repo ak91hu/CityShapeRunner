@@ -91,15 +91,17 @@ Responses are cached in-process per rounded bounding box for ten minutes.
 
 | Variable | Effective default | Description |
 | --- | --- | --- |
-| `MAX_REFINEMENT_ITERATIONS` | `6` | Base refinement budget; completed initial alternatives count against it, while extra creative finalists retain up to two additional slots within the full workflow deadline |
+| `MAX_REFINEMENT_ITERATIONS` | `8` in YAML; `6` without YAML | Base refinement budget; completed initial alternatives count against it, while extra creative finalists retain up to two additional slots within the full workflow deadline |
 | `VALIDATION_SCORE_THRESHOLD` | `0.72` | Composite quality threshold |
 | `DEFAULT_SPORT` | `run` | Sport applied when the prompt omits it |
 | `DEFAULT_CITY` | `Budapest` | City applied when the prompt omits it |
 | `DEFAULT_RUN_DISTANCE_KM` | `8` | Default run distance |
 | `DEFAULT_BIKE_DISTANCE_KM` | `20` | Default bike distance |
 | `PREFLIGHT_ENABLED` | `true` | Enables coarse-to-fine street-fit search |
-| `PREFLIGHT_MAX_PLACEMENTS` | `180` | Cheap placement transformations examined before full routing |
-| `PREFLIGHT_SHORTLIST` | `7` | Top placements advanced to expensive routing |
+| `PREFLIGHT_MAX_PLACEMENTS` | `180` | Established placement budget before full routing; production image uses `90` |
+| `PREFLIGHT_CREATIVE_PLACEMENTS` | `90` | Additional seeded placement budget; optional street-graph evidence guides this family |
+| `PREFLIGHT_SHORTLIST` | `7` | Established finalists retained for routing; production image uses `4` |
+| `INITIAL_PLACEMENT_CANDIDATES` | `3` | Initial measured placements; permits up to two additional creative finalists |
 | `PREFLIGHT_GUIDE_POINTS` | `18` | Sample count used for preflight snapping |
 | `AI_SHAPE_VERIFIER_ENABLED` | `true` | Enables rendered semantic review for free-text shapes |
 | `AI_SHAPE_MIN_SEMANTIC_SCORE` | `0.68` | Minimum semantic cue score |

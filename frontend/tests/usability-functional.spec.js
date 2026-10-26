@@ -101,6 +101,21 @@ test("review moves keyboard focus to the new step and Back restores the idea", a
   await expect(page.getByLabel("Drawing and location")).toBeFocused();
 });
 
+test("generation uses the exact interpretation shown in request review", async ({ page }) => {
+  const intent = { shape: "fox", text: null, city: "Sopron", sport: "run", distance_km: 12, style: null, suggest: false };
+  await page.route("**/interpret", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ drawing_label: "Fox", intent, clarifications: [] }),
+  }));
+  const capture = await mockGeneration(page);
+  await page.goto("/");
+  await page.getByLabel("Drawing and location").fill("an animal outline near Sopron, about 12 km");
+  await page.getByRole("button", { name: "Review request", exact: true }).click();
+  await expect(page.locator(".request-review-card")).toContainText("We’ll plan Fox");
+  await page.getByRole("button", { name: "Find routes", exact: true }).click();
+  await expect.poll(() => capture.lastPayload()?.intent_override).toEqual(intent);
+});
+
 test("a review candidate stays selected after visiting the gallery", async ({ page }) => {
   const capture = await openGeneratedRoute(page);
   await page.locator(".candidate-card").nth(1).click();
@@ -225,6 +240,8 @@ test("compact layouts put the planner before the gallery and fit a 320px viewpor
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto("/");
+    await expect(page.locator(".designer-card")).toBeVisible();
+    await expect(page.locator(".studio-art")).toBeVisible();
     const planner = await page.locator(".designer-card").boundingBox();
     const example = await page.locator(".studio-art").boundingBox();
     expect(planner.y + planner.height).toBeLessThanOrEqual(example.y);

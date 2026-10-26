@@ -340,9 +340,13 @@ under the existing quality ranking; a worse route is retained for comparison
 but cannot replace the incumbent. This attempt respects graph enablement and
 the deadline, and is skipped for an explicit start anchor or fixed start bearing.
 The default graph cost remains unchanged for all ordinary candidates.
-The configured default is six main refinement passes after the first full route.
-Preflight screens up to 180 placements but sends only seven diverse choices to
-full Directions routing. Proxy results live in `state.preflight_candidates`;
+The checked-in YAML allows eight base refinement slots; completed initial
+alternatives count against this budget, with up to two additional creative
+slots within the workflow deadline. Without YAML the code fallback is six;
+the production image overrides the base budget to two. Preflight defaults to
+180 established plus 90 creative placements and retains seven established
+finalists plus up to two creative alternatives for full Directions routing.
+Proxy results live in `state.preflight_candidates`;
 every measured street route lives in `state.candidates`, including candidates
 that score below the current best. Per-candidate parameters and metrics are
 also appended to `state.history`. The road-recovery pass runs before suggestion

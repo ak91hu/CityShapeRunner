@@ -47,6 +47,7 @@ the ignored `test-results/` folder.
 
 [Development and Ponytail workflow](development/workflow.md) ·
 [UI design](design/ui-design.md) ·
+[Webapp and documentation review](reports/2026-10-26-webapp-review.md) ·
 [Usability audit](reports/2026-10-19-usability.md) ·
 [GPS-art generation review](research/2026-10-19-generation-review.md)
 
@@ -185,10 +186,12 @@ Set-Location frontend
 npm ci --no-audit --no-fund
 npm run check
 npm run test:e2e
+npm run test:cross-browser
 
 # Documentation (from repository root)
 Set-Location ..
 python -m pip install -e ".[docs]"
+python scripts/check_documentation.py
 python -m mkdocs build --strict
 ```
 

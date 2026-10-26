@@ -84,15 +84,17 @@ explicit without coupling the current runtime to one.
   RefinementAgent may test bounded adjustments.
 - ORS guidance: authored vertices and sharp corners are protected, then the
   longest uncovered arcs are bisected until guide points are roughly 400 m
-  apart or the 50-coordinate provider limit is reached. Sparse shapes therefore
+  apart or the visual budget is reached: 24 by default, up to the 50-coordinate
+  provider limit for street-graph proposals. Sparse shapes therefore
   cannot give the router several kilometres of unconstrained freedom.
-- Placement preflight: up to 180 candidates combine a 3×3 city-wide grid, six
-  rotations, and three scales. Curvature-preserving guides are sent in one
-  ORS nearest-edge snap request and ranked by coverage, collapse resistance,
+- Placement preflight: up to 180 established candidates combine a 3×3 city-wide
+  grid, up to six distinct rotations, and three scales. An additional 90 seeded
+  alternatives can use local street-turn evidence. Curvature-preserving guides
+  share up to three adaptive ORS snap batches and are ranked by coverage, collapse resistance,
   snap distance, silhouette, turning, salient-landmark, and length
   preservation. A greedy
-  quality/diversity objective avoids spending all seven Directions calls on
-  nearly identical placements. Every proxy result and every full route is
+  quality/diversity objective retains seven established finalists plus up to two
+  creative alternatives for bounded routing. Every proxy result and every full route is
   retained; connectivity is still unproven until full routing.
 - Shape fidelity: express the intended and routed lines in a shared metric
   frame, resample both by arc length, then combine discrete Fréchet,

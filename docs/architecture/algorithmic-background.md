@@ -18,9 +18,9 @@ The placed guide is a hypothesis. It can cross a building, water, or an inaccess
 
 ## 3. Search cheaply before requesting full routes
 
-`PreflightAgent` screens a shared budget of up to 180 placements across a coarse city-wide search and two local neighbourhood refinements. Each candidate is reduced to at most 18 guides chosen to preserve important bends. Batched nearest-road snapping measures how much of the guide has nearby road coverage, how far points move, how many distinct points survive, and whether characteristic turns and approximate length survive. A bounded local street-graph proxy can provide additional connectivity and detour evidence.
+`PreflightAgent` screens up to 180 established placements plus 90 seeded creative alternatives across at most three shared adaptive snap rounds. Optional street-turn evidence and continuous-contour support guide creative placement. Each candidate is reduced to at most 18 guides chosen to preserve important bends. Batched nearest-road snapping measures coverage, displacement, collapse, characteristic turns and approximate length. A bounded local street-graph proxy can provide additional connectivity and detour evidence. Identical snap coordinates and equivalent symmetric rotations are deduplicated.
 
-These scores are **proxies**: independently snapped points need not connect in travel order. The algorithm keeps the proxy evidence, then chooses a diverse shortlist of up to seven placements for full Directions requests. Diversity matters because seven nearly identical translations would offer little chance of escaping a poor street pattern. With no routing credentials, the initial deterministic placement remains available for internal diagnosis, but it cannot become a downloadable route.
+These scores are **proxies**: independently snapped points need not connect in travel order. The algorithm retains seven established finalists plus up to two creative alternatives for bounded Directions requests; creative proxies do not evict established finalists. With no routing credentials, the initial deterministic placement remains available for internal diagnosis, but it cannot become a downloadable route. The [production profile](../operations/deployment.md) lowers established budgets and disables graph proposals; quality gates remain unchanged.
 
 ## 4. Route and repair on real streets
 

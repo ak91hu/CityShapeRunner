@@ -15,6 +15,13 @@ marks the strongest areas before the user commits to an export.
 as a reduced set of visual anchors, then routes through them again. It is a
 bounded alternative to the existing AI geometry repair: it changes route
 guidance only after street snapping has weakened the visible outline.
+When a uniform outline has too few salient anchors, the existing
+curvature-preserving sampler supplies a bounded guide instead. The full authored
+outline remains the validation reference. Repairs use the same connected-route
+checks, quality gates and GPX/TCX exports as manual edits; a below-target result
+requires explicit acceptance. Selecting another route cancels an unfinished
+edit or repair. Repaired routes receive a fresh gallery publish token when the
+gallery is configured; they do not reuse the original route's token.
 
 ## Community GPS mural
 

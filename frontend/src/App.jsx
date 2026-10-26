@@ -3307,6 +3307,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   const [lessonPoints, setLessonPoints] = useState([]);
   const [lessonDedication, setLessonDedication] = useState("");
   const mapCaptureRef = useRef(null);
+  const routeMutationRef = useRef(null);
+  const cancelRouteMutation = useCallback(() => {
+    routeMutationRef.current?.abort();
+    routeMutationRef.current = null;
+    setEditBusy(false);
+    setRepairBusy(false);
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -3333,6 +3340,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   }, []);
 
   useEffect(() => {
+    cancelRouteMutation();
     setSelectedCandidateId(candidates[0]?.id ?? "best");
     setEditing(false);
     setControlPoints([]);
@@ -3348,9 +3356,15 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setLabOverlay(null);
     setSightMarkers([]);
     setRequestDetailsOpen(false);
-  }, [result.request_id, result.prompt]);
+    setRepairNotice("");
+    return () => {
+      routeMutationRef.current?.abort();
+      routeMutationRef.current = null;
+    };
+  }, [result.request_id, result.prompt, cancelRouteMutation]);
 
   const chooseCandidate = useCallback((candidateId) => {
+    cancelRouteMutation();
     setSelectedCandidateId(candidateId);
     setEditing(false);
     setEditedRoute(null);
@@ -3363,7 +3377,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
     setActiveConcernCode(null);
     setLabOverlay(null);
     setSightMarkers([]);
-  }, []);
+    setRepairNotice("");
+  }, [cancelRouteMutation]);
 
   const selectedCandidate =
     candidates.find((candidate) => candidate.id === selectedCandidateId) ??
@@ -3469,13 +3484,15 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   }, [activeRouteId]);
 
   const resetEditor = useCallback(() => {
+    cancelRouteMutation();
     setControlPoints(sampleControlPoints(activeRoute.points_preview));
     setEditError("");
     setEditDirty(false);
-  }, [activeRoute.points_preview]);
+  }, [activeRoute.points_preview, cancelRouteMutation]);
 
   const handleEditPoint = useCallback(
     (index, point) => {
+      cancelRouteMutation();
       setEditDirty(true);
       setControlPoints((current) => {
         const next = current.map((item) => [...item]);
@@ -3487,11 +3504,13 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         return next;
       });
     },
-    [activeRoute.closed],
+    [activeRoute.closed, cancelRouteMutation],
   );
 
   const rerouteEdited = useCallback(async () => {
-    if (controlPoints.length < 2 || editBusy) return;
+    if (controlPoints.length < 2 || editBusy || repairBusy) return;
+    const controller = new AbortController();
+    routeMutationRef.current = controller;
     setEditBusy(true);
     setEditError("");
     try {
@@ -3508,7 +3527,8 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         name: `${shapeName} in ${city}`,
         shape_name: activeRoute.shape_name ?? result.shape?.name ?? "edited",
         route_preferences: result.planning_options?.route_preferences ?? undefined,
-      });
+      }, { signal: controller.signal });
+      if (routeMutationRef.current !== controller) return;
       const editedRouteId = `${selectedCandidate?.id ?? "best"}-edited`;
       setAcceptedRouteIds((current) => {
         const next = new Set(current);
@@ -3535,15 +3555,21 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
       setControlPoints(sampleControlPoints(response.points_preview));
       setEditDirty(false);
     } catch (error) {
-      setEditError(error.message || "We couldn’t update that route. Please try again.");
+      if (routeMutationRef.current === controller && error.name !== "AbortError") {
+        setEditError(error.message || "We couldn’t update that route. Please try again.");
+      }
     } finally {
-      setEditBusy(false);
+      if (routeMutationRef.current === controller) {
+        routeMutationRef.current = null;
+        setEditBusy(false);
+      }
     }
   }, [
     activeRoute,
     city,
     controlPoints,
     editBusy,
+    repairBusy,
     result.intent,
     result.planning_options,
     selectedCandidate?.id,
@@ -3595,7 +3621,9 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
   }, []);
 
   const improveRecognition = useCallback(async () => {
-    if (repairBusy || !(activeRoute.ideal_preview ?? []).length) return;
+    if (repairBusy || editBusy || !(activeRoute.ideal_preview ?? []).length) return;
+    const controller = new AbortController();
+    routeMutationRef.current = controller;
     setRepairBusy(true);
     setRepairNotice("");
     try {
@@ -3604,33 +3632,57 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
         sport: result.intent?.sport === "bike" ? "bike" : "run",
         closed: Boolean(activeRoute.closed),
         name: `${shapeName} refined in ${city}`,
+        shape_name: activeRoute.shape_name ?? result.shape?.name ?? "edited",
+        target_distance_km:
+          activeRoute.target_distance_km ?? result.intent?.distance_km ?? null,
         route_preferences: result.planning_options?.route_preferences ?? undefined,
+      }, { signal: controller.signal });
+      if (routeMutationRef.current !== controller) return;
+      const repairedRouteId = `${activeRouteId}-recognition-repair`;
+      setAcceptedRouteIds((current) => {
+        const next = new Set(current);
+        next.delete(repairedRouteId);
+        return next;
       });
       setEditedRoute({
         ...activeRoute,
-        id: `${activeRouteId}-recognition-repair`,
+        id: repairedRouteId,
         points_preview: response.points_preview,
-        ideal_preview: response.guide_points,
         distance_km: response.distance_km,
         snapped: response.snapped,
-        details: { ...routeDetails, readiness: response.readiness },
+        validation: response.validation,
+        verification: response.route_verification,
+        details: response.route_details,
+        below_recommended: response.below_recommended ?? !response.route_verification?.passed,
         gpx: response.gpx,
+        tcx: response.tcx,
+        gallery_publish_token: response.gallery_publish_token ?? null,
         allow_gallery_share: true,
+        warnings: response.warnings,
       });
+      setEditing(false);
+      setControlPoints([]);
+      setEditDirty(false);
       setRepairNotice(`${response.message} Recognition score: ${formatPercent(response.recognition_score)}.`);
     } catch (repairError) {
-      setRepairNotice(repairError.message || "We couldn’t refine this drawing.");
+      if (routeMutationRef.current === controller && repairError.name !== "AbortError") {
+        setRepairNotice(repairError.message || "We couldn’t refine this drawing.");
+      }
     } finally {
-      setRepairBusy(false);
+      if (routeMutationRef.current === controller) {
+        routeMutationRef.current = null;
+        setRepairBusy(false);
+      }
     }
   }, [
     activeRoute,
     activeRouteId,
     city,
+    editBusy,
     repairBusy,
     result.intent,
     result.planning_options,
-    routeDetails,
+    result.shape?.name,
     shapeName,
   ]);
 
@@ -3911,7 +3963,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                     type="button"
                     className="button button--primary"
                     onClick={rerouteEdited}
-                    disabled={editBusy || controlPoints.length < 2}
+                    disabled={editBusy || repairBusy || controlPoints.length < 2}
                   >
                     {editBusy ? "Applying changes…" : "Apply changes"}
                   </button>
@@ -4301,7 +4353,7 @@ function ResultPanel({ result, onDownload, onGalleryPublished, onEditRequest, fo
                   type="button"
                   className="button button--secondary"
                   onClick={improveRecognition}
-                  disabled={repairBusy || !(activeRoute.ideal_preview ?? []).length}
+                  disabled={repairBusy || editBusy || !(activeRoute.ideal_preview ?? []).length}
                 >
                   {repairBusy ? "Refining..." : "Find a crisper version"}
                 </button>
@@ -5176,7 +5228,9 @@ export default function App() {
 
     setPrompt(validation.value);
     if (plannerStep === "review") {
-      generate(validation.value, buildPlanningPayload());
+      generate(validation.value, buildPlanningPayload(
+        interpretation?.intent ? { intent_override: interpretation.intent } : {},
+      ));
       return;
     }
     checkInterpretation({ advance: true });
