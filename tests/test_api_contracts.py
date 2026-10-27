@@ -506,6 +506,7 @@ def test_generate_endpoint_blocks_an_unrouted_straight_line(monkeypatch) -> None
 @pytest.mark.parametrize("failure, expected", [
     ("directions.transport", "did not respond"),
     ("directions.http_429", "request limit"),
+    ("directions.http_400", "route settings"),
     ("directions.http_401", "configuration"),
     ("directions.http_403", "configuration"),
     ("snap.transport", "No connected street route"),

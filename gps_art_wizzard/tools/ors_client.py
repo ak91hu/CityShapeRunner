@@ -1140,11 +1140,11 @@ def _ors_request(
     if avoid_features:
         options["avoid_features"] = avoid_features
     if sport.startswith("run") and (preferences.prefer_quiet or preferences.prefer_green):
-        weightings: dict[str, object] = {}
+        weightings: dict[str, float] = {}
         if preferences.prefer_quiet:
-            weightings["quiet"] = {"factor": 1.0}
+            weightings["quiet"] = 1.0
         if preferences.prefer_green:
-            weightings["green"] = {"factor": 0.8}
+            weightings["green"] = 0.8
         options["profile_params"] = {"weightings": weightings}
     if options:
         payload["options"] = options
@@ -1294,12 +1294,14 @@ def snap_route_detailed(
     may request up to 50 to preserve their road choices. The budget is part of
     the cache key and only affects request guides, never returned geometry.
 
-    Two bounded retry strategies:
+    Bounded retry strategies:
     - **Radius widening** (error 2010): a via-point lands on a building/park
       with no road nearby → widen the search radius and retry.
     - **Waypoint reduction** (error 2009): two consecutive via-points can't be
       connected (e.g. shape crosses a lake) → reduce the via-point budget so
       ORS has freedom to find a detour around the obstacle.
+    - **Read timeout**: retry the same request once within the existing attempt
+      limit and workflow deadline.
     """
     cfg = get_settings().routing
     budget = _MAX_GUIDE_COORDINATES if guide_budget is None else guide_budget

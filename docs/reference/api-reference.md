@@ -33,8 +33,8 @@ FastAPI errors use:
 | `503` | Required routing/gallery configuration is missing or connected street routing is unavailable |
 
 When Directions failure telemetry is available, a generation `503` distinguishes
-connection/response failure, provider request limits, and provider authentication
-configuration. These messages keep the same `detail` contract and request
+connection/response failure, rejected route settings, provider request limits,
+and provider authentication configuration. These messages keep the same `detail` contract and request
 reference; raw provider responses and credentials are never included. Without
 that evidence, the generic connected-route failure remains unchanged. Streamed
 generation sends the same safe explanation in its terminal error event.

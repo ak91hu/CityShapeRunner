@@ -1233,6 +1233,8 @@ class _FakeClient:
         assert headers["Content-Type"] == "application/json"
         assert timeout == ors_client._HTTP_TIMEOUT
         self.payload = json
+        weights = json.get("options", {}).get("profile_params", {}).get("weightings", {})
+        assert all(type(value) in (int, float) for value in weights.values())
         return _FakeResponse()
 
 
@@ -1480,9 +1482,28 @@ def test_ors_request_applies_supported_route_preferences():
         "fords",
     ]
     assert client.payload["options"]["profile_params"]["weightings"] == {
-        "quiet": {"factor": 1.0},
-        "green": {"factor": 0.8},
+        "quiet": 1.0,
+        "green": 0.8,
     }
+
+
+@pytest.mark.parametrize("preference", ["shortest", "recommended"])
+@pytest.mark.parametrize("quiet, green, expected", [
+    (True, False, {"quiet": 1.0}),
+    (False, True, {"green": 0.8}),
+    (True, True, {"quiet": 1.0, "green": 0.8}),
+])
+def test_foot_weightings_match_the_hosted_ors_numeric_contract(preference, quiet, green, expected):
+    client = _FakeClient()
+    result = ors_client._ors_request(
+        "https://example.test/route", {"Content-Type": "application/json"},
+        [[19.0, 47.0], [19.001, 47.0], [19.002, 47.0]],
+        preference=preference, continue_straight=False, radius=120, sport="run",
+        route_preferences=RoutePreferences(prefer_quiet=quiet, prefer_green=green), client=client,
+    )
+    assert isinstance(result, ors_client._ORSRouteResult)
+    assert client.payload["preference"] == preference
+    assert client.payload["options"]["profile_params"]["weightings"] == expected
 
 
 @pytest.mark.parametrize(

@@ -213,15 +213,15 @@ sequenceDiagram
     "avoid_features": ["steps", "ferries", "fords"],
     "profile_params": {
       "weightings": {
-        "quiet": {"factor": 1.0},
-        "green": {"factor": 0.8}
+        "quiet": 1.0,
+        "green": 0.8
       }
     }
   }
 }
 ```
 
-`avoid_features` and foot-profile `quiet`/`green` weightings are included only when the user enables them. The supported semantics come from the official [ORS routing options](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/routing-options). Extra route evidence is interpreted into readiness warnings; ORS documents it under [Directions extra info](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/extra-info/).
+`avoid_features` and foot-profile `quiet`/`green` weightings are included only when the user enables them. The hosted ORS 9.10.0 request model accepts scalar numbers for these weightings; nested `factor` objects return HTTP 400. The [versioned request model](https://github.com/GIScience/openrouteservice/blob/v9.10.0/ors-api/src/main/java/org/heigit/ors/api/requests/routing/RequestProfileParamsWeightings.java) and a live contract check establish the format; some [routing-options examples](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/routing-options) still show the older structure. The configured base route preference and the user's weighting magnitudes are preserved. Extra route evidence is interpreted into readiness warnings; ORS documents it under [Directions extra info](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/extra-info/).
 
 Every public operation that can produce a GPX/TCX document uses Directions as
 the final authority, including Recognition Repair, Community GPS Mural and Art

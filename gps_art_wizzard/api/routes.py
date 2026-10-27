@@ -1351,6 +1351,12 @@ def _generate_route_sync(
                 "The street-routing service has reached its request limit. "
                 "No GPS file was created. Please wait before retrying your saved idea."
             )
+        elif "directions.http_400" in failures:
+            detail = (
+                "The street-routing service could not accept the route settings. "
+                "No GPS file was created. Please review the route setup or contact "
+                "support with your request reference."
+            )
         elif "directions.transport" in failures:
             detail = (
                 "The street-routing service did not respond reliably. "
