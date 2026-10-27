@@ -1236,6 +1236,98 @@ class _FakeClient:
         return _FakeResponse()
 
 
+@pytest.mark.parametrize("timeout_count", [1, 2])
+def test_directions_retries_one_read_timeout_without_changing_guides(monkeypatch, timeout_count):
+    monkeypatch.setattr(ors_client.get_settings().routing, "ors_api_key", "test-no-network")
+    calls = []
+
+    def post(_client, _url, **kwargs):
+        calls.append(copy.deepcopy(kwargs["json"]))
+        if len(calls) <= timeout_count:
+            raise ors_client.httpx.ReadTimeout("private provider detail")
+        return _FakeResponse()
+
+    monkeypatch.setattr(ors_client.httpx.Client, "post", post)
+    runtime = WorkflowRuntime(WorkflowState("square"), max_duration_seconds=75, max_llm_calls=0)
+    points = [(47.0, 19.0), (47.0, 19.001), (47.0, 19.002)]
+    try:
+        with runtime.activate():
+            routed, _, snapped, _ = ors_client.snap_route_detailed(points)
+        assert len(calls) == 2
+        assert calls[0] == calls[1]
+        assert snapped is (timeout_count == 1)
+        if snapped:
+            assert routed == points
+        assert runtime.trace.routing_requests == {"directions": 2}
+        assert runtime.trace.routing_failures == {"directions.transport": timeout_count}
+    finally:
+        runtime.close_routing_client()
+        ors_client.clear_directions_cache()
+
+
+def test_read_timeout_retry_consumes_the_existing_directions_attempt_budget(monkeypatch):
+    monkeypatch.setattr(ors_client.get_settings().routing, "ors_api_key", "test-no-network")
+    calls = []
+
+    def post(_client, _url, **kwargs):
+        calls.append(kwargs["json"])
+        if len(calls) == ors_client._MAX_ORS_ATTEMPTS:
+            raise ors_client.httpx.ReadTimeout("late response")
+        return _FakeErrorResponse()
+
+    monkeypatch.setattr(ors_client.httpx.Client, "post", post)
+    points = [(47.0 + index * 0.0001, 19.001 if index % 2 else 19.0) for index in range(100)]
+    assert ors_client.snap_route_detailed(points)[2] is False
+    assert len(calls) == ors_client._MAX_ORS_ATTEMPTS
+
+
+@pytest.mark.parametrize("stop", ["deadline", "cancellation"])
+def test_read_timeout_retry_respects_workflow_deadline_and_cancellation(monkeypatch, stop):
+    import threading
+
+    from gps_art_wizzard.workflow_runtime import WorkflowCancelledError, cancellation_scope
+
+    monkeypatch.setattr(ors_client.get_settings().routing, "ors_api_key", "test-no-network")
+    clock = [0.0]
+    calls = []
+    cancelled = threading.Event()
+
+    def post(*_args, **_kwargs):
+        calls.append(True)
+        if stop == "deadline":
+            clock[0] = 76.0
+        else:
+            cancelled.set()
+        raise ors_client.httpx.ReadTimeout("late response")
+
+    monkeypatch.setattr(ors_client.httpx.Client, "post", post)
+    runtime = WorkflowRuntime(WorkflowState("square"), max_duration_seconds=75, max_llm_calls=0, clock=lambda: clock[0])
+    try:
+        with runtime.activate(), cancellation_scope(cancelled):
+            if stop == "cancellation":
+                with pytest.raises(WorkflowCancelledError):
+                    ors_client.snap_route_detailed([(47, 19), (47, 19.001)])
+            else:
+                assert ors_client.snap_route_detailed([(47, 19), (47, 19.001)])[2] is False
+        assert len(calls) == 1
+    finally:
+        runtime.close_routing_client()
+
+
+@pytest.mark.parametrize("error", ["ConnectError", "ConnectTimeout", "WriteTimeout", "PoolTimeout"])
+def test_other_transport_failures_do_not_multiply_routing_requests(monkeypatch, error):
+    monkeypatch.setattr(ors_client.get_settings().routing, "ors_api_key", "test-no-network")
+    calls = []
+
+    def post(*_args, **_kwargs):
+        calls.append(True)
+        raise getattr(ors_client.httpx, error)("private provider detail")
+
+    monkeypatch.setattr(ors_client.httpx.Client, "post", post)
+    assert ors_client.snap_route_detailed([(47, 19), (47, 19.001)])[2] is False
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("endpoint", ["snap", "directions"])
 def test_provider_quota_stops_later_calls_only_in_the_same_workflow(monkeypatch, endpoint):
     calls = []

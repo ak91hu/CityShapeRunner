@@ -502,6 +502,44 @@ def test_generate_endpoint_blocks_an_unrouted_straight_line(monkeypatch) -> None
     }
 
 
+@pytest.mark.parametrize("streamed", [False, True])
+@pytest.mark.parametrize("failure, expected", [
+    ("directions.transport", "did not respond"),
+    ("directions.http_429", "request limit"),
+    ("directions.http_401", "configuration"),
+    ("directions.http_403", "configuration"),
+    ("snap.transport", "No connected street route"),
+])
+def test_generation_explains_provider_failures_without_exposing_diagnostics(
+    monkeypatch, streamed, failure, expected
+) -> None:
+    monkeypatch.setattr(routes, "generate", lambda *_args, **_kwargs: SimpleNamespace(
+        snapped=SimpleNamespace(snapped=False),
+        shape=SimpleNamespace(name="square"),
+        intent=SimpleNamespace(city="Szeged"),
+        candidate_count=1,
+        preflight_count=0,
+        workflow=SimpleNamespace(routing_failures={failure: 1}),
+        errors=["provider-secret-value"],
+    ))
+    with TestClient(create_app()) as client:
+        response = client.post("/generate", json={"prompt": "a square run in Szeged"}, headers={
+            "Accept": "application/x-ndjson" if streamed else "application/json",
+        })
+    if streamed:
+        import json
+
+        message = next(json.loads(line) for line in response.text.splitlines() if json.loads(line)["type"] == "error")
+        assert message["status"] == 503
+        detail = message["detail"]
+    else:
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+    assert expected in detail
+    assert "provider-secret-value" not in response.text
+    assert "gpx" not in response.text.lower()
+
+
 @pytest.mark.parametrize(
     "snapped_route",
     [

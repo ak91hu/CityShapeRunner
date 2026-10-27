@@ -257,7 +257,7 @@ stateDiagram-v2
     Block --> [*]
 ```
 
-The public adapter limits a full routing attempt to 24 visual guides even though the hosted coordinate ceiling is higher. It uses a 5-second connect, 15-second read, 10-second write, and 5-second pool timeout, with at most seven class-aware attempts. Authentication, quota, malformed-request, and network failures stop instead of multiplying identical paid calls.
+The public adapter limits a full routing attempt to 24 visual guides even though the hosted coordinate ceiling is higher. It uses a 5-second connect, 15-second read, 10-second write, and 5-second pool timeout, with at most seven class-aware attempts. One read timeout can retry the identical Directions guides once, consuming that existing attempt budget and respecting the workflow deadline and cancellation. A second read timeout, authentication, quota, malformed requests and other network failures stop. No quality gate or returned geometry is changed to recover availability.
 
 !!! warning "Current ORS host"
 
