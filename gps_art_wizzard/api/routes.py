@@ -1333,14 +1333,36 @@ def _generate_route_sync(
                 "preflight_count": state.preflight_count,
             },
         )
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "No connected street route could be created, so the planner did not "
-                "return an unsafe straight-line GPS track. Try another city, shape, "
-                "or distance, or retry when the routing service is available."
-            ),
+        detail = (
+            "No connected street route could be created, so the planner did not "
+            "return an unsafe straight-line GPS track. Try another city, shape, "
+            "or distance, or retry when the routing service is available."
         )
+        workflow = getattr(state, "workflow", None)
+        failures = workflow.routing_failures if workflow is not None else {}
+        if "directions.http_401" in failures or "directions.http_403" in failures:
+            detail = (
+                "The street-routing service could not authenticate the planner. "
+                "Its configuration needs attention; changing your idea will not fix it. "
+                "No GPS file was created. Please contact support with your request reference."
+            )
+        elif "directions.http_429" in failures:
+            detail = (
+                "The street-routing service has reached its request limit. "
+                "No GPS file was created. Please wait before retrying your saved idea."
+            )
+        elif "directions.http_400" in failures:
+            detail = (
+                "The street-routing service could not accept the route settings. "
+                "No GPS file was created. Please review the route setup or contact "
+                "support with your request reference."
+            )
+        elif "directions.transport" in failures:
+            detail = (
+                "The street-routing service did not respond reliably. "
+                "No GPS file was created. Please retry your saved idea shortly."
+            )
+        raise HTTPException(status_code=503, detail=detail)
     try:
         return _state_to_response(state)
     except Exception as exc:  # noqa: BLE001 - public serialisation boundary

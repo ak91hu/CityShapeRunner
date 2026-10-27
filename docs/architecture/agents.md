@@ -179,6 +179,15 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
 ### SnapAgent
 - **Input:** `RouteDraft`.
 - **Output:** `SnappedRoute` — road-following polyline + distance + `snapped`.
+- **Walking preferences:** requested quiet/green weights are scalar numbers in
+  `options.profile_params.weightings`, matching the hosted ORS request model.
+  Their values and the configured base route preference remain intact; the
+  adapter does not discard these preferences to get a successful response.
+- **Transient transport failure:** one Directions read timeout can repeat the
+  exact same guides once within the existing seven-attempt cap. It preserves
+  the current radius, guides, request preferences, workflow deadline and
+  cancellation; a repeated timeout stops. Authentication/quota failures and
+  other network errors do not gain retries.
 - **Provider:** optional bounded shape-aware OSM graph search proposes better
   guides; OpenRouteService Directions remains the final route authority. Failed
   graph proposals fall back to the original guide. Successful proposals expose

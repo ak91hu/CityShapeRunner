@@ -197,6 +197,7 @@ class _ORSFailure:
     status_code: int | None
     error_code: int | None
     message: str
+    read_timeout: bool = False
 
 
 @dataclass(frozen=True)
@@ -277,7 +278,7 @@ def _snap_request(
         return snapped
     except httpx.HTTPError as error:
         record_routing_failure("snap", "transport")
-        log.warning("ORS snap preflight network error: %s", error)
+        log.warning("ORS snap preflight network error (%s): %s", type(error).__name__, error)
         return None
     except Exception as error:  # noqa: BLE001
         record_routing_failure("snap", "invalid_response")
@@ -1139,11 +1140,11 @@ def _ors_request(
     if avoid_features:
         options["avoid_features"] = avoid_features
     if sport.startswith("run") and (preferences.prefer_quiet or preferences.prefer_green):
-        weightings: dict[str, object] = {}
+        weightings: dict[str, float] = {}
         if preferences.prefer_quiet:
-            weightings["quiet"] = {"factor": 1.0}
+            weightings["quiet"] = 1.0
         if preferences.prefer_green:
-            weightings["green"] = {"factor": 0.8}
+            weightings["green"] = 0.8
         options["profile_params"] = {"weightings": weightings}
     if options:
         payload["options"] = options
@@ -1219,8 +1220,8 @@ def _ors_request(
         return _ORSRouteResult(polyline, distance, readiness)
     except httpx.HTTPError as e:
         record_routing_failure("directions", "transport")
-        log.warning("ORS network error (radius=%dm): %s", radius, e)
-        return _ORSFailure(None, None, str(e))
+        log.warning("ORS network error (%s, radius=%dm): %s", type(e).__name__, radius, e)
+        return _ORSFailure(None, None, str(e), read_timeout=isinstance(e, httpx.ReadTimeout))
     except Exception as e:  # noqa: BLE001
         record_routing_failure("directions", "invalid_response")
         log.warning("ORS routing error (radius=%dm): %s", radius, e)
@@ -1293,12 +1294,14 @@ def snap_route_detailed(
     may request up to 50 to preserve their road choices. The budget is part of
     the cache key and only affects request guides, never returned geometry.
 
-    Two bounded retry strategies:
+    Bounded retry strategies:
     - **Radius widening** (error 2010): a via-point lands on a building/park
       with no road nearby → widen the search radius and retry.
     - **Waypoint reduction** (error 2009): two consecutive via-points can't be
       connected (e.g. shape crosses a lake) → reduce the via-point budget so
       ORS has freedom to find a detour around the obstacle.
+    - **Read timeout**: retry the same request once within the existing attempt
+      limit and workflow deadline.
     """
     cfg = get_settings().routing
     budget = _MAX_GUIDE_COORDINATES if guide_budget is None else guide_budget
@@ -1357,6 +1360,7 @@ def snap_route_detailed(
     radii = [start] + [radius for radius in _RADIUS_RETRIES if radius > start]
 
     attempts = 0
+    read_timeout_retried = False
     radius_index = 0
     current_via = via
     with _routing_client() as client:
@@ -1411,6 +1415,15 @@ def snap_route_detailed(
                 failure = _ORSFailure(None, None, "routing request failed")
             else:
                 failure = result
+            if (
+                failure.read_timeout
+                and not read_timeout_retried
+                and attempts < _MAX_ORS_ATTEMPTS
+                and (runtime is None or not runtime.deadline_exceeded(quality_required=True))
+            ):
+                read_timeout_retried = True
+                log.info("ORS response timed out; retrying the same street guides once")
+                continue
             if failure.error_code in _CONNECTIVITY_ERROR_CODES:
                 reduced = _prune_failed_pair(
                     current_via, failure.message, closed=closed
@@ -1432,7 +1445,7 @@ def snap_route_detailed(
                 radius_index += 1
                 continue
 
-            # Authentication, quota, invalid request, and network failures
+            # Authentication, quota, invalid request, and other network failures
             # should not fan out into seven identical paid API calls.
             if failure.status_code in {400, 401, 403, 413, 429} or failure.status_code is None:
                 break

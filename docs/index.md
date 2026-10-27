@@ -47,6 +47,7 @@ the ignored `test-results/` folder.
 
 [Development and Ponytail workflow](development/workflow.md) ·
 [UI design](design/ui-design.md) ·
+[Routing availability investigation](reports/2026-10-27-routing-availability.md) ·
 [Webapp and documentation review](reports/2026-10-26-webapp-review.md) ·
 [Usability audit](reports/2026-10-19-usability.md) ·
 [GPS-art generation review](research/2026-10-19-generation-review.md)
