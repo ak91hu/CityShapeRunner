@@ -88,9 +88,10 @@ if Northflank supplies one; otherwise it listens on `0.0.0.0:8000`.
 The standard Docker build pins and embeds the OpenCode CLI. The 256 MB Sandbox
 profile does not autostart its resident HTTP process: measurements showed that
 the CLI and web process together exhaust the free instance and cause readiness
-failures. The deterministic generator remains the production path. On a larger
-instance, set `OPENCODE_SERVER_AUTOSTART=true` to opt in to the loopback-only
-free-model server. Set the Docker build argument `INSTALL_EXTRAS=all` only when
+failures. The production path uses the remote OpenCode API with GPT-6 Luna,
+which requires no resident model process. The optional CLI transport can be
+configured separately on a larger instance with a currently available free
+model. Set the Docker build argument `INSTALL_EXTRAS=all` only when
 Anthropic support is also required.
 
 ### Runtime variables and secrets
@@ -110,10 +111,13 @@ CLOUDINARY_URL=cloudinary://API_KEY:API_SECRET@CLOUD_NAME
 LLM_PROVIDER=opencode
 LLM_FALLBACK=opencode
 LLM_USAGE_MODE=essential
-OPENCODE_TRANSPORT=cli
+OPENCODE_TRANSPORT=api
+OPENCODE_BASE_URL=https://opencode.ai/inference/openai/v1
 OPENCODE_SERVER_URL=http://127.0.0.1:4097
 OPENCODE_SERVER_AUTOSTART=false
-OPENCODE_MODEL=muse-spark-1.3-contributor-free
+OPENCODE_MODEL=gpt-6-luna
+OPENCODE_STRUCTURED_MODEL=gpt-6-luna
+LLM_MODEL=gpt-6-luna
 OPENCODE_DISABLE_AUTOUPDATE=true
 AI_SHAPE_VERIFIER_ENABLED=false
 AI_SHAPE_MAX_CANDIDATES=1
@@ -148,13 +152,12 @@ deployments should use the value above. See the
 The dashboard shows the new host's quota, not the legacy host's quota. Check
 the effective environment override as well as the application default.
 
-This 256 MB profile does not start the embedded model process and therefore
-makes no AI calls. Intent extraction, planning, shape construction, image and
-route review, road validation, and export use their deterministic paths. On a
-larger instance, enabling `OPENCODE_SERVER_AUTOSTART` activates the named free
-model with no global call-count quota. If that child cannot become healthy, it
-is stopped before Uvicorn starts and the runtime logs one warning rather than
-leaving a CPU- or memory-consuming process behind.
+This 256 MB profile calls OpenCode remotely for custom shape construction.
+Essential mode keeps intent, planning and optional image reviews local; street
+routing and export retain their existing provider/quality checks. The API key
+needs OpenCode credit. See the [model-selection research](../reports/2026-11-02-opencode-model-selection.md)
+for pricing and the tested schema workload. Enabling the optional CLI transport
+on a larger instance is separate from using the paid remote API.
 
 The free instance disables the optional in-process OSM street graph and its
 Overpass downloads, which can exhaust 256 MB during generation. ORS remains the
@@ -165,16 +168,16 @@ the 0.1 vCPU instance without relaxing the ORS road-routing or export rules. A
 single provider call can still exceed the advisory budget, so monitor actual
 generation latency after deployment.
 
-The free-model catalogue is a service policy and can change. Verify the model
-name before deployment rather than silently replacing it with a paid model.
-`OPENCODE_STRUCTURED_MODEL` applies only to the optional `api` transport and is
-intentionally absent from this zero-cost Northflank profile.
+The model catalogue and prices can change. Verify the model name before
+deployment. `OPENCODE_STRUCTURED_MODEL` is explicitly set to GPT-6 Luna so
+structured calls do not silently retain the previous, more expensive model.
 
 Create a Northflank secret group or enter masked runtime secrets for:
 
 ```dotenv
 ORS_API_KEY=...
 OPENCODE_API_KEY=...
+GROQ_API_KEY=...
 ```
 
 Never paste these keys into repository files, Docker build arguments, or public
@@ -182,6 +185,14 @@ logs. Without `ORS_API_KEY`, the app still starts and `/health` remains useful,
 but route generation fails closed with HTTP 503 because a straight-line guide
 is not a usable GPS route. Without the optional LLM key, deterministic planning
 remains available.
+
+`GROQ_API_KEY` is an optional remote supplement. With the updated application,
+half of anonymous browser cohorts use `GROQ_MODEL` (default
+`openai/gpt-oss-120b`) first, then the configured fallback chain; OpenCode-assigned
+visitors never call Groq. Both providers use remote APIs. Groq does not start the embedded OpenCode server or
+require adding Groq to `LLM_FALLBACK`. Rotating `OPENCODE_API_KEY` does not
+enable the disabled local OpenCode process; `OPENCODE_TRANSPORT=api` enables the
+remote provider. See [LLM provider layer](../reference/external-apis.md#llm-provider-layer).
 
 The SPA and API share one origin, so no production CORS entry is required.
 Only set `WEB_CORS_ORIGINS` if a separate frontend domain must call the API; in

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_responses_input
 
 _DEFAULT_MODEL = "gpt-4o-mini"
@@ -69,6 +70,7 @@ class OpenAIProvider:
         elif json_mode or json_schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
         try:
+            publish_llm_call(self.name, self._model)
             resp = self._client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
             raise LLMError(f"OpenAI call failed: {e}") from e
@@ -108,6 +110,7 @@ class OpenAIProvider:
         elif json_mode or json_schema is not None:
             kwargs["text"] = {"format": {"type": "json_object"}}
         try:
+            publish_llm_call(self.name, self._model)
             resp = self._client.responses.create(**kwargs)
         except Exception as exc:  # noqa: BLE001
             raise LLMError(f"OpenAI vision call failed: {exc}") from exc

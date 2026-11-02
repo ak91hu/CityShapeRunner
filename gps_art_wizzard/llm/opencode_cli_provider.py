@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts
 
 _DEFAULT_FREE_MODEL = "muse-spark-1.3-contributor-free"
@@ -81,6 +82,7 @@ class OpenCodeCLIProvider:
             )
             session_response.raise_for_status()
             session_id = str(session_response.json()["id"])
+            publish_llm_call(self.name, self._model)
             response = self._client.post(
                 f"{self._server_url}/session/{session_id}/message",
                 json={

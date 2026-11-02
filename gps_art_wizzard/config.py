@@ -44,8 +44,10 @@ class LLMConfig:
     openai_model: str = field(default_factory=lambda: os.getenv("OPENAI_MODEL", ""))
     anthropic_model: str = field(default_factory=lambda: os.getenv("ANTHROPIC_MODEL", ""))
     ollama_model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", ""))
+    groq_model: str = field(default_factory=lambda: os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+    groq_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
     opencode_key: str = field(default_factory=lambda: os.getenv("OPENCODE_API_KEY", ""))
-    opencode_base_url: str = field(default_factory=lambda: os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/zen/v1"))
+    opencode_base_url: str = field(default_factory=lambda: os.getenv("OPENCODE_BASE_URL", "https://opencode.ai/inference/openai/v1"))
     opencode_transport: str = field(
         default_factory=lambda: os.getenv("OPENCODE_TRANSPORT", "api").strip().lower()
     )
@@ -61,7 +63,7 @@ class LLMConfig:
     opencode_structured_model: str = field(
         default_factory=lambda: os.getenv(
             "OPENCODE_STRUCTURED_MODEL",
-            "gpt-5.4-mini",
+            "gpt-6-luna",
         )
     )
     openai_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
@@ -70,7 +72,7 @@ class LLMConfig:
 
     @property
     def has_any_provider(self) -> bool:
-        return bool(self.opencode_key or self.openai_key or self.anthropic_key or self.ollama_base_url)
+        return bool(self.opencode_key or self.groq_key or self.openai_key or self.anthropic_key or self.ollama_base_url)
 
 
 @dataclass

@@ -46,10 +46,21 @@ def test_split_env_trims_values_and_removes_empty_entries(monkeypatch) -> None:
     ]
 
 
-def test_opencode_visual_model_defaults_to_fast_responses_model(monkeypatch) -> None:
+def test_opencode_visual_model_defaults_to_luna_responses_model(monkeypatch) -> None:
     monkeypatch.delenv("OPENCODE_STRUCTURED_MODEL", raising=False)
 
-    assert config.LLMConfig().opencode_structured_model == "gpt-5.4-mini"
+    assert config.LLMConfig().opencode_structured_model == "gpt-6-luna"
+
+
+def test_groq_credentials_and_model_are_independent_of_opencode(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq")
+    monkeypatch.setenv("GROQ_MODEL", "groq-model")
+    settings = config.LLMConfig(
+        opencode_key="", openai_key="", anthropic_key="", ollama_base_url="",
+    )
+    assert settings.groq_key == "test-groq"
+    assert settings.groq_model == "groq-model"
+    assert settings.has_any_provider
 
 
 def test_opencode_cli_transport_settings_are_environment_driven(monkeypatch) -> None:

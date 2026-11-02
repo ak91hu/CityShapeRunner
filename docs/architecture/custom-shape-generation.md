@@ -89,7 +89,7 @@ Known templates and text remain fully local. A locally parsed custom request
 also uses deterministic city planning because curated placement context already
 provides the rotation, offset, and difficulty prior. The usual custom request
 therefore needs two model calls—one semantic `ShapeSpec` and one geometry
-proposal—not separate intent or planning calls. The zero-cost production profile
+proposal—not separate intent or planning calls. The essential production profile
 requests one model candidate and constructs an additional deterministic semantic
 scaffold locally without another provider call.
 
@@ -106,7 +106,7 @@ silhouette cues, including modifiers and relationships. The geometry stage then
 creates the requested one to four meaningfully different route programs and
 marks the one it expects to remain clearest at thumbnail size. Complexity and
 ambiguity normally request two to four candidates; `AI_SHAPE_MAX_CANDIDATES`
-sets the hard cap and the zero-cost production profile sets it to one. Each
+sets the hard cap and the essential production profile sets it to one. Each
 program uses compact `move`, `line`, cubic `curve`, and `close` commands,
 normally for one closed outer silhouette. ShapeAgent compiles and validates all
 returned candidates under the same executable checks. This separates semantic
@@ -225,7 +225,7 @@ credit merely because its JSON was valid.
 |---|---|---|
 | Text-to-raster image, then vector tracing | Can use strong image generators and visual conditioning | Adds another provider, raster artefacts, tracing ambiguity, more latency, and far too many vertices for street routing. |
 | Full SVG generation | Bézier paths are compact and expressive | Safely parsing every SVG feature is a much larger attack and compatibility surface; most SVG semantics are irrelevant to a one-line route. |
-| Four generated candidates on every request | Better chance of one strong silhouette | Output and validation cost rises quickly. Complexity selects two to four candidates, while the free profile requests one plus a local deterministic scaffold. |
+| Four generated candidates on every request | Better chance of one strong silhouette | Output and validation cost rises quickly. Complexity selects two to four candidates, while the essential profile requests one plus a local deterministic scaffold. |
 | Always substitute the nearest catalog shape | Fast and deterministic | Violates the named request and fails precisely where custom support matters. It remains only an explicitly disclosed last-resort route option. |
 | Treat the model's preferred alternative as proof | Cheap semantic opinion | The preference is only a tie-breaker after rendered review and executable geometry checks; routed measurements remain authoritative. |
 

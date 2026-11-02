@@ -238,6 +238,7 @@ class WorkflowRuntime:
         self._event_sink = event_sink
         self._preview_sink = preview_sink
         self._preview_sent = False
+        self._llm_call: dict[str, str] | None = None
         self._connected_routes: set[int] = set()
         self._routing_client: httpx.Client | None = None
         # A caller may reuse its request ID; memoised routing must never cross
@@ -488,6 +489,15 @@ class WorkflowRuntime:
         """Publish real batch completions while the preflight node is running."""
         self._emit("preflight", self.trace.step_attempts.get("preflight", 1), StepStatus.RUNNING)
 
+    def publish_llm_call(self, provider: str, model: str) -> None:
+        """Publish the model selected by the adapter immediately before dispatch."""
+        with self._lock:
+            self._llm_call = {"provider": provider, "model": model}
+            stages = _ACTIVE_STAGES.get()
+            stage = stages[-1] if stages else "llm"
+            attempt = self.trace.step_attempts.get(stage, 1)
+        self._emit(stage, attempt, StepStatus.RUNNING)
+
     def record_llm_attempt(self, provider: str) -> None:
         with self._lock:
             self.trace.llm_attempts += 1
@@ -622,6 +632,7 @@ class WorkflowRuntime:
                 "optimization_budget_seconds": self.trace.optimization_budget_seconds,
                 "phase": phase,
                 "phase_routing_requests": dict(phase_metric.get("routing_requests", {})),
+                "llm_call": dict(self._llm_call) if self._llm_call is not None else None,
             }
         if sink is not None:
             try:
@@ -665,6 +676,12 @@ def trace_asdict(trace: WorkflowTrace) -> dict[str, Any]:
     """Full internal representation for diagnostics and tests."""
 
     return asdict(trace)
+
+
+def publish_llm_call(provider: str, model: str) -> None:
+    runtime = active_workflow_runtime()
+    if runtime is not None:
+        runtime.publish_llm_call(provider, model)
 
 
 def record_routing_request(endpoint: str) -> None:

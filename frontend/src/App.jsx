@@ -2842,6 +2842,11 @@ function LoadingState({ onCancel, kind = "route", focusRef, progress, preview })
         <p id="loading-message" className="loading-message" role="status" aria-live="polite">
           {progress ? loadingStageMessage(progress) : "Connecting to the route planner. The streets are warming up."}
         </p>
+        <p className="loading-expectation loading-llm" role="status" aria-label="LLM usage" aria-live="polite">
+          {progress?.llm_call
+            ? <>Latest LLM call: <strong>{progress.llm_call.provider}</strong> · {progress.llm_call.model}</>
+            : "No LLM calls reported yet."}
+        </p>
         <p id="loading-expectation" className="loading-expectation">
           {kind === "image"
             ? "We’ll show a street-connected preview as soon as the image outline has been routed."
@@ -5051,6 +5056,7 @@ export default function App() {
                 : completed;
               return {
                 ...update,
+                llm_call: update.llm_call ?? previous?.llm_call ?? null,
                 receivedAt: Date.now(),
                 preflight_count: Math.max(previous?.preflight_count ?? 0, update.preflight_count ?? 0),
                 search_areas: Math.max(previous?.search_areas ?? 0, update.search_areas ?? 0),

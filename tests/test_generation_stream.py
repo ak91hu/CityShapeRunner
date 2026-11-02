@@ -3,6 +3,7 @@
 import asyncio
 import json
 from threading import Event
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -66,6 +67,48 @@ def test_stream_failure_is_an_explicit_error_event_not_a_fake_success(monkeypatc
     assert [message["type"] for message in messages] == ["progress", "error"]
     assert messages[-1]["status"] == 503
     assert "result" not in response.text
+
+
+@pytest.mark.parametrize("visitor,expected", [(0, "groq"), (1, "opencode")])
+@pytest.mark.parametrize("streaming", [False, True])
+def test_generation_preserves_visitor_provider_in_sync_and_stream_workers(
+    monkeypatch, visitor, expected, streaming,
+):
+    from gps_art_wizzard.llm import factory
+    from gps_art_wizzard.llm.base import LLMResponse
+
+    providers = tuple(
+        SimpleNamespace(
+            name=name, is_available=lambda: True,
+            complete=lambda name=name, **_kwargs: LLMResponse("{}", name),
+        ) for name in ("opencode", "groq")
+    )
+    monkeypatch.setattr(factory, "available_providers", lambda: providers)
+
+    def generate_stub(_request, *, event_sink=None, preview_sink=None):
+        selected = factory.try_complete(lambda: None)
+        return {
+            "prompt": selected.provider, "intent": None, "shape": None, "validation": None,
+            "distance_km": None, "snapped": False, "iterations": 0,
+            "below_threshold": True, "errors": [], "history": [],
+            "gpx": None, "tcx": None, "file_paths": {}, "points_preview": [],
+        }
+
+    monkeypatch.setattr(routes, "_generate_route_sync", generate_stub)
+    factory.reset_sticky()
+    try:
+        with TestClient(create_app()) as client:
+            client.cookies.set("paceasso_visitor", f"{visitor:032x}")
+            response = client.post(
+                "/generate", json={"prompt": "heart"},
+                headers={"Accept": "application/x-ndjson" if streaming else "application/json"},
+            )
+        assert response.status_code == 200
+        result = json.loads(response.text.splitlines()[-1])["data"] if streaming else response.json()
+        assert result["prompt"] == expected
+        assert factory._STICKY.get() is None
+    finally:
+        factory.reset_sticky()
 
 
 @pytest.mark.asyncio
