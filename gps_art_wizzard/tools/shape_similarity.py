@@ -374,6 +374,18 @@ def _salient_indices(
     return sorted(selected)
 
 
+@lru_cache(maxsize=128)
+def _landmark_reference(
+    coordinates: bytes, dtype: str, span: int, closed: bool,
+) -> tuple[np.ndarray, tuple[int, ...]]:
+    # Repair screening compares hundreds of candidates to the same drawing.
+    reference = np.frombuffer(coordinates, dtype=np.dtype(dtype)).reshape(-1, 2)
+    turns = _signed_turns(reference, span)
+    landmarks = tuple(_salient_indices(turns, span=span, closed=closed))
+    turns.flags.writeable = False
+    return turns, landmarks
+
+
 def _landmark_scale_similarity(
     reference: np.ndarray,
     candidate: np.ndarray,
@@ -381,20 +393,21 @@ def _landmark_scale_similarity(
     span: int,
 ) -> float:
     """Compare the sign, magnitude, and arc-length phase of salient turns."""
-    reference_turns = _signed_turns(reference, span)
-    candidate_turns = _signed_turns(candidate, span)
     closed = (
         len(reference) >= 3
         and len(candidate) >= 3
         and np.linalg.norm(reference[0] - reference[-1]) <= 0.05
         and np.linalg.norm(candidate[0] - candidate[-1]) <= 0.05
     )
-    landmarks = _salient_indices(reference_turns, span=span, closed=bool(closed))
+    reference_turns, landmarks = _landmark_reference(
+        reference.tobytes(), reference.dtype.str, span, bool(closed),
+    )
     if not landmarks:
         # Smooth contours such as circles have no isolated dominant point at
         # this scale; the other curve/coverage metrics remain authoritative.
         return 1.0
 
+    candidate_turns = _signed_turns(candidate, span)
     search_radius = max(2, len(reference) // 32)
 
     def score_with_sign(direction_sign: float) -> float:

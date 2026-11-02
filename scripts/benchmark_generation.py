@@ -40,6 +40,7 @@ DEFAULT_PROMPTS = [
 def run_once(prompt: str) -> dict:
     ors_client.clear_directions_cache()  # cold-cache measurement
     ss._similarity_diagnostics_cached.cache_clear()
+    ss._landmark_reference.cache_clear()
     started = time.perf_counter()
     state = generate(prompt)
     elapsed = time.perf_counter() - started
