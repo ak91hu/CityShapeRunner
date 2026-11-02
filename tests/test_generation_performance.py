@@ -60,6 +60,42 @@ def test_complete_diagnostics_keep_the_same_scores_for_every_phase(monkeypatch):
     assert measured == shape_similarity._diagnostics(reference, candidate)
 
 
+def test_landmark_reference_is_reused_across_distinct_candidates(monkeypatch):
+    reference = shape_similarity.resample(
+        np.asarray([(0., 0.), (1., 0.), (1., 1.), (0., 0.)]), 64,
+    )
+    original = shape_similarity._salient_indices
+    calls = []
+
+    def salient(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    shape_similarity._landmark_reference.cache_clear()
+    monkeypatch.setattr(shape_similarity, "_salient_indices", salient)
+    for offset in (0.01, 0.02):
+        candidate = reference + offset
+        shape_similarity._landmark_similarity(reference, candidate)
+    assert len(calls) == 2  # two observation scales, independent of candidates
+    reference[1, 0] += 0.1
+    shape_similarity._landmark_similarity(reference, candidate)
+    assert len(calls) == 4  # changed coordinates must never reuse old features
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("span", [2, 4])
+def test_cached_landmark_reference_preserves_exact_features_and_is_immutable(closed, span):
+    reference = np.random.default_rng(127).normal(size=(64, 2))
+    expected = shape_similarity._signed_turns(reference, span)
+    turns, landmarks = shape_similarity._landmark_reference(
+        reference.tobytes(), reference.dtype.str, span, closed,
+    )
+    np.testing.assert_array_equal(turns, expected)
+    assert landmarks == tuple(shape_similarity._salient_indices(expected, span=span, closed=closed))
+    with pytest.raises(ValueError):
+        turns[0] = 42
+
+
 def test_routing_workers_reuse_one_pool_and_a_new_run_gets_a_new_pool(monkeypatch):
     clients = []
 

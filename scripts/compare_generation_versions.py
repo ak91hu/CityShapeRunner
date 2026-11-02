@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import io
 import json
 import os
@@ -45,6 +46,15 @@ def source_hash(folder: Path) -> str:
     return hashlib.sha256("\n".join(f"{path.relative_to(folder).as_posix()}:{digest(path)}" for path in files).encode()).hexdigest()
 
 
+def generation_options(run, intent, event_sink, seed: int) -> dict:
+    options = {"intent_override": intent, "event_sink": event_sink}
+    # Old revisions predate seeded search; all revisions that support it need
+    # the same seed, including the baseline.
+    if "search_seed" in inspect.signature(run).parameters:
+        options["search_seed"] = seed
+    return options
+
+
 def prepare_sources(output: Path, ref: str, snapshot: Path, rate_limit: int):
     revision = subprocess.check_output(["git", "rev-parse", ref], cwd=ROOT, text=True).strip()
     baseline, current = output / "original-src", output / "current-src"
@@ -67,7 +77,7 @@ def prepare_sources(output: Path, ref: str, snapshot: Path, rate_limit: int):
         "osm_snapshot_sha256": digest(shared_snapshot), "osm_snapshot_source": str(snapshot),
         "benchmark_driver_sha256": digest(Path(__file__)),
         "request_limit_per_60_seconds": rate_limit,
-        "cases": CASES, "seed_policy": "SHA256(case id), first 32 bits; original search is deterministic",
+        "cases": CASES, "seed_policy": "SHA256(case id), first 32 bits for both variants when supported; legacy unseeded search otherwise",
         "method": "Fresh process and fresh live routing evidence for every run; alternating AB/BA order.",
         "limits": ["One city; these cases do not establish quality in every city.",
                    "OSM search snapshot is fixed; live ORS engine/network revisions are recorded.",
@@ -85,7 +95,7 @@ def worker(args):
     case = manifest["cases"][args.case_index]
     sys.path.insert(0, str(output / f"{args.variant}-src"))
     # Same deterministic catalog/planning mode, profile, distance and city in
-    # both variants. Only the new search has a seed and initial parallel stage.
+    # both variants, including the same seed whenever the revision supports it.
     os.environ.update(GEOCODE_OFFLINE="1", LLM_USAGE_MODE="essential",
                       AI_ROUTE_VERIFIER_ENABLED="false", AI_SHAPE_VERIFIER_ENABLED="false",
                       SHAPE_GRAPH_SNAPSHOT=str(output / "osm-snapshot.json"))
@@ -180,16 +190,18 @@ def worker(args):
 
     threading.Thread(target=heartbeat, daemon=True).start()
     seed = int.from_bytes(hashlib.sha256(case["id"].encode()).digest()[:4], "big")
-    options = {"intent_override": Intent(case["shape"], None, case["city"], case["sport"], case["distance_km"], None),
-               "event_sink": progress}
-    if args.variant == "current":
-        options["search_seed"] = seed
-    row = {"case": case, "variant": args.variant, "search_seed": seed if args.variant == "current" else None,
+    orchestrator = Orchestrator()
+    options = generation_options(
+        orchestrator.run,
+        Intent(case["shape"], None, case["city"], case["sport"], case["distance_km"], None),
+        progress, seed,
+    )
+    row = {"case": case, "variant": args.variant, "search_seed": options.get("search_seed"),
            "source_sha256": manifest["source_hashes"][args.variant],
            "osm_snapshot_sha256": manifest["osm_snapshot_sha256"], "started_at": datetime.now(UTC).isoformat()}
     try:
         prompt = f"draw a {case['shape']} in {case['city']}, {case['distance_km']} km, {case['sport']}"
-        state = Orchestrator().run(prompt, **options)
+        state = orchestrator.run(prompt, **options)
         points = state.snapped.points if state.snapped and state.snapped.snapped else []
         row.update(points=points, ideal_points=state.route_draft.waypoints if state.route_draft else [],
                    validation=asdict(state.validation) if state.validation else None,
@@ -273,8 +285,9 @@ def main():
         prior_manifest = supplied["manifest"]
         if (prior_manifest["source_hashes"]["original"] != manifest["source_hashes"]["original"]
                 or prior_manifest["osm_snapshot_sha256"] != manifest["osm_snapshot_sha256"]
-                or prior_manifest["cases"] != manifest["cases"]):
-            raise ValueError("Original evidence has different source, OSM snapshot or test cases")
+                or prior_manifest["cases"] != manifest["cases"]
+                or prior_manifest.get("seed_policy") != manifest["seed_policy"]):
+            raise ValueError("Original evidence has different source, OSM snapshot, test cases or seed policy")
         previous = {row["case"]["id"]: row for row in supplied["records"] if row["variant"] == "original"}
         if len(previous) != len(manifest["cases"]):
             raise ValueError("Original evidence does not cover every case")

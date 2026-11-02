@@ -14,6 +14,7 @@ from gps_art_wizzard.generation_benchmark import (
 from gps_art_wizzard.state import Shape, SnappedRoute, WorkflowState
 from gps_art_wizzard.tools.shape_library import SHAPES
 from gps_art_wizzard.workflow_runtime import WorkflowRuntime, record_routing_request
+from scripts import compare_generation_versions as benchmark
 
 
 def test_cases_cover_full_cross_product_with_known_templates():
@@ -197,3 +198,27 @@ def test_comparison_rejects_incomplete_and_legacy_unverified_searches():
             compare({"records": [complete]}, {"records": [invalid]})
     fresh = WorkflowRuntime(WorkflowState("heart"), max_duration_seconds=10, max_llm_calls=0, max_events=20)
     assert fresh.trace.routing_failures == {}
+
+
+def test_both_seeded_revisions_receive_the_same_seed():
+    calls = []
+
+    class Generator:
+        def run(self, prompt, *, intent_override, event_sink, search_seed=None):
+            calls.append((prompt, intent_override, event_sink, search_seed))
+
+    intent, event_sink = object(), object()
+    for generator in (Generator(), Generator()):
+        generator.run("heart", **benchmark.generation_options(
+            generator.run, intent, event_sink, 20261102,
+        ))
+    assert calls == [("heart", intent, event_sink, 20261102)] * 2
+
+
+def test_historical_unseeded_generator_still_runs():
+    def run(prompt, *, intent_override, event_sink):
+        return prompt, intent_override, event_sink
+
+    assert run("heart", **benchmark.generation_options(run, "intent", None, 20261102)) == (
+        "heart", "intent", None,
+    )

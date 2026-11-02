@@ -32,6 +32,8 @@ def _clear_ors_memo_cache():
 
     ors_client.clear_directions_cache()
     shape_similarity._similarity_diagnostics_cached.cache_clear()
+    shape_similarity._landmark_reference.cache_clear()
     yield
     ors_client.clear_directions_cache()
     shape_similarity._similarity_diagnostics_cached.cache_clear()
+    shape_similarity._landmark_reference.cache_clear()
