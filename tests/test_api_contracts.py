@@ -857,7 +857,7 @@ def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets():
         first = client.post("/visitor-test")
         cookie = first.cookies["paceasso_visitor"]
         assert len(cookie) == 32
-        assert first.json()["groq"] == (int(cookie, 16) % 10 == 0)
+        assert first.json()["groq"] == (int(cookie, 16) % 2 == 0)
         assert first.headers["cache-control"] == "no-store"
         assert "HttpOnly" in first.headers["set-cookie"]
         assert "Secure" in first.headers["set-cookie"]

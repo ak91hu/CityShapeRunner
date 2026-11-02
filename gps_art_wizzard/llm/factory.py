@@ -26,8 +26,8 @@ _PROBE_COOLDOWN_S = 30.0
 
 @contextmanager
 def visitor_scope(visitor_id: str):
-    """Keep a browser in one of ten equal cohorts across requests/replicas."""
-    cohort_token = _GROQ_VISITOR.set(int(visitor_id, 16) % 10 == 0)
+    """Split browsers evenly between OpenCode and Groq across requests/replicas."""
+    cohort_token = _GROQ_VISITOR.set(int(visitor_id, 16) % 2 == 0)
     sticky_token = _STICKY.set(None)
     try:
         yield

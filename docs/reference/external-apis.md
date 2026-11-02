@@ -334,7 +334,7 @@ flowchart LR
 
 | Provider adapter | API surface used | Structured/visual behavior | Configuration |
 | --- | --- | --- | --- |
-| OpenCode | Optional embedded loopback `opencode serve` for the free profile; direct Zen Chat/Responses for the optional paid profile | CLI transport embeds the requested schema in text and is text-only; its autostart is disabled on the 256 MB Northflank profile. Direct transport retains strict structured/image support. | `OPENCODE_API_KEY`, `OPENCODE_TRANSPORT`, `OPENCODE_SERVER_URL`, `OPENCODE_SERVER_AUTOSTART`, `OPENCODE_MODEL`; direct mode also uses `OPENCODE_BASE_URL`, `OPENCODE_STRUCTURED_MODEL` |
+| OpenCode | Remote Responses at `https://opencode.ai/inference/openai/v1/responses`; optional Chat/CLI transports remain available | GPT-6 Luna handles text, strict schemas and images; low reasoning effort and existing bounded retries/timeouts. No resident model process is needed. | `OPENCODE_API_KEY`, `OPENCODE_TRANSPORT`, `OPENCODE_MODEL`, `OPENCODE_BASE_URL`, `OPENCODE_STRUCTURED_MODEL`; optional CLI uses `OPENCODE_SERVER_URL` and `OPENCODE_SERVER_AUTOSTART` |
 | OpenAI | Chat Completions for text; Responses for images | strict JSON schema on supported model families, otherwise JSON object mode | `OPENAI_API_KEY`, `OPENAI_MODEL` |
 | Groq | `POST https://api.groq.com/openai/v1/chat/completions` through HTTPX | Text-only JSON object mode; schema included in the prompt and checked by the application; 30 s timeout, no adapter retries | `GROQ_API_KEY`, `GROQ_MODEL` |
 | Anthropic | Messages API | system prompt is separate from messages; base64 image blocks; schema output only for gated supported model families | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
@@ -345,22 +345,21 @@ The adapters follow the official provider contracts: [OpenAI Responses and struc
 Provider output is always treated as untrusted. JSON parsing, shape-program compilation, finite-coordinate checks, topology checks, semantic verification, and one bounded repair execute after the API response. A model can propose an outline; it cannot declare a route street-connected or exportable.
 
 Groq follows its documented [JSON object mode](https://console.groq.com/docs/structured-outputs).
-With a Groq key present, one of ten anonymous browser cohorts tries Groq first
-and can fall back to the normal chain. The other nine cohorts never call Groq,
+With both keys present, half of anonymous browser cohorts try Groq first
+and can fall back to the normal chain. The OpenCode half never calls Groq,
 even for fallback or review. The `paceasso_visitor` HttpOnly, SameSite=Lax cookie
 persists for a year; HTTPS responses also set Secure. Assignment is stable
 across replicas and requests, with provider stickiness isolated per request.
-Clearing cookies creates a new visitor. This is a 10% cohort allocation, not an
+Clearing cookies creates a new visitor. This is a 50/50 cohort allocation, not an
 exact count of live API calls: deterministic paths and cached shapes need no
 model call. Image calls skip the text-only Groq adapter without opening its
 health cooldown.
 
 The production `essential` profile uses no model for intent extraction,
-planning, rendered-image review, or final-route review. On the 256 MB
-Northflank profile, OpenCode custom subjects are deterministic too because the
-embedded server autostart is disabled. Groq's visitor cohort can use its remote
-API without that local process. A larger deployment can enable the embedded
-server and use the configured free catalogue entry without rebuilding.
+planning, rendered-image review, or final-route review. Custom subjects may use
+OpenCode/GPT-6 Luna or Groq without starting an embedded model process on the
+256 MB instance. See the [model selection research](../reports/2026-11-02-opencode-model-selection.md)
+for the dated price comparison and bounded API probes.
 
 Implementation: [`gps_art_wizzard/llm/factory.py`](https://github.com/ak91hu/CityShapeRunner/blob/master/gps_art_wizzard/llm/factory.py), [`gps_art_wizzard/llm/`](https://github.com/ak91hu/CityShapeRunner/tree/master/gps_art_wizzard/llm)
 

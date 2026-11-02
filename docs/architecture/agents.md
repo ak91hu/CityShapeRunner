@@ -90,7 +90,7 @@ To add a skill: drop a `docs/skills/skill-*.md` with frontmatter
   letter and 0–9 digit, including short multi-character labels.
 - **Custom geometry:** a strict `ShapeSpec` contains an explicit 3–6 feature
   brief, followed by one to four route-native candidates as allowed by the
-  configured cap. The zero-cost production profile requests one model candidate
+  configured cap. The essential production profile requests one model candidate
   and adds a deterministic semantic scaffold locally. Compound requests use the
   earliest related catalog subject as a compact structure/proportion anchor.
   Output is checked for finite coordinates, usable extent,
@@ -365,9 +365,10 @@ unrouted straight-line diagnostic safe.
 ### Provider fallback loop (llm factory)
 On `LLMError`, rotate to the next provider in `fallback_order`; the chosen
 provider is sticky within the request, isolated from concurrent visitors.
-When `GROQ_API_KEY` is configured, one of ten anonymous browser cohorts tries
-Groq first, then the normal fallback chain. The other nine cohorts cannot call
-Groq, including during fallback or review. A persistent `paceasso_visitor`
+With both keys configured, anonymous browser cohorts split evenly between
+OpenCode/GPT-6 Luna and Groq. Groq-assigned visitors try Groq first, then the
+normal fallback chain. OpenCode-assigned visitors cannot call Groq, including
+during fallback or review. A persistent `paceasso_visitor`
 HttpOnly cookie keeps the assignment stable across requests and replicas.
 
 ### Shape-generation fallback (ShapeAgent)

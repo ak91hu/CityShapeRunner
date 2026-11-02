@@ -26,24 +26,24 @@ At least one LLM provider improves custom free-text drawing and semantic verific
 | --- | --- | --- |
 | `LLM_PROVIDER` | `auto` in code; example uses `opencode` | Primary provider: `opencode`, `openai`, `anthropic`, `ollama`, or automatic selection |
 | `LLM_FALLBACK` | `opencode,anthropic,openai,ollama` | Comma-separated fallback sequence |
-| `GROQ_API_KEY` | empty | Optional Groq credential; enables Groq first for one of ten anonymous browser cohorts, even when absent from `LLM_FALLBACK` |
+| `GROQ_API_KEY` | empty | Optional Groq credential; enables Groq first for half of anonymous browser cohorts, even when absent from `LLM_FALLBACK` |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq text model, independent of `LLM_MODEL`; JSON object mode with application schema/geometry validation |
 | `LLM_USAGE_MODE` | `balanced` in code; production image uses `essential` | `essential` skips model-based intent, planning, image review, and route review; only unknown custom-shape generation may call a model |
 | `LLM_MODEL` | empty | General model ID when no provider-specific model is set |
-| `OPENCODE_MODEL` | empty in code; production image uses `muse-spark-1.3-contributor-free` | OpenCode model override; keep this explicit because free catalogue entries may change |
+| `OPENCODE_MODEL` | adapter defaults to `gpt-6-luna`; production image sets it explicitly | OpenCode model override |
 | `OPENAI_MODEL` | empty | OpenAI model override |
 | `ANTHROPIC_MODEL` | empty | Anthropic model override |
 | `OLLAMA_MODEL` | empty | Ollama model override |
-| `OPENCODE_STRUCTURED_MODEL` | `gpt-5.4-mini` | Model used for strict-schema jobs through the OpenCode-compatible Responses endpoint |
+| `OPENCODE_STRUCTURED_MODEL` | `gpt-6-luna` | Model used for strict-schema and image jobs through OpenCode Responses |
 | `LLM_TEMPERATURE` | `0.2` | Sampling temperature |
 | `LLM_MAX_TOKENS` | `2048` | Provider output-token budget |
 | `OPENCODE_API_KEY` | empty | Server-side OpenCode credential |
-| `OPENCODE_TRANSPORT` | `api` in code; production image uses `cli` | `cli` uses the embedded loopback OpenCode server and supports free-tier models; `api` uses the direct Zen endpoints |
+| `OPENCODE_TRANSPORT` | `api` | Direct remote API; optional `cli` uses the embedded loopback server with a separately configured free-tier model |
 | `OPENCODE_SERVER_URL` | `http://127.0.0.1:4097` | Loopback-only OpenCode server URL used by the CLI transport |
 | `OPENCODE_SERVER_AUTOSTART` | `true` in code; production image uses `false` | Start the embedded CLI server with the web process. Keep disabled on the 256 MB Northflank Sandbox; deterministic generation remains available. |
 | `OPENAI_API_KEY` | empty | Server-side OpenAI credential |
 | `ANTHROPIC_API_KEY` | empty | Server-side Anthropic credential |
-| `OPENCODE_BASE_URL` | `https://opencode.ai/zen/v1` | OpenAI-compatible OpenCode base URL |
+| `OPENCODE_BASE_URL` | `https://opencode.ai/inference/openai/v1` | OpenAI-compatible OpenCode base URL |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` in code | Local Ollama endpoint; production image explicitly clears it unless configured |
 
 Provider-specific model IDs take precedence over `LLM_MODEL` for their provider. This prevents a fallback provider from receiving another provider's incompatible model name.
@@ -51,8 +51,10 @@ Provider-specific model IDs take precedence over `LLM_MODEL` for their provider.
 The Northflank image's 256 MB profile uses `essential`, one custom shape
 candidate, and deterministic semantic/route checks. Its embedded OpenCode
 server is not autostarted because the resident CLI and web process exceed the
-reliable resource envelope. Larger deployments may enable the text-only free
-model; the call quota remains unlimited, while image inputs stay local.
+reliable resource envelope. OpenCode/GPT-6 Luna and Groq both use remote APIs.
+GPT models use Responses for plain text as well as schema/image calls, with
+low reasoning effort and no unsupported temperature argument. The existing
+workflow deadline and call budget apply to both providers.
 
 ## Street routing
 
@@ -110,7 +112,7 @@ Responses are cached in-process per rounded bounding box for ten minutes.
 | `AI_SHAPE_MAX_CANDIDATES` | `4` | Maximum generated drawing alternatives |
 | `AI_ROUTE_VERIFIER_ENABLED` | `true` | Enables optional model review of final route images |
 | `WORKFLOW_MAX_DURATION_SECONDS` | `175` | Advisory run deadline; later optional model calls use deterministic fallback |
-| `WORKFLOW_MAX_LLM_CALLS` | `8`; production free profile uses `-1` | Maximum actual provider invocations in one generation; `-1` disables only the call-count quota, while `0` disables model calls |
+| `WORKFLOW_MAX_LLM_CALLS` | `8`; production essential profile uses `-1` | Maximum actual provider invocations in one generation; `-1` disables only the call-count quota, while `0` disables model calls |
 | `WORKFLOW_MAX_TRACE_EVENTS` | `256` | Maximum stored lifecycle events per generation |
 
 The YAML file also defines sport bounds (`run: 3–60 km`, `bike: 10–200 km`) and `min_shape_fidelity: 0.7`; these currently have no direct environment-variable counterpart.

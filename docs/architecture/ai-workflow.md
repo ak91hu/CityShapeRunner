@@ -64,7 +64,7 @@ Budgets are scoped to one generation, not to the process:
 - `WORKFLOW_MAX_LLM_CALLS` counts actual provider invocations, including
   fallback-provider attempts. When exhausted, subsequent optional calls use
   the agent's deterministic fallback. Set it to `-1` for no call-count quota;
-  the production free-model profile uses this value. `0` disables model calls.
+  the production essential profile retains this value. `0` disables model calls.
 - `WORKFLOW_MAX_DURATION_SECONDS` is an advisory end-to-end deadline. Once it
   expires, new model calls use deterministic fallback. In-flight provider and
   routing calls retain their own transport timeouts.

@@ -31,7 +31,7 @@ flowchart LR
 1. A strict `ShapeSpec` preserves subject, modifiers, pose, part hierarchy and
    three to six route-scale recognition cues.
 2. Complexity and ambiguity normally select two to four competing candidates,
-   capped to one by the zero-cost production profile. A bounded
+   capped to one by the essential production profile. A bounded
    typed scaffold is also available for common high-risk silhouettes such as a
    robot with umbrella, bicycle, platypus, coffee cup, crowned dragon, phoenix,
    key, sailboat, astrolabe and spiral galaxy. These are complete ShapeSpec-
@@ -116,8 +116,8 @@ silhouette instead of cascading through slow providers. A misplaced model
 `close` command is moved to the end of its stroke locally so an otherwise valid
 drawing does not require another request.
 
-The optional direct OpenCode API transport defaults structured work to the
-image-capable `gpt-5.4-mini`; this is not used by the zero-cost CLI profile.
+The direct OpenCode API transport defaults structured work to the
+image-capable `gpt-6-luna` through the remote Responses endpoint.
 Deployments can override the model with `OPENCODE_STRUCTURED_MODEL`. The browser
 allows 240 seconds for both image and ordinary generation, preserves the exact
 image payload for retry, and shows actual streamed stages plus elapsed time.
@@ -154,25 +154,22 @@ first provider in the resolved primary/fallback order.
 semantic repair threshold are controlled by `AI_SHAPE_MAX_CANDIDATES` and
 `AI_SHAPE_MIN_SEMANTIC_SCORE`.
 
-## Zero-cost hosted profile
+## Essential hosted profile
 
-The production image configures `LLM_USAGE_MODE=essential`, the embedded
-OpenCode CLI transport, and a named free text model. Its 256 MB Northflank
-profile sets `OPENCODE_SERVER_AUTOSTART=false`, so the deployed web process uses
-the validated deterministic scaffold without a resident model process. Larger
-instances can enable autostart; unknown custom subjects may then use one
-semantic `ShapeSpec` call and one geometry call, and
-`WORKFLOW_MAX_LLM_CALLS=-1` leaves bounded repair/retry stages unrestricted.
+The production image configures `LLM_USAGE_MODE=essential` and remote OpenCode
+API calls to `gpt-6-luna`. Its 256 MB Northflank profile keeps
+`OPENCODE_SERVER_AUTOSTART=false`; no resident model process is needed. Unknown
+custom subjects may use a semantic `ShapeSpec` call and a geometry call, with
+the existing bounded repair/retry stages and workflow deadline.
 
-An optional `GROQ_API_KEY` enables remote text generation for one of ten
-anonymous visitor cohorts without starting that local process. `GROQ_MODEL`
-is independent of the OpenCode model. Other visitors cannot call Groq, even
-as a fallback; see [LLM providers](../reference/external-apis.md#llm-provider-layer).
+With both provider keys configured, half of anonymous browser cohorts prefer
+OpenCode/GPT-6 Luna and half prefer Groq. `GROQ_MODEL` is independent of the
+OpenCode model. OpenCode-assigned visitors cannot call Groq, even as a fallback;
+see [LLM providers](../reference/external-apis.md#llm-provider-layer).
 
-The free model does not receive rendered images. Set
+Keep optional image review costs disabled with
 `AI_SHAPE_VERIFIER_ENABLED=false`, `AI_ROUTE_VERIFIER_ENABLED=false`, and
-`AI_SHAPE_MAX_CANDIDATES=1` for this profile. If the configured free catalogue
-entry disappears or times out, the validated deterministic scaffold keeps the
-request functional instead of falling through to a paid provider. A failed
-OpenCode child is terminated before the web service continues, preventing the
-optional AI runtime from consuming Northflank CPU or memory after degradation.
+`AI_SHAPE_MAX_CANDIDATES=1` for this profile. API failure still reaches the
+validated deterministic scaffold. The optional CLI transport remains available
+for separately selected free models; its failed child is terminated before the
+web service continues.

@@ -340,6 +340,49 @@ def test_opencode_large_structured_shape_gets_bounded_extra_transport_time():
     assert recorder.kwargs["timeout"] == 45.0
 
 
+@pytest.mark.parametrize("options", [{}, {"json_mode": True}, {"json_schema": _SCHEMA}, {"images": [_PNG], "json_schema": _SCHEMA}])
+def test_opencode_luna_uses_responses_for_plain_json_and_image_calls(options):
+    recorder = _Recorder(SimpleNamespace(output_text='{"closed":true}', status="completed", usage=None))
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "gpt-6-luna"
+    provider._structured_model = "gpt-6-luna"
+    provider._temperature = 0.2
+    provider._max_tokens = 256
+
+    response = provider.complete([Message("user", "draw")], **options)
+
+    assert response.model == recorder.kwargs["model"] == "gpt-6-luna"
+    assert recorder.kwargs["reasoning"] == {"effort": "low"}
+    assert "temperature" not in recorder.kwargs
+    assert recorder.kwargs["max_output_tokens"] == 256
+    if options.get("images"):
+        assert recorder.kwargs["input"][0]["content"][1]["type"] == "input_image"
+
+
+def test_opencode_plain_luna_call_does_not_use_an_unrelated_structured_override():
+    recorder = _Recorder(SimpleNamespace(output_text="hello", status="completed", usage=None))
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=recorder)
+    provider._model = "gpt-6-luna"
+    provider._structured_model = "gpt-5.4-mini"
+    provider._max_tokens = 256
+
+    assert provider.complete([Message("user", "hello")]).model == "gpt-6-luna"
+    assert recorder.kwargs["model"] == "gpt-6-luna"
+
+
+def test_factory_keeps_remote_opencode_available_without_a_cli_server():
+    providers = llm_factory._build(LLMConfig(
+        provider="opencode", fallback_order=["opencode"], opencode_key="test-key",
+        opencode_transport="api", opencode_server_autostart=False, groq_key="",
+        opencode_model="gpt-6-luna", opencode_structured_model="gpt-6-luna",
+    ))
+    assert len(providers) == 1
+    assert providers[0].name == "opencode"
+    assert providers[0].is_available()
+
+
 def test_opencode_provider_rejects_incomplete_structured_output():
     recorder = _Recorder(
         SimpleNamespace(
@@ -701,7 +744,7 @@ def test_factory_adds_groq_without_reusing_the_primary_model():
     assert providers[0]._model == "openai/gpt-oss-120b"
 
 
-def test_only_one_of_ten_visitor_cohorts_uses_groq(isolated_factory, monkeypatch):
+def test_visitor_cohorts_split_evenly_between_opencode_and_groq(isolated_factory, monkeypatch):
     primary, groq = _install_providers(
         monkeypatch, _StubProvider("opencode"), _StubProvider("groq"),
     )
@@ -713,8 +756,8 @@ def test_only_one_of_ten_visitor_cohorts_uses_groq(isolated_factory, monkeypatch
             assert again.provider == first.provider
             assert llm_factory.get_llm().name == first.provider
             selected.append(first.provider)
-    assert selected == ["groq", *(["opencode"] * 9)]
-    assert (groq.calls, primary.calls) == (2, 18)
+    assert selected == ["groq", "opencode"] * 5
+    assert (groq.calls, primary.calls) == (10, 10)
     assert llm_factory._STICKY.get() is None
 
 

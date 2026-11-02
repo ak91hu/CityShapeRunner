@@ -13,9 +13,9 @@ from typing import Any
 from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_responses_input
 
-_DEFAULT_MODEL = "glm-5.2"
-_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1"
-_DEFAULT_STRUCTURED_MODEL = "gpt-5.4-mini"
+_DEFAULT_MODEL = "gpt-6-luna"
+_DEFAULT_BASE_URL = "https://opencode.ai/inference/openai/v1"
+_DEFAULT_STRUCTURED_MODEL = "gpt-6-luna"
 _STRUCTURED_TIMEOUT_S = 30.0
 _LARGE_STRUCTURED_TIMEOUT_S = 45.0
 _MAX_STRUCTURED_RETRY_TOKENS = 16_384
@@ -75,14 +75,15 @@ class OpenCodeProvider:
             msgs.append({"role": "system", "content": system})
         msgs.extend(to_responses_input(messages, images) if images else to_dicts(messages))
 
-        # Zen exposes current OpenAI models through /v1/responses. Its
-        # OpenAI-compatible chat models accept JSON mode, but reasoning models
-        # may spend the complete output budget on prose before emitting JSON.
-        # A Responses model with strict text.format keeps structured agent
-        # calls bounded and makes malformed/truncated geometry exceptional.
-        if (json_schema is not None or images) and self._structured_model:
+        # OpenCode serves GPT models through Responses, including plain-text
+        # calls; schema/image calls may explicitly select a different model.
+        response_model = self._structured_model if json_schema is not None or images else ""
+        if not response_model and self._model.startswith("gpt-"):
+            response_model = self._model
+        if response_model:
             return self._complete_structured(
                 msgs,
+                model=response_model,
                 json_schema=json_schema,
                 max_tokens=max_tokens,
                 json_mode=json_mode,
@@ -114,12 +115,13 @@ class OpenCodeProvider:
         self,
         messages: list[dict[str, Any]],
         *,
+        model: str,
         json_schema: dict[str, Any] | None,
         max_tokens: int | None,
         json_mode: bool = False,
     ) -> LLMResponse:
         kwargs: dict[str, Any] = {
-            "model": self._structured_model,
+            "model": model,
             "input": messages,
             "max_output_tokens": self._max_tokens if max_tokens is None else max_tokens,
             # Geometry/repair schemas are much larger than intent or review
@@ -142,14 +144,14 @@ class OpenCodeProvider:
             }
         elif json_mode:
             kwargs["text"] = {"format": {"type": "json_object"}}
-        if self._structured_model.casefold().startswith("gpt-5"):
+        if model.casefold().startswith(("gpt-5", "gpt-6")):
             kwargs["reasoning"] = {"effort": "low"}
         timeout_retried = False
 
         def create_response():
             nonlocal timeout_retried
             try:
-                publish_llm_call(self.name, self._structured_model)
+                publish_llm_call(self.name, model)
                 return self._client.responses.create(**kwargs)
             except Exception as error:  # noqa: BLE001
                 if timeout_retried or not _is_timeout_error(error):
@@ -160,7 +162,7 @@ class OpenCodeProvider:
                 # rotation remains available if the second attempt also fails.
                 timeout_retried = True
                 kwargs["timeout"] = _LARGE_STRUCTURED_TIMEOUT_S
-                publish_llm_call(self.name, self._structured_model)
+                publish_llm_call(self.name, model)
                 return self._client.responses.create(**kwargs)
 
         try:
@@ -202,7 +204,7 @@ class OpenCodeProvider:
         return LLMResponse(
             text=choice,
             provider=self.name,
-            model=self._structured_model,
+            model=model,
             usage=usage,
             raw=resp,
         )
