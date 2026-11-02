@@ -40,7 +40,7 @@ def test_directions_memoisation_never_merges_distinct_provider_inputs(monkeypatc
         ors_client.clear_directions_cache()
 
 
-@pytest.mark.parametrize(("n", "m"), [(1, 1), (3, 5), (64, 64), (96, 72), (256, 256)])
+@pytest.mark.parametrize(("n", "m"), [(1, 1), (1, 5), (5, 1), (3, 5), (64, 64), (96, 72), (256, 256)])
 def test_batched_frechet_is_bit_identical_to_independent_dynamic_programs(n, m):
     rng = np.random.default_rng(123)
     reference = rng.normal(size=(n, 2))
@@ -48,6 +48,14 @@ def test_batched_frechet_is_bit_identical_to_independent_dynamic_programs(n, m):
     expected = [shape_similarity.discrete_frechet(reference, c) for c in candidates]
     actual = shape_similarity._discrete_frechet_batch(reference, candidates)
     np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize(("n", "m"), [(0, 0), (0, 5), (5, 0), (1, 5), (64, 64)])
+def test_native_frechet_preserves_empty_and_zero_length_curves(n, m):
+    reference = np.zeros((n, 2))
+    candidates = tuple(np.zeros((m, 2)) for _ in range(2))
+    expected = [shape_similarity.discrete_frechet(reference, c) for c in candidates]
+    np.testing.assert_array_equal(shape_similarity._discrete_frechet_batch(reference, candidates), expected)
 
 
 def test_complete_diagnostics_keep_the_same_scores_for_every_phase(monkeypatch):
