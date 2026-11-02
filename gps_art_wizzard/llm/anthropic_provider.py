@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, cast
 
+from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, decode_data_url, to_dicts
 
 if TYPE_CHECKING:
@@ -87,6 +88,7 @@ class AnthropicProvider:
                 "format": {"type": "json_schema", "schema": json_schema}
             }
         try:
+            publish_llm_call(self.name, self._model)
             resp = self._client.messages.create(
                 **kwargs,
             )

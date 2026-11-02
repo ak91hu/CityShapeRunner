@@ -26,6 +26,8 @@ At least one LLM provider improves custom free-text drawing and semantic verific
 | --- | --- | --- |
 | `LLM_PROVIDER` | `auto` in code; example uses `opencode` | Primary provider: `opencode`, `openai`, `anthropic`, `ollama`, or automatic selection |
 | `LLM_FALLBACK` | `opencode,anthropic,openai,ollama` | Comma-separated fallback sequence |
+| `GROQ_API_KEY` | empty | Optional Groq credential; enables Groq first for one of ten anonymous browser cohorts, even when absent from `LLM_FALLBACK` |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq text model, independent of `LLM_MODEL`; JSON object mode with application schema/geometry validation |
 | `LLM_USAGE_MODE` | `balanced` in code; production image uses `essential` | `essential` skips model-based intent, planning, image review, and route review; only unknown custom-shape generation may call a model |
 | `LLM_MODEL` | empty | General model ID when no provider-specific model is set |
 | `OPENCODE_MODEL` | empty in code; production image uses `muse-spark-1.3-contributor-free` | OpenCode model override; keep this explicit because free catalogue entries may change |

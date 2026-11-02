@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, decode_data_url, to_dicts
 
 _DEFAULT_MODEL = "llama3.1"
@@ -70,6 +71,7 @@ class OllamaProvider:
         elif json_mode:
             payload["format"] = "json"
         try:
+            publish_llm_call(self.name, self._model)
             r = httpx.post(f"{self._base_url}/api/chat", json=payload, timeout=120.0)
             r.raise_for_status()
             data = r.json()

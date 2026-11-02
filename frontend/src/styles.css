@@ -4179,6 +4179,10 @@ footer {
   line-height: 1.45 !important;
 }
 
+.loading-llm {
+  overflow-wrap: anywhere;
+}
+
 .loading-stages-heading {
   display: flex;
   align-items: baseline;

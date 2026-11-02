@@ -148,9 +148,10 @@ deployments should use the value above. See the
 The dashboard shows the new host's quota, not the legacy host's quota. Check
 the effective environment override as well as the application default.
 
-This 256 MB profile does not start the embedded model process and therefore
-makes no AI calls. Intent extraction, planning, shape construction, image and
-route review, road validation, and export use their deterministic paths. On a
+Without the optional Groq key, this 256 MB profile does not start the embedded
+model process and therefore makes no AI calls. Intent extraction, planning,
+shape construction, image and route review, road validation, and export use
+their deterministic paths. On a
 larger instance, enabling `OPENCODE_SERVER_AUTOSTART` activates the named free
 model with no global call-count quota. If that child cannot become healthy, it
 is stopped before Uvicorn starts and the runtime logs one warning rather than
@@ -175,6 +176,7 @@ Create a Northflank secret group or enter masked runtime secrets for:
 ```dotenv
 ORS_API_KEY=...
 OPENCODE_API_KEY=...
+GROQ_API_KEY=...
 ```
 
 Never paste these keys into repository files, Docker build arguments, or public
@@ -182,6 +184,13 @@ logs. Without `ORS_API_KEY`, the app still starts and `/health` remains useful,
 but route generation fails closed with HTTP 503 because a straight-line guide
 is not a usable GPS route. Without the optional LLM key, deterministic planning
 remains available.
+
+`GROQ_API_KEY` is an optional remote supplement. With the updated application,
+one of ten anonymous browser cohorts uses `GROQ_MODEL` (default
+`openai/gpt-oss-120b`) first, then the configured fallback chain; other
+visitors never call Groq. It does not start the embedded OpenCode server or
+require adding Groq to `LLM_FALLBACK`. Rotating `OPENCODE_API_KEY` does not
+enable the disabled OpenCode process. See [LLM provider layer](../reference/external-apis.md#llm-provider-layer).
 
 The SPA and API share one origin, so no production CORS entry is required.
 Only set `WEB_CORS_ORIGINS` if a separate frontend domain must call the API; in

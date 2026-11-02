@@ -76,10 +76,19 @@ fail-closed contract: a late computation must not turn an unverified guide into
 a downloadable track.
 
 Provider fallback remains in `llm/factory.py`. It consults the active run before
-each reachable-provider invocation, records only provider names and integer
+each reachable-provider invocation, records only provider/model identifiers and integer
 usage metrics, and calls the existing local fallback when no attempt is
 permitted or successful. Provider/model code still returns the common
 `LLMResponse` type.
+
+Immediately before an adapter sends a model request, it publishes the actual
+provider and model ID in the progress event's `llm_call` field. This includes
+OpenCode's separate structured-output model. The waiting screen displays the
+latest dispatched call and updates when fallback changes providers; it does
+not infer model use from configuration. Before any call is reported, it says
+so. Deterministic routing steps retain the latest call label without claiming
+that a model is still active. Prompts, credentials, and response bodies are
+never part of this progress field.
 
 ## Observability and privacy
 

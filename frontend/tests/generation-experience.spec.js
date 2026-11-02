@@ -59,6 +59,31 @@ test("live search counters describe real work and do not move backwards", async 
   await expect(page.locator(".result")).toBeVisible();
 });
 
+test("live LLM usage names the dispatched provider and model and follows fallback", async ({ page }) => {
+  await startLiveGeneration(page);
+  const usage = page.getByRole("status", { name: "LLM usage", exact: true });
+  await expect(usage).toHaveText("No LLM calls reported yet.");
+  await page.evaluate(() => window.sendGeneration({
+    type: "progress", stage: "shape", status: "running",
+    llm_call: { provider: "groq", model: "openai/gpt-oss-120b" },
+  }));
+  await expect(usage).toHaveText("Latest LLM call: groq · openai/gpt-oss-120b");
+  await page.evaluate(() => window.sendGeneration({
+    type: "progress", stage: "snap", status: "running",
+  }));
+  await expect(usage).toContainText("groq · openai/gpt-oss-120b");
+  const model = `structured-${"model-version-".repeat(15)}`;
+  await page.evaluate(model => window.sendGeneration({
+    type: "progress", stage: "shape", status: "running",
+    llm_call: { provider: "opencode", model },
+  }), model);
+  await expect(usage).toHaveText(`Latest LLM call: opencode · ${model}`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+  await page.evaluate((result) => window.finishGeneration(result), buildRouteResult());
+  await expect(page.locator(".result")).toBeVisible();
+  await expect(usage).toHaveCount(0);
+});
+
 test("the sketch challenge works without changing or delaying generation", async ({ page }) => {
   await startLiveGeneration(page);
   const game = page.locator(".waiting-game:not(.waiting-runner)");

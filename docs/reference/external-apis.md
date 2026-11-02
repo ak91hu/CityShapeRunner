@@ -336,6 +336,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | OpenCode | Optional embedded loopback `opencode serve` for the free profile; direct Zen Chat/Responses for the optional paid profile | CLI transport embeds the requested schema in text and is text-only; its autostart is disabled on the 256 MB Northflank profile. Direct transport retains strict structured/image support. | `OPENCODE_API_KEY`, `OPENCODE_TRANSPORT`, `OPENCODE_SERVER_URL`, `OPENCODE_SERVER_AUTOSTART`, `OPENCODE_MODEL`; direct mode also uses `OPENCODE_BASE_URL`, `OPENCODE_STRUCTURED_MODEL` |
 | OpenAI | Chat Completions for text; Responses for images | strict JSON schema on supported model families, otherwise JSON object mode | `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| Groq | `POST https://api.groq.com/openai/v1/chat/completions` through HTTPX | Text-only JSON object mode; schema included in the prompt and checked by the application; 30 s timeout, no adapter retries | `GROQ_API_KEY`, `GROQ_MODEL` |
 | Anthropic | Messages API | system prompt is separate from messages; base64 image blocks; schema output only for gated supported model families | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
 | Ollama | `GET /api/tags`, `POST /api/chat` | local availability probe; native `format: "json"` or JSON Schema; base64 images | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
 
@@ -343,11 +344,23 @@ The adapters follow the official provider contracts: [OpenAI Responses and struc
 
 Provider output is always treated as untrusted. JSON parsing, shape-program compilation, finite-coordinate checks, topology checks, semantic verification, and one bounded repair execute after the API response. A model can propose an outline; it cannot declare a route street-connected or exportable.
 
+Groq follows its documented [JSON object mode](https://console.groq.com/docs/structured-outputs).
+With a Groq key present, one of ten anonymous browser cohorts tries Groq first
+and can fall back to the normal chain. The other nine cohorts never call Groq,
+even for fallback or review. The `paceasso_visitor` HttpOnly, SameSite=Lax cookie
+persists for a year; HTTPS responses also set Secure. Assignment is stable
+across replicas and requests, with provider stickiness isolated per request.
+Clearing cookies creates a new visitor. This is a 10% cohort allocation, not an
+exact count of live API calls: deterministic paths and cached shapes need no
+model call. Image calls skip the text-only Groq adapter without opening its
+health cooldown.
+
 The production `essential` profile uses no model for intent extraction,
 planning, rendered-image review, or final-route review. On the 256 MB
-Northflank profile, custom subjects are deterministic too because the embedded
-server autostart is disabled. A larger deployment can enable it and use the
-configured free catalogue entry without rebuilding.
+Northflank profile, OpenCode custom subjects are deterministic too because the
+embedded server autostart is disabled. Groq's visitor cohort can use its remote
+API without that local process. A larger deployment can enable the embedded
+server and use the configured free catalogue entry without rebuilding.
 
 Implementation: [`gps_art_wizzard/llm/factory.py`](https://github.com/ak91hu/CityShapeRunner/blob/master/gps_art_wizzard/llm/factory.py), [`gps_art_wizzard/llm/`](https://github.com/ak91hu/CityShapeRunner/tree/master/gps_art_wizzard/llm)
 

@@ -364,7 +364,11 @@ unrouted straight-line diagnostic safe.
 
 ### Provider fallback loop (llm factory)
 On `LLMError`, rotate to the next provider in `fallback_order`; the chosen
-provider is sticky for the rest of the run.
+provider is sticky within the request, isolated from concurrent visitors.
+When `GROQ_API_KEY` is configured, one of ten anonymous browser cohorts tries
+Groq first, then the normal fallback chain. The other nine cohorts cannot call
+Groq, including during fallback or review. A persistent `paceasso_visitor`
+HttpOnly cookie keeps the assignment stable across requests and replicas.
 
 ### Shape-generation fallback (ShapeAgent)
 Tier order is set by the plan; each tier only runs if the previous yielded

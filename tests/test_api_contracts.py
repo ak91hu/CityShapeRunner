@@ -838,3 +838,32 @@ def test_responses_include_browser_security_headers() -> None:
     assert "https://tile.openstreetmap.org" in content_security_policy
     assert "connect-src 'self' https://tiles.openfreemap.org" in content_security_policy
     assert "https://res.cloudinary.com" in content_security_policy
+
+
+def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets():
+    from gps_art_wizzard.llm import factory
+
+    app = create_app()
+
+    @app.post("/visitor-test")
+    def visitor_test():
+        return {"groq": factory._GROQ_VISITOR.get()}
+
+    app.router.routes.insert(0, app.router.routes.pop())
+    with TestClient(app, base_url="https://testserver") as client:
+        assert "set-cookie" not in client.get("/health").headers
+        assert "set-cookie" not in client.get("/assets/missing.js").headers
+        client.cookies.set("paceasso_visitor", "malformed")
+        first = client.post("/visitor-test")
+        cookie = first.cookies["paceasso_visitor"]
+        assert len(cookie) == 32
+        assert first.json()["groq"] == (int(cookie, 16) % 10 == 0)
+        assert first.headers["cache-control"] == "no-store"
+        assert "HttpOnly" in first.headers["set-cookie"]
+        assert "Secure" in first.headers["set-cookie"]
+        assert "SameSite=lax" in first.headers["set-cookie"]
+        client.cookies.clear()
+        client.cookies.set("paceasso_visitor", cookie)
+        second = client.post("/visitor-test")
+        assert second.json() == first.json()
+        assert "set-cookie" not in second.headers

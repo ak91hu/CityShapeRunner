@@ -16,6 +16,7 @@ os.environ["AI_ROUTE_VERIFIER_ENABLED"] = "true"
 for secret_name in (
     "ORS_API_KEY",
     "OPENCODE_API_KEY",
+    "GROQ_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
 ):

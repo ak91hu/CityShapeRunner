@@ -13,6 +13,7 @@ from gps_art_wizzard.llm.anthropic_provider import (
     _supports_structured_outputs,
 )
 from gps_art_wizzard.llm.base import ImageInput, LLMError, Message
+from gps_art_wizzard.llm.groq_provider import GroqProvider
 from gps_art_wizzard.llm.ollama_provider import OllamaProvider
 from gps_art_wizzard.llm.openai_provider import (
     OpenAIProvider,
@@ -690,6 +691,171 @@ def _fallback():
     return "deterministic"
 
 
+def test_factory_adds_groq_without_reusing_the_primary_model():
+    providers = llm_factory._build(LLMConfig(  # noqa: SLF001
+        provider="opencode", fallback_order=["opencode"],
+        opencode_key="", groq_key="test-key", model="opencode-only",
+    ))
+    assert len(providers) == 1
+    assert providers[0].name == "groq"
+    assert providers[0]._model == "openai/gpt-oss-120b"
+
+
+def test_only_one_of_ten_visitor_cohorts_uses_groq(isolated_factory, monkeypatch):
+    primary, groq = _install_providers(
+        monkeypatch, _StubProvider("opencode"), _StubProvider("groq"),
+    )
+    selected = []
+    for visitor in range(10):
+        with llm_factory.visitor_scope(f"{visitor:032x}"):
+            first = llm_factory.try_complete(_fallback)
+            again = llm_factory.try_complete(_fallback)
+            assert again.provider == first.provider
+            assert llm_factory.get_llm().name == first.provider
+            selected.append(first.provider)
+    assert selected == ["groq", *(["opencode"] * 9)]
+    assert (groq.calls, primary.calls) == (2, 18)
+    assert llm_factory._STICKY.get() is None
+
+
+def test_groq_is_never_a_fallback_outside_its_cohort(isolated_factory, monkeypatch):
+    _primary, groq = _install_providers(
+        monkeypatch, _StubProvider("opencode", error="down"), _StubProvider("groq"),
+    )
+    with llm_factory.visitor_scope(f"{1:032x}"):
+        assert llm_factory.try_complete(_fallback) == "deterministic"
+    assert groq.calls == groq.probe_count == 0
+
+
+def test_groq_cohort_keeps_normal_fallback_and_skips_text_only_image_calls(
+    isolated_factory, monkeypatch,
+):
+    primary, groq = _install_providers(
+        monkeypatch, _StubProvider("opencode"), _StubProvider("groq", error="HTTP 429"),
+    )
+    with llm_factory.visitor_scope(f"{0:032x}"):
+        assert llm_factory.try_complete(_fallback, images=[_PNG]).provider == "opencode"
+        assert groq.calls == groq.probe_count == 0
+        assert not llm_factory._probe_in_cooldown("groq")
+    with llm_factory.visitor_scope(f"{10:032x}"):
+        assert llm_factory.try_complete(_fallback).provider == "opencode"
+        assert llm_factory.try_complete(_fallback).provider == "opencode"
+    assert groq.calls == 1
+    assert primary.calls == 3
+
+
+def test_concurrent_visitors_do_not_share_sticky_providers(isolated_factory, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    _install_providers(monkeypatch, _StubProvider("opencode"), _StubProvider("groq"))
+    barrier = Barrier(2)
+
+    def visit(visitor):
+        with llm_factory.visitor_scope(f"{visitor:032x}"):
+            first = llm_factory.try_complete(_fallback).provider
+            barrier.wait(timeout=5)
+            return first, llm_factory.try_complete(_fallback).provider
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert list(pool.map(visit, [0, 1])) == [("groq", "groq"), ("opencode", "opencode")]
+
+
+def test_groq_sends_schema_and_bounded_request_and_records_usage():
+    captured = []
+    events = []
+    runtime = WorkflowRuntime(
+        WorkflowState(prompt="draw"), max_duration_seconds=60, max_llm_calls=8,
+        event_sink=events.append,
+    )
+
+    def handler(request):
+        assert events[-1]["llm_call"] == {"provider": "groq", "model": "groq-model"}
+        captured.append(request)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"closed":true}'}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 3},
+        })
+
+    provider = GroqProvider("test-key", "groq-model", 0.2, 256)
+    provider._client.close()
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.groq.com/openai/v1/") as client:
+        provider._client = client
+        with runtime.activate():
+            result = provider.complete(
+                [Message("user", "draw")], system="geometry", json_schema=_SCHEMA,
+                temperature=0, max_tokens=128,
+            )
+    payload = json.loads(captured[0].content)
+    assert str(captured[0].url) == "https://api.groq.com/openai/v1/chat/completions"
+    assert payload["model"] == "groq-model"
+    assert payload["max_completion_tokens"] == 128
+    assert payload["temperature"] == 0
+    assert payload["response_format"] == {"type": "json_object"}
+    assert json.dumps(_SCHEMA) in payload["messages"][0]["content"]
+    assert result.provider == "groq"
+    assert result.usage == {"prompt": 7, "completion": 3}
+
+
+def test_live_progress_uses_opencodes_actual_structured_model_and_is_run_scoped():
+    events = []
+    runtime = WorkflowRuntime(
+        WorkflowState(prompt="draw"), max_duration_seconds=60, max_llm_calls=8,
+        event_sink=events.append,
+    )
+    expected = {"provider": "opencode", "model": "gpt-5.4-mini"}
+
+    def create(**kwargs):
+        assert kwargs["model"] == expected["model"]
+        assert events[-1]["llm_call"] == expected
+        assert events[-1]["stage"] == "shape"
+        return SimpleNamespace(output_text="{}", status="completed", usage=None)
+
+    provider = OpenCodeProvider.__new__(OpenCodeProvider)
+    provider._client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    provider._model = "different-chat-model"
+    provider._structured_model = expected["model"]
+    provider._max_tokens = 256
+    with runtime.activate():
+        runtime.run_step("shape", lambda: provider.complete([], json_schema=_SCHEMA))
+        runtime.run_step("snap", lambda: None)
+    assert events[-1]["llm_call"] == expected
+    assert not any("messages" in event or "api_key" in event for event in events)
+
+    next_events = []
+    next_runtime = WorkflowRuntime(
+        WorkflowState(prompt="heart"), max_duration_seconds=60, max_llm_calls=8,
+        event_sink=next_events.append,
+    )
+    next_runtime.run_step("shape", lambda: None)
+    assert next_events[-1]["llm_call"] is None
+
+
+@pytest.mark.parametrize("status,body", [
+    (401, {"error": "secret must not be logged"}),
+    (429, {}),
+    (500, {}),
+    (200, {"choices": []}),
+    (200, {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}),
+    (200, {"choices": [{"message": {"content": "partial"}, "finish_reason": "length"}]}),
+])
+def test_groq_rejects_failed_or_incomplete_responses_without_retry(status, body):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(status, json=body)
+
+    provider = GroqProvider("test-key", "groq-model", 0.2, 256)
+    provider._client.close()
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.groq.com/openai/v1/") as client:
+        provider._client = client
+        with pytest.raises(LLMError) as error:
+            provider.complete([Message("user", "draw")])
+    assert "secret" not in str(error.value)
+    assert len(calls) == 1
+
+
 def test_factory_omits_cli_provider_when_server_autostart_is_disabled():
     config = LLMConfig(
         provider="opencode",
@@ -793,7 +959,7 @@ def test_pin_provider_false_leaves_sticky_unset(isolated_factory, monkeypatch):
     llm_factory.try_complete(_fallback, pin_provider=False, prompt="x")
 
     assert provider.calls == 1
-    assert llm_factory._STICKY is None  # noqa: SLF001 - success was not pinned
+    assert llm_factory._STICKY.get() is None  # noqa: SLF001 - success was not pinned
 
 
 def test_max_provider_attempts_stops_after_the_first_failure(isolated_factory, monkeypatch):

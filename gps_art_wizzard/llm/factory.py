@@ -1,6 +1,6 @@
 """LLM factory: pick the first available provider and fall back on errors.
 
-The chosen provider is *sticky* for the rest of the process so the pipeline
+The chosen provider is *sticky* within the request context so the pipeline
 stays coherent (one agent's prompts won't flip providers mid-run).
 """
 
@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 
 from ..config import LLMConfig, get_settings
@@ -16,10 +18,32 @@ from .base import LLMError, LLMProvider, NoProviderError
 
 log = logging.getLogger(__name__)
 
-# Module-level cache of the sticky provider chosen on first success.
-_STICKY: LLMProvider | None = None
+_STICKY: ContextVar[LLMProvider | None] = ContextVar("llm_provider", default=None)
+_GROQ_VISITOR: ContextVar[bool] = ContextVar("groq_visitor", default=False)
 _UNAVAILABLE_UNTIL: dict[str, float] = {}
 _PROBE_COOLDOWN_S = 30.0
+
+
+@contextmanager
+def visitor_scope(visitor_id: str):
+    """Keep a browser in one of ten equal cohorts across requests/replicas."""
+    cohort_token = _GROQ_VISITOR.set(int(visitor_id, 16) % 10 == 0)
+    sticky_token = _STICKY.set(None)
+    try:
+        yield
+    finally:
+        _STICKY.reset(sticky_token)
+        _GROQ_VISITOR.reset(cohort_token)
+
+
+def _request_providers() -> list[LLMProvider]:
+    providers = [
+        provider for provider in available_providers()
+        if provider.name != "groq" or _GROQ_VISITOR.get()
+    ]
+    if _GROQ_VISITOR.get():
+        providers.sort(key=lambda provider: provider.name != "groq")
+    return providers
 
 
 def _probe_in_cooldown(provider_name: str) -> bool:
@@ -36,6 +60,8 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
     """Instantiate every provider that *could* work, in fallback order."""
     candidates: list[LLMProvider] = []
     provider_order = _provider_order(cfg)
+    if cfg.groq_key and "groq" not in provider_order:
+        provider_order.append("groq")
     primary_provider = provider_order[0] if provider_order else ""
 
     def model_for(name: str) -> str:
@@ -44,6 +70,7 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
             "openai": cfg.openai_model,
             "anthropic": cfg.anthropic_model,
             "ollama": cfg.ollama_model,
+            "groq": cfg.groq_model,
         }[name]
         if explicit:
             return explicit
@@ -84,6 +111,9 @@ def _build(cfg: LLMConfig) -> list[LLMProvider]:
             elif name == "ollama" and cfg.ollama_base_url:
                 from .ollama_provider import OllamaProvider
                 candidates.append(OllamaProvider(cfg.ollama_base_url, model_for("ollama"), cfg.temperature, cfg.max_tokens))
+            elif name == "groq" and cfg.groq_key:
+                from .groq_provider import GroqProvider
+                candidates.append(GroqProvider(cfg.groq_key, cfg.groq_model, cfg.temperature, cfg.max_tokens))
         except LLMError as e:
             log.debug("provider %s unavailable: %s", name, e)
 
@@ -114,29 +144,28 @@ def get_llm() -> LLMProvider:
 
     Raises :class:`NoProviderError` if none are configured.
     """
-    global _STICKY
-    if _STICKY is not None:
-        return _STICKY
+    sticky = _STICKY.get()
+    if sticky is not None:
+        return sticky
 
-    for provider in available_providers():
+    for provider in _request_providers():
         if _probe_in_cooldown(provider.name):
             continue
         if provider.is_available():
-            _STICKY = provider
+            _STICKY.set(provider)
             log.info("LLM provider selected: %s", provider.name)
             return provider
         _UNAVAILABLE_UNTIL[provider.name] = time.monotonic() + _PROBE_COOLDOWN_S
 
     raise NoProviderError(
-        "No LLM provider available. Set OPENCODE_API_KEY (Zen) / OPENAI_API_KEY / ANTHROPIC_API_KEY "
+        "No LLM provider available. Set OPENCODE_API_KEY (Zen) / GROQ_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY "
         "or run Ollama. Agents will use their deterministic fallbacks."
     )
 
 
 def reset_sticky() -> None:
     """Reset provider health/stickiness state (mainly for tests)."""
-    global _STICKY
-    _STICKY = None
+    _STICKY.set(None)
     _UNAVAILABLE_UNTIL.clear()
 
 
@@ -154,16 +183,17 @@ def try_complete(
     candidate. If all fail (or none configured), calls ``fallback_fn()``
     so the agent can degrade gracefully.
     """
-    global _STICKY
     providers = [
         provider
-        for provider in available_providers()
+        for provider in _request_providers()
         if provider.name != exclude_provider
+        and not (provider.name == "groq" and kwargs.get("images"))
     ]
     # If a sticky provider exists, try it first, then the rest.
-    if _STICKY is not None and _STICKY in providers:
-        providers.remove(_STICKY)
-        providers.insert(0, _STICKY)
+    sticky = _STICKY.get()
+    if sticky is not None and sticky in providers:
+        providers.remove(sticky)
+        providers.insert(0, sticky)
 
     last_err: Exception | None = None
     attempted = 0
@@ -191,7 +221,7 @@ def try_complete(
             if runtime is not None:
                 runtime.record_llm_success(resp.usage)
             if pin_provider:
-                _STICKY = provider  # pin the primary generation provider only
+                _STICKY.set(provider)  # pin the primary generation provider only
             return resp
         except LLMError as e:
             last_err = e

@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .api.gallery import router as gallery_router
 from .api.niche import router as niche_router
 from .api.routes import router
+from .llm.factory import visitor_scope
 from .logging_config import (
     bind_request_id,
     configure_logging,
@@ -113,6 +114,10 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_logging(request: Request, call_next):
+        visitor_id = request.cookies.get("paceasso_visitor", "")
+        new_visitor = re.fullmatch(r"[0-9a-f]{32}", visitor_id) is None
+        if new_visitor:
+            visitor_id = uuid.uuid4().hex
         supplied_id = request.headers.get("x-request-id", "").strip()
         request_id = (
             supplied_id
@@ -133,7 +138,14 @@ def create_app() -> FastAPI:
             },
         )
         try:
-            response = await call_next(request)
+            with visitor_scope(visitor_id):
+                response = await call_next(request)
+            if new_visitor and (request.url.path == "/" or request.method == "POST"):
+                response.set_cookie(
+                    "paceasso_visitor", visitor_id, max_age=365 * 24 * 60 * 60,
+                    httponly=True, secure=request.url.scheme == "https", samesite="lax",
+                )
+                response.headers["Cache-Control"] = "no-store"
             duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
             response.headers["X-Request-ID"] = request_id
             request_log(

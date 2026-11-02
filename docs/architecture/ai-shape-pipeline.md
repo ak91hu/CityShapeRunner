@@ -147,7 +147,7 @@ For a genuinely independent visual review, configure at least two providers in
 attempt. With one provider, the disclosed self-review still ranks rendered
 candidates and supplies typed repair diagnostics, but is not independent
 evidence.
-Use `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `OPENCODE_MODEL`, or `OLLAMA_MODEL` when
+Use `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `OPENCODE_MODEL`, `GROQ_MODEL`, or `OLLAMA_MODEL` when
 overriding a fallback provider's default model; `LLM_MODEL` applies to the
 first provider in the resolved primary/fallback order.
 `AI_SHAPE_VERIFIER_ENABLED=false` disables that call. Candidate count and the
@@ -163,6 +163,11 @@ the validated deterministic scaffold without a resident model process. Larger
 instances can enable autostart; unknown custom subjects may then use one
 semantic `ShapeSpec` call and one geometry call, and
 `WORKFLOW_MAX_LLM_CALLS=-1` leaves bounded repair/retry stages unrestricted.
+
+An optional `GROQ_API_KEY` enables remote text generation for one of ten
+anonymous visitor cohorts without starting that local process. `GROQ_MODEL`
+is independent of the OpenCode model. Other visitors cannot call Groq, even
+as a fallback; see [LLM providers](../reference/external-apis.md#llm-provider-layer).
 
 The free model does not receive rendered images. Set
 `AI_SHAPE_VERIFIER_ENABLED=false`, `AI_ROUTE_VERIFIER_ENABLED=false`, and

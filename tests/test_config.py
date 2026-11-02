@@ -52,6 +52,17 @@ def test_opencode_visual_model_defaults_to_fast_responses_model(monkeypatch) -> 
     assert config.LLMConfig().opencode_structured_model == "gpt-5.4-mini"
 
 
+def test_groq_credentials_and_model_are_independent_of_opencode(monkeypatch) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq")
+    monkeypatch.setenv("GROQ_MODEL", "groq-model")
+    settings = config.LLMConfig(
+        opencode_key="", openai_key="", anthropic_key="", ollama_base_url="",
+    )
+    assert settings.groq_key == "test-groq"
+    assert settings.groq_model == "groq-model"
+    assert settings.has_any_provider
+
+
 def test_opencode_cli_transport_settings_are_environment_driven(monkeypatch) -> None:
     monkeypatch.setenv("OPENCODE_TRANSPORT", "cli")
     monkeypatch.setenv("OPENCODE_SERVER_URL", "http://127.0.0.1:4097")

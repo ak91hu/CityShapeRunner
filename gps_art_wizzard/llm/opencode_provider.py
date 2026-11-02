@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..workflow_runtime import publish_llm_call
 from .base import ImageInput, LLMError, LLMResponse, Message, to_dicts, to_responses_input
 
 _DEFAULT_MODEL = "glm-5.2"
@@ -99,6 +100,7 @@ class OpenCodeProvider:
         if json_mode or json_schema is not None:
             kwargs["response_format"] = {"type": "json_object"}
         try:
+            publish_llm_call(self.name, self._model)
             resp = self._client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
             raise LLMError(f"OpenCode Zen call failed: {e}") from e
@@ -147,6 +149,7 @@ class OpenCodeProvider:
         def create_response():
             nonlocal timeout_retried
             try:
+                publish_llm_call(self.name, self._structured_model)
                 return self._client.responses.create(**kwargs)
             except Exception as error:  # noqa: BLE001
                 if timeout_retried or not _is_timeout_error(error):
@@ -157,6 +160,7 @@ class OpenCodeProvider:
                 # rotation remains available if the second attempt also fails.
                 timeout_retried = True
                 kwargs["timeout"] = _LARGE_STRUCTURED_TIMEOUT_S
+                publish_llm_call(self.name, self._structured_model)
                 return self._client.responses.create(**kwargs)
 
         try:
