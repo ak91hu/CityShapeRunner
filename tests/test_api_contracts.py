@@ -840,9 +840,17 @@ def test_responses_include_browser_security_headers() -> None:
     assert "https://res.cloudinary.com" in content_security_policy
 
 
-def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets():
+@pytest.mark.parametrize("environment,origin,secure", [
+    ("production", "http://testserver", True),
+    ("local", "https://testserver", True),
+    ("local", "http://testserver", False),
+])
+def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets(
+    monkeypatch, environment, origin, secure,
+):
     from gps_art_wizzard.llm import factory
 
+    monkeypatch.setenv("APP_ENV", environment)
     app = create_app()
 
     @app.post("/visitor-test")
@@ -850,7 +858,7 @@ def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets():
         return {"groq": factory._GROQ_VISITOR.get()}
 
     app.router.routes.insert(0, app.router.routes.pop())
-    with TestClient(app, base_url="https://testserver") as client:
+    with TestClient(app, base_url=origin) as client:
         assert "set-cookie" not in client.get("/health").headers
         assert "set-cookie" not in client.get("/assets/missing.js").headers
         client.cookies.set("paceasso_visitor", "malformed")
@@ -860,7 +868,7 @@ def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets():
         assert first.json()["groq"] == (int(cookie, 16) % 2 == 0)
         assert first.headers["cache-control"] == "no-store"
         assert "HttpOnly" in first.headers["set-cookie"]
-        assert "Secure" in first.headers["set-cookie"]
+        assert ("Secure" in first.headers["set-cookie"]) is secure
         assert "SameSite=lax" in first.headers["set-cookie"]
         client.cookies.clear()
         client.cookies.set("paceasso_visitor", cookie)

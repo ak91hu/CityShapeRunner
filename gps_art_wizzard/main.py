@@ -143,7 +143,9 @@ def create_app() -> FastAPI:
             if new_visitor and (request.url.path == "/" or request.method == "POST"):
                 response.set_cookie(
                     "paceasso_visitor", visitor_id, max_age=365 * 24 * 60 * 60,
-                    httponly=True, secure=request.url.scheme == "https", samesite="lax",
+                    httponly=True,
+                    secure=request.url.scheme == "https" or os.getenv("APP_ENV", "local") == "production",
+                    samesite="lax",
                 )
                 response.headers["Cache-Control"] = "no-store"
             duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
