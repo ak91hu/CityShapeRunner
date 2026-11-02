@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
+import shapely
 
 from . import geo
 
@@ -157,42 +158,16 @@ def hausdorff(p: np.ndarray, q: np.ndarray) -> float:
     return max(max_from_p, float(min_from_q.max()))
 
 
-@lru_cache(maxsize=8)
-def _frechet_wavefronts(n: int, m: int) -> tuple[tuple[np.ndarray, ...], ...]:
-    """Immutable DP addresses depend only on dimensions, never geometry."""
-    width = m + 1
-    pool = np.arange(max(n, m) + 1)
-    fronts = []
-    for anti in range(2, n + m + 1):
-        ii = pool[max(1, anti - m): min(n, anti - 1) + 1]
-        flat = ii * width + anti - ii
-        indices = (flat, flat - width, flat - width - 1, flat - 1, flat - ii - width)
-        for array in indices:
-            array.flags.writeable = False
-        fronts.append(indices)
-    return tuple(fronts)
-
-
 def _discrete_frechet_batch(reference: np.ndarray, candidates: tuple[np.ndarray, ...]) -> np.ndarray:
-    """Evaluate the identical DP for all direction/phase variants together.
-
-    Each wavefront remains independent between variants. Batching removes
-    repeated Python wavefront loops without reducing resolution, dropping
-    orientations, or approximating any distance used by the quality gates.
-    """
+    """Evaluate every retained direction/phase with GEOS's discrete metric."""
     count, n, m = len(candidates), len(reference), len(candidates[0])
     if n == 0 or m == 0:
         return np.full(count, np.inf)
-    delta = np.stack(candidates)[:, np.newaxis, :, :] - reference[np.newaxis, :, np.newaxis, :]
-    distances = np.sqrt(np.einsum("bijk,bijk->bij", delta, delta)).reshape(count, n * m)
-    width = m + 1
-    cost = np.full((count, (n + 1) * width), np.inf)
-    cost[:, 0] = 0.0
-    for flat, up, diagonal, left, step in _frechet_wavefronts(n, m):
-        best = np.minimum(cost[:, up], cost[:, diagonal])
-        best = np.minimum(best, cost[:, left])
-        cost[:, flat] = np.maximum(distances[:, step], best)
-    return cost[:, n * width + m]
+    coordinates = np.stack(candidates)
+    a = shapely.points(reference[0]) if n == 1 else shapely.linestrings(reference)
+    b = shapely.points(coordinates[:, 0]) if m == 1 else shapely.linestrings(coordinates)
+    # No densification: compare exactly the existing arc-length samples.
+    return np.asarray(shapely.frechet_distance(a, b), dtype=float)
 
 
 def _similarity(reference: np.ndarray, candidate: np.ndarray) -> float:

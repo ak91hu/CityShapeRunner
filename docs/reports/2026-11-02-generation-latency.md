@@ -114,6 +114,65 @@ részmérés lassabb lett. Az eredmény nem általános éles gyorsulási arány
 Az előnézeti referencia nem feltétlenül a teljes belső rajzgeometria.
 Bizonyíték: `recorded-repairs.json` és a mellette tárolt egyszeri mérőszkript.
 
+## Második javítás: natív diszkrét Fréchet-számítás
+
+A Fréchet-összehasonlítás további Python/NumPy hullámfront-ciklusokat futtatott
+minden jelöltre. A már telepített Shapely 2.1.2 / GEOS 3.13.1 ugyanazt a
+[diszkrét Fréchet-metrikát](https://shapely.readthedocs.io/en/2.1.2/reference/shapely.frechet_distance.html)
+natív kódban is számolja. A közös batch most ezt használja, minden korábbi
+iránnyal, fázissal és mintaponttal; nincs sűrítés vagy egyszerűsítés. Az üres
+görbék eredménye továbbra is végtelen, az egypontos görbéket pontgeometria kezeli.
+A különálló NumPy referenciaimplementáció megmarad független regressziós
+összehasonlításnak. Új függőség nincs, a batch hullámfront-segédfüggvénye elmarad.
+
+A forrásmódosítás előtti shadow-audit ismét 1162/1162 bitre azonos metrikát
+adott a `dd6d933` alapverzióhoz képest (`native-shadow-accuracy.json`).
+A beépített változat 127 célzott tesztje, Ruff- és Mypy-ellenőrzése sikeres;
+az üres és egypontos görbék külön regressziós esetet kaptak. A tényleges
+forráskód auditja a `b6abde9` cache-elt alapverzióhoz képest is 1162/1162 bitre
+azonos metrikát adott (`native-accuracy.json`).
+
+A rögzített éles geometriákon az első, már cache-elt javításhoz (`348724d`)
+képest az alábbi külön részfolyamatmérések készültek:
+
+| Rögzített bemenet | Javítás | NumPy batch | Natív batch |
+| --- | --- | ---: | ---: |
+| szív | szakasz elhagyása | 3,18 s | 2,73 s |
+| szív | referencia vezette | 4,66 s | 2,47 s |
+| integető robot | szakasz elhagyása | 3,21 s | 1,61 s |
+| integető robot | referencia vezette | 5,02 s | 5,28 s |
+| esernyős robot | szakasz elhagyása | 1,21 s | 0,74 s |
+| esernyős robot | referencia vezette | 2,27 s | 1,09 s |
+
+Mind a hat pár pontosan ugyanazokat a javítási javaslatokat adta.
+Hideg cache, váltott sorrend, egyetlen megfigyelés páronként; az egyik mérés
+lassabb lett. Ez nem általános éles gyorsulási arány. Bizonyíték:
+`native-recorded-repairs.json` és a mellette tárolt egyszeri mérőszkript.
+
+A natív változat élő, azonos seedes összehasonlítása a `b6abde9` cache-elt
+alapverzióval (`native-paired/`) ugyancsak mind a hat esetben pontosan azonos
+teljes utcai geometriát és validálást adott. Mind a 12 futás megőrizte a
+szolgáltatói geometriát és minden GPX-pontot, a maximális exporteltérés 0 m.
+A minőségi kapuk eredménye az előző táblázattal egyezett: egy teljesen sikeres
+pár és öt, továbbra is felülvizsgálatot igénylő pár. Az eredeti kerékpáros szív
+egy Directions-transporthibából helyreállt; 429 miatti megszakítás nem volt.
+
+| Eset | Cache-elt alap teljes idő (kvótavárakozás) | Natív teljes idő (kvótavárakozás) |
+| --- | ---: | ---: |
+| szív, futás 5 km | 14,18 s (0,00 s) | 57,46 s (44,97 s) |
+| csillag, futás 5 km | 92,66 s (52,99 s) | 86,27 s (49,22 s) |
+| háromszög, futás 5 km | 60,10 s (24,26 s) | 54,32 s (17,54 s) |
+| kör, futás 5 km | 75,37 s (42,20 s) | 78,25 s (52,92 s) |
+| csillag, futás 10 km | 81,46 s (9,83 s) | 79,90 s (20,12 s) |
+| szív, kerékpár 15 km | 63,35 s (33,29 s) | 60,01 s (37,02 s) |
+
+Ugyanaz a 175 s-os helyi profil, a rögzített OSM-snapshot és az ORS 9.10.0,
+`2026-09-20T06:31:34Z` gráfverzió szerepelt minden párban. A kvótavárakozás a
+teljes idő része; kivonásával nem kapunk tiszta CPU-időt. Az egyedi megfigyelések,
+a transporthiba és az éles Docker-profiltól eltérő keret miatt ebből sem
+állítható általános éles gyorsulási arány. Ellenőrzött összesítés:
+`native-paired/comparison-summary.json`.
+
 ## AI és infrastruktúra: további lehetőségek
 
 1. **A geometriai számítás gyorsítása minden kérésnek segít.** Az egyszerű
@@ -148,3 +207,29 @@ Források: [Groq késleltetésmérési útmutató](https://console.groq.com/docs
 A szolgáltatói dokumentáció alapján felsorolt lehetőségek nem alkalmazásszintű
 sebesség- vagy minőségbizonyítékok. A kiválasztott GPT-6 Luna már `low`
 reasoning beállítással fut; az 50–50%-os látogatóelosztás megmarad.
+
+### További, izolált Groq-próba
+
+A valódi ShapeAgent „bal kézzel integető robot” bemenetével az alap-, `low`
+és `low` + szigorú JSON-sémás beállítást is kipróbáltuk, az éles konfiguráció
+módosítása nélkül. Mindhárom ugyanazt a végső, katalógusra támaszkodó
+geometriát adta. Nincs független szemantikai pontszám; ez egyetlen ismert
+rajz és nem bizonyíték tetszőleges egyedi rajzok minőségére.
+
+| Beállítás | A két HTTP-hívás összes ideje | Kimeneti token | Ebből reasoning |
+| --- | ---: | ---: | ---: |
+| alapérték | 11,36 s | 4728 | 3837 |
+| low | 5,21 s | 1831 | 409 |
+| low + strict | 6,53 s | 2607 | 389 |
+
+A hívások között a két `low` próbában szándékosan 60 másodpercet vártunk:
+a táblázat ezt a mesterséges várakozást nem tartalmazza, ezért **nem teljes
+generálási idő**. Egy korábbi alapértékes próbában a két hívás 7,13 s volt;
+az időingadozás is számít. Gyors egymásutánban a `low` is HTTP 429-et kapott.
+A válaszfejlécek 8000 token/perc korlátot jeleztek, a visszautasítás típusa
+`tokens`, az egyik `retry-after` 13 másodperc volt. A korlát szervezeti szintű;
+a fejléc jelentését a [Groq rate-limit dokumentáció](https://console.groq.com/docs/rate-limits)
+rögzíti. A `low` önmagában nem oldja meg a kvótát, és a burst hibákat nem
+szabad gyors eredménynek számolni. A szigorú séma mindkét valódi alkalmazássémával
+sikerült ebben a próbában. Bizonyíték: `groq-probe-summary.json`, valamint a
+teljes és a 429-cel végződő próbák ugyanabban az ignorált könyvtárban.
