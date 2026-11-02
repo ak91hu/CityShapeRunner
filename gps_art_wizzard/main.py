@@ -140,7 +140,7 @@ def create_app() -> FastAPI:
         try:
             with visitor_scope(visitor_id):
                 response = await call_next(request)
-            if new_visitor and (request.url.path == "/" or request.method == "POST"):
+            if request.url.path == "/" or (new_visitor and request.method == "POST"):
                 response.set_cookie(
                     "paceasso_visitor", visitor_id, max_age=365 * 24 * 60 * 60,
                     httponly=True,

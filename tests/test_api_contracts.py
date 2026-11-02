@@ -875,3 +875,6 @@ def test_visitor_cookie_is_validated_persisted_and_kept_out_of_cached_assets(
         second = client.post("/visitor-test")
         assert second.json() == first.json()
         assert "set-cookie" not in second.headers
+        renewed = client.get("/")
+        assert renewed.cookies["paceasso_visitor"] == cookie
+        assert ("Secure" in renewed.headers["set-cookie"]) is secure

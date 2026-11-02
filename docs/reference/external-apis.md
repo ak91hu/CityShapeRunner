@@ -349,7 +349,9 @@ With both keys present, half of anonymous browser cohorts try Groq first
 and can fall back to the normal chain. The OpenCode half never calls Groq,
 even for fallback or review. The `paceasso_visitor` HttpOnly, SameSite=Lax cookie
 persists for a year; production always sets Secure, including behind an HTTP
-reverse proxy, and local HTTPS responses also set it. Assignment is stable
+reverse proxy, and local HTTPS responses also set it. The cookie is reissued
+on page load with the same ID to upgrade older
+cookies' security flags. Assignment remains stable
 across replicas and requests, with provider stickiness isolated per request.
 Clearing cookies creates a new visitor. This is a 50/50 cohort allocation, not an
 exact count of live API calls: deterministic paths and cached shapes need no
