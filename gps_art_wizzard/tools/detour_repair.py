@@ -9,6 +9,7 @@ import math
 
 import numpy as np
 
+from ..workflow_runtime import active_workflow_runtime
 from . import geo, shape_similarity
 
 
@@ -237,6 +238,8 @@ def reconnect_guides(reference: list[geo.LatLon], route: list[geo.LatLon], *, li
     """
     if len(reference) < 2 or len(route) < 5 or limit <= 0:
         return []
+    # The caller cannot route proposals after the existing workflow deadline.
+    runtime = active_workflow_runtime()
     cumulative = [0.0]
     for a, b in zip(route, route[1:], strict=False):
         cumulative.append(cumulative[-1] + geo.haversine(*a, *b))
@@ -302,6 +305,8 @@ def reconnect_guides(reference: list[geo.LatLon], route: list[geo.LatLon], *, li
                         middle.append(geo.unit_to_latlon(float(x), float(y), *reference[0], 1))
                     middles.append(middle)
             for middle in middles:
+                if runtime is not None and runtime.deadline_exceeded(quality_required=True):
+                    return []
                 candidate = route[:start + 1] + middle + route[end:]
                 measured = shape_similarity.similarity_diagnostics_between_routes(
                     reference, candidate, n=64, closed_sample_floor=64,
@@ -309,10 +314,14 @@ def reconnect_guides(reference: list[geo.LatLon], route: list[geo.LatLon], *, li
                 screened.append((min(measured.turning_similarity, measured.length_similarity),
                                  measured.fidelity, start, end, candidate))
     screened.sort(key=lambda row: (-row[0], -row[1], row[2], row[3]))
+    if runtime is not None and runtime.deadline_exceeded(quality_required=True):
+        return []
     baseline = shape_similarity.similarity_diagnostics_between_routes(reference, route)
     ranked = []
     # Only the strongest cheap proxies receive full-resolution diagnostics.
     for _, _, start, end, candidate in screened[:16]:
+        if runtime is not None and runtime.deadline_exceeded(quality_required=True):
+            return []
         measured = shape_similarity.similarity_diagnostics_between_routes(reference, candidate)
         if measured.fidelity <= baseline.fidelity + 0.002:
             continue

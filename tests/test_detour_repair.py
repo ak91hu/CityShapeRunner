@@ -210,6 +210,58 @@ def test_reconnect_releases_local_bend_without_moving_endpoints_or_reference(gui
     assert detour_repair.reconnect_guides(reference, route, limit=0) == []
 
 
+@pytest.mark.parametrize("guided", [False, True])
+@pytest.mark.parametrize(("stop", "phase"), [
+    ("none", "coarse"), ("deadline", "coarse"), ("deadline", "rank"),
+    ("cancel", "coarse"), ("cancel", "rank"),
+])
+def test_reconnect_stops_unused_scoring_at_full_deadline_and_honors_cancellation(monkeypatch, guided, stop, phase):
+    import threading
+
+    from gps_art_wizzard.state import WorkflowState
+    from gps_art_wizzard.workflow_runtime import (
+        WorkflowCancelledError,
+        WorkflowRuntime,
+        cancellation_scope,
+    )
+
+    reference = [geo.unit_to_latlon(x, 0, 47, 19, 1) for x in (0, 200, 320, 800, 1200)]
+    route = [geo.unit_to_latlon(x, y, 47, 19, 1) for x, y in
+             ((0, 0), (200, 0), (200, 110), (320, 110), (320, 0), (600, 0), (800, 0), (1200, 0))]
+    before = (list(reference), list(route))
+    elapsed = [0.0]
+    runtime = WorkflowRuntime(WorkflowState("heart"), max_duration_seconds=75, max_llm_calls=0,
+                              optimization_budget_seconds=35, clock=lambda: elapsed[0])
+    elapsed[0] = 40  # quality repairs retain the full 75 s, not the 35 s exploration budget
+    signal = threading.Event()
+    original = detour_repair.shape_similarity.similarity_diagnostics_between_routes
+    calls = []
+    stopped_at = []
+
+    def measure(*args, **kwargs):
+        measured = original(*args, **kwargs)
+        calls.append(True)
+        reached = len(calls) == 2 if phase == "coarse" else "n" not in kwargs
+        if stop != "none" and reached and not stopped_at:
+            stopped_at.append(len(calls))
+            if stop == "deadline":
+                elapsed[0] = 75
+            elif stop == "cancel":
+                signal.set()
+        return measured
+
+    monkeypatch.setattr(detour_repair.shape_similarity, "similarity_diagnostics_between_routes", measure)
+    with runtime.activate(), cancellation_scope(signal):
+        if stop == "cancel":
+            with pytest.raises(WorkflowCancelledError):
+                detour_repair.reconnect_guides(reference, route, reference_guided=guided)
+        else:
+            proposals = detour_repair.reconnect_guides(reference, route, reference_guided=guided)
+            assert bool(proposals) == (stop == "none")
+    assert len(calls) > 2 if stop == "none" else len(calls) == stopped_at[0]
+    assert (reference, route) == before
+
+
 @pytest.mark.parametrize("outcome", ["improved", "offroad", "regression"])
 @pytest.mark.parametrize("repair", ["detour", "reconnect", "reference", "reversal"])
 @pytest.mark.parametrize("deadline", [False, True])
