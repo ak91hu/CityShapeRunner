@@ -173,6 +173,65 @@ a transporthiba és az éles Docker-profiltól eltérő keret miatt ebből sem
 állítható általános éles gyorsulási arány. Ellenőrzött összesítés:
 `native-paired/comparison-summary.json`.
 
+## Éles utómérések és határidő-kezelés — 2026-11-03
+
+Mindkét javítás teljes CI után élesbe került: a cache-javítás `b6abde9`,
+a natív számítás `f776381`. A Northflank commitazonosítóját, a befejezett
+rolloutot, a HTTP 200 health választ és a Secure/HttpOnly cookie-t is
+ellenőriztük. A csomag végig `nf-compute-10`, a lokális és éles API-kulcsok
+egyeznek. A következő, az eredetivel azonos prompt/seed/cohort kérések
+egyetlen-egyetlen éles megfigyelései készültek:
+
+| Kérés | Eredeti teljes idő | Cache-javítás | Natív számítás |
+| --- | ---: | ---: | ---: |
+| szív | 92,59 s | 77,50 s | 80,37 s |
+| integető robot, Luna cohort | 81,59 s | 82,17 s | 83,18 s |
+| esernyős robot, Groq cohort | 84,88 s | 53,79 s | 89,91 s |
+
+Minden eredmény valós utcai geometriát és érvényes GPX-et adott; mindegyik
+továbbra is felülvizsgálatot igényelt. Az AI-rajzok és az időkereten belül
+elkészült javítások eltérhettek, ezért ezek nem azonos geometriás minőségi
+párok, és nem bizonyítanak általános gyorsulást. A Groq-os gyorsabb cache-próba
+két Groq-hívással teljesült, a lassabb natív próbában Groq után OpenCode
+következett. Utóbbinál önmagában a rajzfázis 77,33 s volt; a stream egy
+ismételt OpenCode-dispatch-et jelzett 45,22 s eltéréssel. A provider timeoutot
+és kimeneti tokenkeret miatt hiányos választ is újrapróbálhat, a stream az
+okot nem különbözteti meg. A biztos megállapítás a hívásváltás és az eltelt idő.
+Bizonyíték: `live-cache/`, `live-native/` és a két release-ellenőrzés JSON-ja.
+
+Az utómérés a már indult kontúrjavaslat-keresés túlfutását is megmutatta:
+a hívó a teljes workflow-időkeret után nem illeszti utcára a javaslatokat,
+de a belső ciklus addig még végigszámolta azokat. A közös `reconnect_guides`
+most minden költséges összehasonlítás előtt a meglévő aktív runtime teljes
+minőségi határidejét ellenőrzi, és lejáratkor üres javaslatlistát ad. Nem
+állít elő részlegesen rangsorolt javaslatokat; az aktuális utcai eredmény
+megmarad. A rövidebb, 35 s-os optimalizálási keret nem rövidíti a 75 s-os
+minőségi keretet. Az ellenőrzés a meglévő megszakítási jelzést is kezeli.
+
+A célzott tesztek száma 150; külön regresszió ellenőrzi mindkét javaslattípus
+folytatását 40 s-nál, leállását 75 s-nál és a megszakítást az előszűrésben és
+a teljes felbontású rangsorolásban is. Az inputgeometria
+változatlan marad. Ruff és Mypy sikeres; a `f776381` alaphoz képesti audit
+ismét 1162/1162 bitre azonos metrikát adott (`deadline-accuracy.json`).
+Az azonos seedes élő páros ellenőrzés a `f776381` alaphoz képest mind a hat
+esetben azonos teljes geometriát és validálást adott; a 12 futás megőrizte a
+szolgáltatói geometriát és minden GPX-pontot, maximális exporteltérés 0 m.
+Nem volt rögzített routing-transporthiba vagy 429 miatti megszakítás. Egy
+pár minden minőségi kapun átment, öt pár mindkét változattal továbbra is
+felülvizsgálatot igényelt. Bizonyíték: `deadline-paired/comparison-summary.json`.
+A 175 s-os helyi profilban ez az ellenőrzés a meglevő keresés megőrzését
+igazolja; a 75 s-os megszakítást a funkcionális regresszió ellenőrzi, nem egy
+szintetikus sebességmérés. Ez nem szigorú HTTP-időkorlát: a már futó providerhívás és a
+szükséges utcai validálás továbbra is befejeződhet, ahogyan korábban is.
+
+Egy rövid, változatlan kódú 0,5 vCPU-s összehasonlítást is előkészítettünk.
+A Northflank a `nf-compute-50` módosítást HTTP 400-zal visszautasította:
+`Deployment plan nf-compute-50 exceeds your free project deployment resource allowance`.
+A mérés nem indult el; a billing objektum az ellenőrzött eredetivel egyezett,
+a csomag `nf-compute-10`, a deployment `COMPLETED` maradt. Nincs magasabb
+csomaggal mért sebességeredmény. A CPU-keret növeléséhez előbb a szolgáltatói
+erőforrás-keretet kell rendezni. Bizonyíték: `cpu-trial-state.json`.
+
 ## AI és infrastruktúra: további lehetőségek
 
 1. **A geometriai számítás gyorsítása minden kérésnek segít.** Az egyszerű
