@@ -292,3 +292,68 @@ rögzíti. A `low` önmagában nem oldja meg a kvótát, és a burst hibákat ne
 szabad gyors eredménynek számolni. A szigorú séma mindkét valódi alkalmazássémával
 sikerült ebben a próbában. Bizonyíték: `groq-probe-summary.json`, valamint a
 teljes és a 429-cel végződő próbák ugyanabban az ignorált könyvtárban.
+
+## További algoritmikus optimalizálás — 2026-11-03
+
+A `86d7dee` alaphoz képest két közös metrikaszámítás egyszerűsödött:
+
+- A Hausdorff-távolság és a kétirányú kontúrfedés ugyanabból a blokkonként
+  számított ponttávolság-mátrixból készül. Egy pontpárt három helyett egyszer
+  értékelünk; a 64 pontos munkablokk és a metrikák képlete megmarad.
+- Egy kezdőpont/menetirány részletes landmark-vizsgálata elhagyható, ha már
+  tökéletes, 1,0-s landmark-egyezéssel sem haladhatná meg az eddigi legjobb
+  teljes pontszámot. A felső korlát az eredeti súlyokat és műveleti sorrendet
+  használja. Holtversenyben továbbra is az első változat marad.
+
+Ez nem csökkenti a jelöltek számát, a geometriai felbontást, az időkereteket
+vagy bármely minőségi küszöböt. Az API, az export és a szolgáltatói
+geometria szerződése változatlan; új függőség nincs.
+
+Az audit 145 alakzat négy változatán és hat rögzített szolgáltatói
+geometrián, két felbontással **1172/1172 bitre azonos diagnosztikát** adott,
+maximális eltérés 0. A minőségi, validálási, export- és geometriai védett
+fájlok változatlanok. Bizonyíték: `test-results/exact-pruning/combined-accuracy.json`.
+
+A teljes helyi backendfutásban 1065 teszt sikeres volt, két OpenCode-indítási
+tesztet a lokálisan tiltott `OPENCODE_SERVER_AUTOSTART` eltérített a várt
+ágról. `OPENCODE_SERVER_AUTOSTART=true` mellett mindkettő sikeres; ez nem
+igényelt alkalmazáskód-módosítást. Az új regressziók ellenőrzik a távolságok
+egyszeri számítását blokkhatárokon is, valamint a teljes diagnosztika
+egyezését az összes irány külön, kihagyás nélküli pontozásával. Ruff és Mypy
+sikeres. A teljes futás és a két ismétlés külön XML-ben maradt meg.
+
+A három korábbi éles bemenet rögzített utcai geometriáján mindkét javítási
+keresést háromszor futtattuk, hideg metrikacache-sel, a két kereséstípusban
+váltott verziósorrenddel. Mind a 18 pár pontosan azonos javaslatokat adott.
+Az összesített falióra-idő 57,55 → 44,37 s (22,9%-kal kevesebb), a folyamat
+CPU-ideje 56,02 → 42,56 s (24,0%-kal kevesebb). **Hat pár lassabb lett**;
+a helyi időingadozás nagy, ez nem általános éles gyorsulási arány.
+Az önálló első javítás mérését is megtartottuk (55,39 → 51,36 s), külön
+forráspillanatképpel. Bizonyíték: `pruning-repeated-repairs.json`,
+`combined-repeated-repairs.json` a `test-results/latency-2026-11-02/` alatt,
+illetve `test-results/exact-pruning/pruning-only-source.py`.
+
+A teljes, élő routing-szolgáltatós páros ellenőrzés mind a hat esetben
+pontos egyezést adott a teljes utcai geometriában és a validálásban.
+A keresési seed és az ORS-gráfverzió páronként egyezett. Mind a 12 futás
+megőrizte a szolgáltatói geometriát és minden GPX-pontot; az exporteltérés
+0 m. Egy pár minden minőségi kapun átment, öt mindkét változattal ugyanúgy
+felülvizsgálatot igényelt. Az ORS a 10 km-es csillagnál verziónként egy,
+a kerékpáros szívnél verziónként négy 404-et adott; a folyamat mindegyikből
+helyreállt. Transporthiba és 429 miatti megszakítás nem volt.
+
+| Eset | Alap teljes idő (kvótavárakozás) | Optimalizált teljes idő (kvótavárakozás) |
+| --- | ---: | ---: |
+| szív, futás 5 km | 21,59 s (0,00 s) | 57,16 s (37,47 s) |
+| csillag, futás 5 km | 106,41 s (42,78 s) | 97,19 s (44,39 s) |
+| háromszög, futás 5 km | 61,41 s (8,61 s) | 51,57 s (0,00 s) |
+| kör, futás 5 km | 78,01 s (33,03 s) | 88,93 s (46,26 s) |
+| csillag, futás 10 km | 135,31 s (36,26 s) | 129,04 s (36,80 s) |
+| szív, kerékpár 15 km | 58,45 s (18,17 s) | 63,85 s (24,53 s) |
+
+Ez a korábbi, 175 s-os helyi benchmarkprofil, rögzített OSM-snapshot és
+valódi szolgáltatói kérések összehasonlítása. Egyetlen városban, páronként
+egy megfigyeléssel nem igazol általános éles minőséget vagy késleltetést.
+A kvótavárakozás a teljes idő része, kivonása sem ad tiszta CPU-időt.
+Bizonyíték: `test-results/exact-pruning/paired/comparison-summary.json`,
+a forráspillanatképek, a manifest és a HTTP-feljegyzések ugyanott.

@@ -68,6 +68,93 @@ def test_complete_diagnostics_keep_the_same_scores_for_every_phase(monkeypatch):
     assert measured == shape_similarity._diagnostics(reference, candidate)
 
 
+@pytest.mark.parametrize(("n", "m"), [(1, 1), (3, 65), (63, 64), (64, 129), (256, 256)])
+def test_outline_metrics_share_each_distance_without_changing_results(monkeypatch, n, m):
+    import math
+
+    rng = np.random.default_rng(17)
+    reference, candidate = rng.normal(size=(n, 2)), rng.normal(size=(m, 2))
+    distances = np.linalg.norm(reference[:, None, :] - candidate[None, :, :], axis=2)
+    deviation = math.sqrt(0.5 * (
+        float(np.mean(np.square(distances.min(axis=1))))
+        + float(np.mean(np.square(distances.min(axis=0))))
+    ))
+    expected = (shape_similarity.hausdorff(reference, candidate), math.exp(-deviation / 0.16), deviation)
+    norm = np.linalg.norm
+    evaluated_pairs = []
+
+    def counted_norm(array, **kwargs):
+        evaluated_pairs.append(array.shape[0] * array.shape[1])
+        return norm(array, **kwargs)
+
+    monkeypatch.setattr(np.linalg, "norm", counted_norm)
+    assert shape_similarity._outline_components(reference, candidate) == expected
+    assert sum(evaluated_pairs) == n * m
+
+
+@pytest.mark.parametrize("n", [16, 64, 256])
+@pytest.mark.parametrize("variant", ["identity", "reversed", "shifted", "noisy", "open"])
+def test_orientation_pruning_matches_exhaustive_full_diagnostics(monkeypatch, n, variant):
+    reference = shape_similarity.resample(np.asarray([
+        (0., 0.), (1., 0.), (0.5, 0.2), (1., 1.), (0., 0.),
+        (-1., 0.), (-1., -1.), (0., 0.),
+    ]), n)
+    candidate = reference.copy()
+    if variant == "reversed":
+        candidate = candidate[::-1]
+    elif variant == "shifted":
+        core = np.roll(candidate[:-1], n // 3, axis=0)
+        candidate = np.vstack((core, core[0]))
+    elif variant == "noisy":
+        candidate += np.random.default_rng(42).normal(0, 0.02, candidate.shape)
+    elif variant == "open":
+        candidate = shape_similarity.resample(candidate[:n // 2], n)
+    orientations = shape_similarity._candidate_orientations(reference, candidate)
+    actual = shape_similarity._diagnostics(reference, candidate)
+    # Score each variant alone so none can be pruned by another incumbent.
+    scores = []
+    for oriented in orientations:
+        monkeypatch.setattr(shape_similarity, "_candidate_orientations", lambda *_, v=oriented: (v,))
+        scores.append(shape_similarity._diagnostics(reference, candidate))
+    assert actual == max(scores, key=lambda score: score.fidelity)
+
+
+def test_unbeatable_orientation_skips_landmarks_but_keeps_full_diagnostics(monkeypatch):
+    reference = shape_similarity.resample(
+        np.asarray([(0., 0.), (1., 0.), (0.2, 0.3), (0., 0.)]), 64,
+    )
+    original = shape_similarity._landmark_similarity
+    calls = []
+
+    def landmarks(ref, candidate):
+        calls.append(candidate)
+        return original(ref, candidate)
+
+    monkeypatch.setattr(shape_similarity, "_landmark_similarity", landmarks)
+    measured = shape_similarity._diagnostics(reference, reference)
+    assert measured.fidelity == pytest.approx(1.0)
+    assert len(calls) == 1
+    assert len(shape_similarity._candidate_orientations(reference, reference)) > 1
+
+
+def test_orientation_bound_keeps_a_later_winner_with_better_landmarks(monkeypatch):
+    reference = shape_similarity.resample(
+        np.asarray([(0., 0.), (1., 0.), (0.2, 0.3), (0., 0.)]), 64,
+    )
+    monkeypatch.setattr(shape_similarity, "_candidate_orientations", lambda *_: (reference,) * 3)
+    calls = []
+
+    def landmarks(*_):
+        score = 0.1 if not calls else 1.0
+        calls.append(score)
+        return score
+
+    monkeypatch.setattr(shape_similarity, "_landmark_similarity", landmarks)
+    measured = shape_similarity._diagnostics(reference, reference)
+    assert measured.landmark_similarity == 1.0
+    assert calls == [0.1, 1.0]  # retain the later winner; skip only the final tie
+
+
 def test_landmark_reference_is_reused_across_distinct_candidates(monkeypatch):
     reference = shape_similarity.resample(
         np.asarray([(0., 0.), (1., 0.), (1., 1.), (0., 0.)]), 64,

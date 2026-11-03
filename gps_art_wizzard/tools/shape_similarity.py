@@ -176,23 +176,19 @@ def _similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
     return float(0.6 * math.exp(-frechet / 0.35) + 0.4 * math.exp(-haus / 0.30))
 
 
-def _nearest_distances(p: np.ndarray, q: np.ndarray) -> np.ndarray:
-    """Distance from every point in ``p`` to the closest point in ``q``."""
-    nearest = np.full(len(p), np.inf)
-    for start in range(0, len(q), 64):
-        batch = q[start : start + 64]
+def _outline_components(reference: np.ndarray, candidate: np.ndarray) -> tuple[float, float, float]:
+    """Share pairwise distances between Hausdorff and both coverage directions."""
+    from_reference = np.full(len(reference), np.inf)
+    from_candidate = np.empty(len(candidate))
+    for start in range(0, len(candidate), 64):
+        batch = candidate[start : start + 64]
         distances = np.linalg.norm(
-            p[:, np.newaxis, :] - batch[np.newaxis, :, :],
+            reference[:, np.newaxis, :] - batch[np.newaxis, :, :],
             axis=2,
         )
-        nearest = np.minimum(nearest, distances.min(axis=1))
-    return nearest
-
-
-def _coverage_components(reference: np.ndarray, candidate: np.ndarray) -> tuple[float, float]:
-    """Return a robust outline-coverage score and its unit-space deviation."""
-    from_reference = _nearest_distances(reference, candidate)
-    from_candidate = _nearest_distances(candidate, reference)
+        from_reference = np.minimum(from_reference, distances.min(axis=1))
+        from_candidate[start : start + len(batch)] = distances.min(axis=0)
+    haus = max(float(from_reference.max()), float(from_candidate.max()))
     # RMS penalises sustained displacement, while a small amount of harmless
     # road wiggle cannot dominate as it would under a pure Hausdorff maximum.
     mean_deviation = math.sqrt(
@@ -202,7 +198,7 @@ def _coverage_components(reference: np.ndarray, candidate: np.ndarray) -> tuple[
             + float(np.mean(np.square(from_candidate)))
         )
     )
-    return math.exp(-mean_deviation / 0.16), mean_deviation
+    return haus, math.exp(-mean_deviation / 0.16), mean_deviation
 
 
 def _turning_similarity(reference: np.ndarray, candidate: np.ndarray) -> float:
@@ -483,8 +479,7 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
     # polyline keeps its point set, arc length, extents, and extreme-turn
     # events unchanged (and Hausdorff is set-based), so these are computed
     # once instead of once per candidate variant below.
-    haus = hausdorff(reference, candidate)
-    coverage, mean_deviation = _coverage_components(reference, candidate)
+    haus, coverage, mean_deviation = _outline_components(reference, candidate)
     length, length_ratio = _length_components(reference, candidate)
     extent = _extent_similarity(reference, candidate)
     reversals = _reversal_similarity(reference, candidate)
@@ -497,6 +492,14 @@ def _diagnostics(reference: np.ndarray, candidate: np.ndarray) -> SimilarityDiag
     for oriented, frechet in zip(orientations, frechets, strict=True):
         spatial = float(0.6 * math.exp(-frechet / 0.35) + 0.4 * math.exp(-haus / 0.30))
         turning = _turning_similarity(reference, oriented)
+        # Even perfect landmarks cannot rescue an orientation below the incumbent.
+        upper_components = (spatial, coverage, turning, 1.0, length, extent, reversals)
+        upper_fidelity = math.exp(sum(
+            weight * math.log(max(component, 1e-12))
+            for component, weight in zip(upper_components, weights, strict=True)
+        ))
+        if upper_fidelity <= best_fidelity:
+            continue
         landmarks = _landmark_similarity(reference, oriented)
         components = (spatial, coverage, turning, landmarks, length, extent, reversals)
         # A weighted geometric mean prevents a good distance/outline average
